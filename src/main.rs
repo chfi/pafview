@@ -14,6 +14,13 @@ struct Queries {
     //
 }
 
+struct PafInput {
+    queries: Vec<AlignedSeq>,
+    targets: Vec<AlignedSeq>,
+    target_len: usize,
+    query_len: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct PafLine<S> {
     query_name: S,
@@ -144,10 +151,19 @@ pub fn main() -> anyhow::Result<()> {
     let target_len = process_aligned(&mut targets);
     let query_len = process_aligned(&mut queries);
 
+    let paf_input = PafInput {
+        queries,
+        targets,
+        target_len,
+        query_len,
+    };
+
+    start_window(paf_input);
+
     Ok(())
 }
 
-async fn run(event_loop: EventLoop<()>, window: Window) {
+async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
     let mut size = window.inner_size();
     size.width = size.width.max(1);
     size.height = size.height.max(1);
@@ -183,12 +199,30 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
     // Load the shaders from disk
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
-        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
+        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("lines.wgsl"))),
     });
+
+    let proj = wgpu::BindGroupLayoutEntry {
+        binding: 0,
+        visibility: wgpu::ShaderStages::VERTEX,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    };
+    let conf = wgpu::BindGroupLayoutEntry { binding: 1, ..proj };
+    let layout_desc = wgpu::BindGroupLayoutDescriptor {
+        label: None,
+        entries: &[proj, conf],
+    };
+
+    let layout = device.create_bind_group_layout(&layout_desc);
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[],
+        bind_group_layouts: &[&layout],
         push_constant_ranges: &[],
     });
 
@@ -201,7 +235,27 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: "vs_main",
-            buffers: &[],
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: 5 * std::mem::size_of::<u32>() as u64,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &[
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x2,
+                        offset: 0,
+                        shader_location: 0,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x2,
+                        offset: 8,
+                        shader_location: 1,
+                    },
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Uint32,
+                        offset: 16,
+                        shader_location: 2,
+                    },
+                ],
+            }],
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
@@ -283,7 +337,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         .unwrap();
 }
 
-pub fn main() {
+pub fn start_window(input: PafInput) {
     let event_loop = EventLoop::new().unwrap();
     #[allow(unused_mut)]
     let mut builder = winit::window::WindowBuilder::new();
@@ -306,12 +360,12 @@ pub fn main() {
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::init();
-        pollster::block_on(run(event_loop, window));
+        pollster::block_on(run(event_loop, window, input));
     }
     #[cfg(target_arch = "wasm32")]
     {
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
         console_log::init().expect("could not initialize logger");
-        wasm_bindgen_futures::spawn_local(run(event_loop, window));
+        wasm_bindgen_futures::spawn_local(run(event_loop, window, input));
     }
 }
