@@ -1,5 +1,7 @@
+use bytemuck::{Pod, Zeroable};
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
     event::{Event, WindowEvent},
     event_loop::EventLoop,
@@ -158,9 +160,20 @@ pub fn main() -> anyhow::Result<()> {
         query_len,
     };
 
+    println!("sum target len: {target_len}");
+    println!("sum query len: {query_len}");
+
     start_window(paf_input);
 
     Ok(())
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd, Pod, Zeroable)]
+#[repr(C)]
+struct LineVertex {
+    p0: [f32; 2],
+    p1: [f32; 2],
+    color: u32,
 }
 
 async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
@@ -218,11 +231,11 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         entries: &[proj, conf],
     };
 
-    let layout = device.create_bind_group_layout(&layout_desc);
+    let bind_group_layout = device.create_bind_group_layout(&layout_desc);
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[&layout],
+        bind_group_layouts: &[&bind_group_layout],
         push_constant_ranges: &[],
     });
 
@@ -266,6 +279,106 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         depth_stencil: None,
         multisample: wgpu::MultisampleState::default(),
         multiview: None,
+    });
+
+    let (grid_buffer, grid_instances) = {
+        let instances = input.targets.len() + input.queries.len();
+        let mut lines: Vec<LineVertex> = Vec::with_capacity(instances);
+
+        let mut targets_sort = input
+            .targets
+            .iter()
+            .enumerate()
+            .map(|(i, a)| (i, a.len))
+            .collect::<Vec<_>>();
+        let mut queries_sort = input
+            .queries
+            .iter()
+            .enumerate()
+            .map(|(i, a)| (i, a.len))
+            .collect::<Vec<_>>();
+        targets_sort.sort_by_key(|(_, l)| *l);
+        queries_sort.sort_by_key(|(_, l)| *l);
+
+        let x_max = input.target_len as f32;
+        let y_max = input.query_len as f32;
+
+        let color = 0x000000FF;
+
+        // X
+        for t in input.targets.iter() {
+            // for (i, _) in targets_sort.into_iter().take(1) {
+            // let t = &input.targets[i];
+            let x = t.offset as f32;
+            lines.push(LineVertex {
+                p0: [x, 0f32],
+                p1: [x, y_max],
+                color,
+            });
+        }
+
+        // Y
+        for q in input.queries.iter() {
+            // for (i, _) in queries_sort.into_iter().take(1) {
+            // let q = &input.queries[i];
+            let y = q.offset as f32;
+            lines.push(LineVertex {
+                p0: [0f32, y],
+                p1: [x_max, y],
+                color,
+            });
+        }
+
+        let buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&lines),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        (buffer, 0..instances as u32)
+    };
+
+    let mut projection = ultraviolet::projection::orthographic_wgpu_dx(
+        0.0,
+        input.target_len as f32 / 10.0,
+        0.0,
+        input.query_len as f32 / 10.0,
+        0.1,
+        10.0,
+    );
+
+    let (proj_uniform, conf_uniform) = {
+        let proj_uniform = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&[projection]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // px / window width
+        let line_width: f32 = 10.0 / 1000.0;
+        let conf = [line_width, 0.0, 0.0, 0.0];
+        let conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&conf),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        (proj_uniform, conf_uniform)
+    };
+
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: proj_uniform.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: conf_uniform.as_entire_binding(),
+            },
+        ],
     });
 
     let mut config = surface
@@ -314,7 +427,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                                         view: &view,
                                         resolve_target: None,
                                         ops: wgpu::Operations {
-                                            load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                                             store: wgpu::StoreOp::Store,
                                         },
                                     })],
@@ -323,7 +436,12 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                                     occlusion_query_set: None,
                                 });
                             rpass.set_pipeline(&render_pipeline);
-                            rpass.draw(0..3, 0..1);
+                            rpass.set_bind_group(0, &bind_group, &[]);
+
+                            // first draw grid
+                            rpass.set_vertex_buffer(0, grid_buffer.slice(..));
+                            rpass.draw(0..6, grid_instances.clone());
+                            // rpass.draw(0..6, 0..2);
                         }
 
                         queue.submit(Some(encoder.finish()));

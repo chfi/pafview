@@ -55,6 +55,7 @@ fn vs_main(
   let pp = p0 + x_basis * pos.x + y_basis * (config.line_width / view_width) * pos.y;
 
   result.position = projection * vec4(pp, 0.0, 1.0);
+  result.position.z = 0.5;
 
   let color_u = (vec4u(color) >> vec4u(0u, 8u, 16u, 24u))
                 & vec4u(255u);
