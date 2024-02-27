@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
-use ultraviolet::UVec2;
+use ultraviolet::{UVec2, Vec2};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
     event::{Event, WindowEvent},
@@ -19,7 +19,7 @@ struct PafInput {
     target_len: usize,
     query_len: usize,
 
-    matches: Vec<()>,
+    match_edges: Vec<[Vec2; 2]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -153,7 +153,7 @@ pub fn main() -> anyhow::Result<()> {
     let query_len = process_aligned(&mut queries);
 
     // process matches
-    let mut matches = Vec::new();
+    let mut match_edges = Vec::new();
 
     let reader = std::fs::File::open(&paf_path).map(std::io::BufReader::new)?;
 
@@ -197,6 +197,20 @@ pub fn main() -> anyhow::Result<()> {
                     let y = query_pos;
 
                     // TODO output match
+                    {
+                        let x0 = x as f32 / target_len as f32;
+                        let y0 = y as f32 / query_len as f32;
+
+                        let x_end = if paf_line.strand_rev {
+                            x.checked_sub(count).unwrap_or_default()
+                        } else {
+                            x + count
+                        };
+                        let x1 = x_end as f32 / target_len as f32;
+                        let y1 = (y + count) as f32 / query_len as f32;
+
+                        match_edges.push([Vec2::new(x0, y0), Vec2::new(x1, y1)]);
+                    }
 
                     // update query pos & target pos
                     if paf_line.strand_rev {
@@ -225,11 +239,22 @@ pub fn main() -> anyhow::Result<()> {
         targets,
         target_len,
         query_len,
-        matches,
+        match_edges,
     };
 
     println!("sum target len: {target_len}");
     println!("sum query len: {query_len}");
+    println!("drawing {} matches", paf_input.match_edges.len());
+
+    let mut min = Vec2::broadcast(std::f32::MAX);
+    let mut max = Vec2::broadcast(std::f32::MIN);
+
+    for &[from, to] in paf_input.match_edges.iter() {
+        min = min.min_by_component(from).min_by_component(to);
+        max = max.max_by_component(from).max_by_component(to);
+    }
+
+    println!("AABB: min {min:?}, max {max:?}");
 
     start_window(paf_input);
 
@@ -375,8 +400,6 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
 
         // X
         for t in input.targets.iter() {
-            // for (i, _) in targets_sort.into_iter().take(1) {
-            // let t = &input.targets[i];
             let x = t.offset as f32;
             lines.push(LineVertex {
                 p0: [x, 0f32],
@@ -387,8 +410,6 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
 
         // Y
         for q in input.queries.iter() {
-            // for (i, _) in queries_sort.into_iter().take(1) {
-            // let q = &input.queries[i];
             let y = q.offset as f32;
             lines.push(LineVertex {
                 p0: [0f32, y],
@@ -406,11 +427,46 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         (buffer, 0..instances as u32)
     };
 
+    let (match_buffer, match_instances) = {
+        let instances = input.match_edges.len();
+        let mut lines: Vec<LineVertex> = Vec::with_capacity(instances);
+
+        let color = 0x00000000;
+
+        for &[from, to] in input.match_edges.iter() {
+            let x0 = from.x * input.target_len as f32;
+            let y0 = from.y * input.query_len as f32;
+            let x1 = to.x * input.target_len as f32;
+            let y1 = to.y * input.query_len as f32;
+
+            lines.push(LineVertex {
+                p0: [x0, y0].into(),
+                p1: [x1, y1].into(),
+                color,
+            });
+        }
+
+        let buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&lines),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        (buffer, 0..instances as u32)
+    };
+
+    let xbl = input.target_len as f32 / 16.0;
+    let ybl = input.query_len as f32 / 16.0;
+
     let mut projection = ultraviolet::projection::orthographic_wgpu_dx(
+        // 14.0 * xbl,
+        // 15.0 * xbl,
+        // 14.0 * ybl,
+        // 15.0 * ybl,
         0.0,
-        input.target_len as f32 / 10.0,
+        input.target_len as f32,
         0.0,
-        input.query_len as f32 / 10.0,
+        input.query_len as f32,
         0.1,
         10.0,
     );
@@ -507,9 +563,12 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                             rpass.set_bind_group(0, &bind_group, &[]);
 
                             // first draw grid
-                            rpass.set_vertex_buffer(0, grid_buffer.slice(..));
-                            rpass.draw(0..6, grid_instances.clone());
-                            // rpass.draw(0..6, 0..2);
+                            // rpass.set_vertex_buffer(0, grid_buffer.slice(..));
+                            // rpass.draw(0..6, grid_instances.clone());
+
+                            // then matches
+                            rpass.set_vertex_buffer(0, match_buffer.slice(..));
+                            rpass.draw(0..6, match_instances.clone());
                         }
 
                         queue.submit(Some(encoder.finish()));
