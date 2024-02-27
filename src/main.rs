@@ -13,6 +13,10 @@ use std::io::prelude::*;
 
 use anyhow::anyhow;
 
+mod render;
+
+use render::*;
+
 struct PafInput {
     queries: Vec<AlignedSeq>,
     targets: Vec<AlignedSeq>,
@@ -328,83 +332,13 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         .await
         .expect("Failed to create device");
 
-    // Load the shaders from disk
-    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-        label: None,
-        source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("lines.wgsl"))),
-    });
-
     let sample_count = 4;
-
-    let proj = wgpu::BindGroupLayoutEntry {
-        binding: 0,
-        visibility: wgpu::ShaderStages::VERTEX,
-        ty: wgpu::BindingType::Buffer {
-            ty: wgpu::BufferBindingType::Uniform,
-            has_dynamic_offset: false,
-            min_binding_size: None,
-        },
-        count: None,
-    };
-    let conf = wgpu::BindGroupLayoutEntry { binding: 1, ..proj };
-    let layout_desc = wgpu::BindGroupLayoutDescriptor {
-        label: None,
-        entries: &[proj, conf],
-    };
-
-    let bind_group_layout = device.create_bind_group_layout(&layout_desc);
-
-    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: None,
-        bind_group_layouts: &[&bind_group_layout],
-        push_constant_ranges: &[],
-    });
 
     let swapchain_capabilities = surface.get_capabilities(&adapter);
     let swapchain_format = swapchain_capabilities.formats[0];
 
-    let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: None,
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: "vs_main",
-            buffers: &[wgpu::VertexBufferLayout {
-                array_stride: 5 * std::mem::size_of::<u32>() as u64,
-                step_mode: wgpu::VertexStepMode::Instance,
-                attributes: &[
-                    wgpu::VertexAttribute {
-                        format: wgpu::VertexFormat::Float32x2,
-                        offset: 0,
-                        shader_location: 0,
-                    },
-                    wgpu::VertexAttribute {
-                        format: wgpu::VertexFormat::Float32x2,
-                        offset: 8,
-                        shader_location: 1,
-                    },
-                    wgpu::VertexAttribute {
-                        format: wgpu::VertexFormat::Uint32,
-                        offset: 16,
-                        shader_location: 2,
-                    },
-                ],
-            }],
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: "fs_main",
-            targets: &[Some(swapchain_format.into())],
-        }),
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: None,
-        // multisample: wgpu::MultisampleState::default(),
-        multisample: wgpu::MultisampleState {
-            count: sample_count,
-            ..Default::default()
-        },
-        multiview: None,
-    });
+    let line_pipeline = LinePipeline::new(&device, swapchain_format, sample_count);
+    let short_pipeline = ShortMatchPipeline::new(&device, swapchain_format, sample_count);
 
     let (grid_buffer, grid_instances) = {
         let instances = input.targets.len() + input.queries.len();
@@ -496,14 +430,18 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         // 14.0 * ybl,
         // 15.0 * ybl,
         0.0,
-        input.target_len as f32,
+        input.target_len as f32 / 50.0,
         0.0,
-        input.query_len as f32,
+        input.query_len as f32 / 50.0,
+        // 0.0,
+        // input.target_len as f32,
+        // 0.0,
+        // input.query_len as f32,
         0.1,
         10.0,
     );
 
-    let (proj_uniform, conf_uniform) = {
+    let (proj_uniform, line_conf_uniform, short_conf_uniform) = {
         let proj_uniform = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&[projection]),
@@ -514,18 +452,28 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         let line_width: f32 = 5.0 / 1000.0;
         // let line_width: f32 = 15.0 / 1000.0;
         let conf = [line_width, 0.0, 0.0, 0.0];
-        let conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
+        let line_conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&conf),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        (proj_uniform, conf_uniform)
+        let frag_width = 2.0 / size.width as f32;
+        let frag_height = 2.0 / size.height as f32;
+
+        let conf = [frag_width, frag_height, 0.0, 0.0];
+        let short_conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&conf),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        (proj_uniform, line_conf_uniform, short_conf_uniform)
     };
 
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    let line_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: None,
-        layout: &bind_group_layout,
+        layout: &line_pipeline.bind_group_layout,
         entries: &[
             wgpu::BindGroupEntry {
                 binding: 0,
@@ -533,7 +481,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: conf_uniform.as_entire_binding(),
+                resource: line_conf_uniform.as_entire_binding(),
             },
         ],
     });
@@ -559,7 +507,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
             // Have the closure take ownership of the resources.
             // `event_loop.run` never returns, therefore we must do this to ensure
             // the resources are properly cleaned up.
-            let _ = (&instance, &adapter, &shader, &pipeline_layout);
+            let _ = (&instance, &adapter, &line_pipeline, &short_pipeline);
 
             if let Event::AboutToWait = event {
                 window.request_redraw();
@@ -669,8 +617,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                                     timestamp_writes: None,
                                     occlusion_query_set: None,
                                 });
-                            rpass.set_pipeline(&render_pipeline);
-                            rpass.set_bind_group(0, &bind_group, &[]);
+                            rpass.set_pipeline(&line_pipeline.pipeline);
+                            rpass.set_bind_group(0, &line_bind_group, &[]);
 
                             // first draw grid
                             // rpass.set_vertex_buffer(0, grid_buffer.slice(..));

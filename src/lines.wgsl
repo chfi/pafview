@@ -57,6 +57,11 @@ fn vs_main(
   result.position = projection * vec4(pp, 0.0, 1.0);
   result.position.z = 0.5;
 
+  // if (distance(p0, p1) > view_width) {
+  // if (distance(p0, p1) > 1000.0) {
+  //   result.position.z = -10.0;
+  // }
+
   let color_u = (vec4u(color) >> vec4u(0u, 8u, 16u, 24u))
                 & vec4u(255u);
 
