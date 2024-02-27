@@ -1,6 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
+use ultraviolet::UVec2;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
     event::{Event, WindowEvent},
@@ -158,15 +159,28 @@ pub fn main() -> anyhow::Result<()> {
 
     for line in reader.lines() {
         let line = line?;
-
-        let Some(cigar) = line
-            .split('\t')
-            .find_map(|field| field.strip_prefix("cg:Z:"))
-        else {
+        let Some(paf_line) = parse_paf_line(line.split('\t')) else {
             continue;
         };
 
-        let ops = cigar
+        let target_i = names.target_names.get(paf_line.tgt_name).unwrap();
+        let query_i = names.query_names.get(paf_line.query_name).unwrap();
+
+        let origin = {
+            let x0 = &targets[*target_i].offset;
+            let y0 = &queries[*query_i].offset;
+
+            let x = x0 + paf_line.tgt_seq_start;
+            let y = if paf_line.strand_rev {
+                y0 + paf_line.query_seq_end
+            } else {
+                y0 + paf_line.query_seq_start
+            };
+            [x, y]
+        };
+
+        let ops = paf_line
+            .cigar
             .split_inclusive(['M', 'X', '=', 'D', 'I', 'S', 'H', 'N'])
             .filter_map(|opstr| {
                 let count = opstr[..opstr.len() - 1].parse::<usize>().ok()?;
@@ -174,16 +188,32 @@ pub fn main() -> anyhow::Result<()> {
                 Some((op, count))
             });
 
+        let [mut target_pos, mut query_pos] = origin;
+
         for (op, count) in ops {
             match op {
                 'M' | '=' | 'X' => {
-                    //
+                    let x = target_pos;
+                    let y = query_pos;
+
+                    // TODO output match
+
+                    // update query pos & target pos
+                    if paf_line.strand_rev {
+                        query_pos = query_pos.checked_sub(count).unwrap_or_default()
+                    } else {
+                        query_pos += count;
+                    }
                 }
                 'D' => {
-                    //
+                    target_pos += count;
                 }
                 'I' => {
-                    //
+                    if paf_line.strand_rev {
+                        query_pos = query_pos.checked_sub(count).unwrap_or_default()
+                    } else {
+                        query_pos += count;
+                    }
                 }
                 _ => (),
             }
