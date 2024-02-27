@@ -12,15 +12,13 @@ use std::io::prelude::*;
 
 use anyhow::anyhow;
 
-struct Queries {
-    //
-}
-
 struct PafInput {
     queries: Vec<AlignedSeq>,
     targets: Vec<AlignedSeq>,
     target_len: usize,
     query_len: usize,
+
+    matches: Vec<()>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -102,7 +100,7 @@ pub fn main() -> anyhow::Result<()> {
     let paf_path = args.nth(1).ok_or(anyhow!("Path to PAF not provided"))?;
 
     // parse paf
-    let reader = std::fs::File::open(paf_path).map(std::io::BufReader::new)?;
+    let reader = std::fs::File::open(&paf_path).map(std::io::BufReader::new)?;
 
     let mut names = NameCache::default();
 
@@ -111,7 +109,7 @@ pub fn main() -> anyhow::Result<()> {
 
     for line in reader.lines() {
         let line = line?;
-        if let Some(paf_line) = parse_paf_line(line.split("\t")) {
+        if let Some(paf_line) = parse_paf_line(line.split('\t')) {
             let qi = names.query_names.len();
             let ti = names.target_names.len();
 
@@ -153,11 +151,51 @@ pub fn main() -> anyhow::Result<()> {
     let target_len = process_aligned(&mut targets);
     let query_len = process_aligned(&mut queries);
 
+    // process matches
+    let mut matches = Vec::new();
+
+    let reader = std::fs::File::open(&paf_path).map(std::io::BufReader::new)?;
+
+    for line in reader.lines() {
+        let line = line?;
+
+        let Some(cigar) = line
+            .split('\t')
+            .find_map(|field| field.strip_prefix("cg:Z:"))
+        else {
+            continue;
+        };
+
+        let ops = cigar
+            .split_inclusive(['M', 'X', '=', 'D', 'I', 'S', 'H', 'N'])
+            .filter_map(|opstr| {
+                let count = opstr[..opstr.len() - 1].parse::<usize>().ok()?;
+                let op = opstr.as_bytes()[opstr.len() - 1] as char;
+                Some((op, count))
+            });
+
+        for (op, count) in ops {
+            match op {
+                'M' | '=' | 'X' => {
+                    //
+                }
+                'D' => {
+                    //
+                }
+                'I' => {
+                    //
+                }
+                _ => (),
+            }
+        }
+    }
+
     let paf_input = PafInput {
         queries,
         targets,
         target_len,
         query_len,
+        matches,
     };
 
     println!("sum target len: {target_len}");
@@ -303,7 +341,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         let x_max = input.target_len as f32;
         let y_max = input.query_len as f32;
 
-        let color = 0x000000FF;
+        let color = 0x00000000;
 
         // X
         for t in input.targets.iter() {
