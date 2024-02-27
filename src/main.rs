@@ -4,7 +4,7 @@ use std::borrow::Cow;
 use ultraviolet::{UVec2, Vec2};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
-    event::{Event, WindowEvent},
+    event::{Event, MouseButton, WindowEvent},
     event_loop::EventLoop,
     window::Window,
 };
@@ -269,6 +269,32 @@ struct LineVertex {
     color: u32,
 }
 
+fn create_multisampled_framebuffer(
+    device: &wgpu::Device,
+    config: &wgpu::SurfaceConfiguration,
+    sample_count: u32,
+) -> wgpu::TextureView {
+    let multisampled_texture_extent = wgpu::Extent3d {
+        width: config.width,
+        height: config.height,
+        depth_or_array_layers: 1,
+    };
+    let multisampled_frame_descriptor = &wgpu::TextureDescriptor {
+        size: multisampled_texture_extent,
+        mip_level_count: 1,
+        sample_count,
+        dimension: wgpu::TextureDimension::D2,
+        format: config.format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        label: None,
+        view_formats: &[],
+    };
+
+    device
+        .create_texture(multisampled_frame_descriptor)
+        .create_view(&wgpu::TextureViewDescriptor::default())
+}
+
 async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
     let mut size = window.inner_size();
     size.width = size.width.max(1);
@@ -292,7 +318,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         .request_device(
             &wgpu::DeviceDescriptor {
                 label: None,
-                required_features: wgpu::Features::empty(),
+                required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
                 // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
                 required_limits: wgpu::Limits::downlevel_webgl2_defaults()
                     .using_resolution(adapter.limits()),
@@ -307,6 +333,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         label: None,
         source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("lines.wgsl"))),
     });
+
+    let sample_count = 4;
 
     let proj = wgpu::BindGroupLayoutEntry {
         binding: 0,
@@ -370,7 +398,11 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         }),
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
+        // multisample: wgpu::MultisampleState::default(),
+        multisample: wgpu::MultisampleState {
+            count: sample_count,
+            ..Default::default()
+        },
         multiview: None,
     });
 
@@ -479,7 +511,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         });
 
         // px / window width
-        let line_width: f32 = 10.0 / 1000.0;
+        let line_width: f32 = 5.0 / 1000.0;
+        // let line_width: f32 = 15.0 / 1000.0;
         let conf = [line_width, 0.0, 0.0, 0.0];
         let conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
@@ -510,6 +543,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         .unwrap();
     surface.configure(&device, &config);
 
+    let mut msaa_framebuffer = create_multisampled_framebuffer(&device, &config, sample_count);
+
     let window = &window;
     event_loop
         .run(move |event, target| {
@@ -529,6 +564,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                         config.width = new_size.width.max(1);
                         config.height = new_size.height.max(1);
                         surface.configure(&device, &config);
+                        msaa_framebuffer =
+                            create_multisampled_framebuffer(&device, &config, sample_count);
                         // On macos the window needs to be redrawn manually after resizing
                         window.request_redraw();
                     }
@@ -544,17 +581,30 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                                 label: None,
                             });
                         {
+                            let attch = if sample_count == 1 {
+                                wgpu::RenderPassColorAttachment {
+                                    view: &view,
+                                    resolve_target: None,
+                                    ops: wgpu::Operations {
+                                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                                        store: wgpu::StoreOp::Store,
+                                    },
+                                }
+                            } else {
+                                wgpu::RenderPassColorAttachment {
+                                    view: &msaa_framebuffer,
+                                    resolve_target: Some(&view),
+                                    ops: wgpu::Operations {
+                                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                                        store: wgpu::StoreOp::Discard,
+                                    },
+                                }
+                            };
+
                             let mut rpass =
                                 encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                                     label: None,
-                                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                        view: &view,
-                                        resolve_target: None,
-                                        ops: wgpu::Operations {
-                                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                                            store: wgpu::StoreOp::Store,
-                                        },
-                                    })],
+                                    color_attachments: &[Some(attch)],
                                     depth_stencil_attachment: None,
                                     timestamp_writes: None,
                                     occlusion_query_set: None,
