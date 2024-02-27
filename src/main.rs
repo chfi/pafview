@@ -1,7 +1,7 @@
 use bytemuck::{Pod, Zeroable};
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
-use ultraviolet::{UVec2, Vec2};
+use ultraviolet::{Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
     event::{Event, MouseButton, WindowEvent},
@@ -545,6 +545,12 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
 
     let mut msaa_framebuffer = create_multisampled_framebuffer(&device, &config, sample_count);
 
+    let mut mouse_down = false;
+    let mut last_pos = Vec2::new(0.0, 0.0);
+    let mut delta = Vec2::new(0.0, 0.0);
+
+    let mut last_frame = std::time::Instant::now();
+
     let window = &window;
     event_loop
         .run(move |event, target| {
@@ -553,12 +559,34 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
             // the resources are properly cleaned up.
             let _ = (&instance, &adapter, &shader, &pipeline_layout);
 
+            if let Event::AboutToWait = event {
+                window.request_redraw();
+            }
+
             if let Event::WindowEvent {
                 window_id: _,
                 event,
             } = event
             {
                 match event {
+                    WindowEvent::MouseInput { state, button, .. } => {
+                        if button == MouseButton::Left {
+                            match state {
+                                winit::event::ElementState::Pressed => mouse_down = true,
+                                winit::event::ElementState::Released => mouse_down = false,
+                            }
+                        }
+                    }
+                    WindowEvent::CursorMoved { position, .. } => {
+                        let pos = Vec2::new(position.x as f32, position.y as f32);
+                        if mouse_down {
+                            let vwidth = 2.0 / projection[0][0];
+                            let vheight = 2.0 / projection[1][1];
+                            delta = (pos - last_pos) * Vec2::new(1.0, -1.0);
+                        }
+
+                        last_pos = pos;
+                    }
                     WindowEvent::Resized(new_size) => {
                         // Reconfigure the surface with the new size
                         config.width = new_size.width.max(1);
@@ -570,6 +598,22 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                         window.request_redraw();
                     }
                     WindowEvent::RedrawRequested => {
+                        let delta_t = last_frame.elapsed().as_secs_f64();
+
+                        if delta.x != 0.0 || delta.y != 0.0 {
+                            projection = Mat4::from_translation(
+                                delta_t as f32 * Vec3::new(delta.x, delta.y, 0.0),
+                            ) * projection;
+                            queue.write_buffer(
+                                &proj_uniform,
+                                0,
+                                bytemuck::cast_slice(&[projection]),
+                            );
+                        }
+                        delta = Vec2::new(0.0, 0.0);
+
+                        last_frame = std::time::Instant::now();
+
                         let frame = surface
                             .get_current_texture()
                             .expect("Failed to acquire next swap chain texture");
