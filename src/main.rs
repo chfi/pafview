@@ -549,6 +549,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
     let mut last_pos = Vec2::new(0.0, 0.0);
     let mut delta = Vec2::new(0.0, 0.0);
 
+    let mut delta_scale = 1.0;
+
     let mut last_frame = std::time::Instant::now();
 
     let window = &window;
@@ -577,11 +579,20 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                             }
                         }
                     }
+                    WindowEvent::MouseWheel { delta, phase, .. } => match delta {
+                        winit::event::MouseScrollDelta::LineDelta(x, y) => {
+                            delta_scale = 1.0 + y * 0.01;
+                        }
+                        winit::event::MouseScrollDelta::PixelDelta(xy) => {
+                            delta_scale = 1.0 + xy.y as f32 * 0.001;
+                        }
+                    },
                     WindowEvent::CursorMoved { position, .. } => {
                         let pos = Vec2::new(position.x as f32, position.y as f32);
                         if mouse_down {
-                            let vwidth = 2.0 / projection[0][0];
-                            let vheight = 2.0 / projection[1][1];
+                            // TODO make panning 1-to-1
+                            // let vwidth = 2.0 / projection[0][0];
+                            // let vheight = 2.0 / projection[1][1];
                             delta = (pos - last_pos) * Vec2::new(1.0, -1.0);
                         }
 
@@ -600,8 +611,12 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                     WindowEvent::RedrawRequested => {
                         let delta_t = last_frame.elapsed().as_secs_f64();
 
-                        if delta.x != 0.0 || delta.y != 0.0 {
-                            projection = Mat4::from_translation(
+                        if delta.x != 0.0 || delta.y != 0.0 || delta_scale != 1.0 {
+                            projection = Mat4::from_nonuniform_scale(Vec3::new(
+                                delta_scale,
+                                delta_scale,
+                                1.0,
+                            )) * Mat4::from_translation(
                                 delta_t as f32 * Vec3::new(delta.x, delta.y, 0.0),
                             ) * projection;
                             queue.write_buffer(
@@ -611,6 +626,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                             );
                         }
                         delta = Vec2::new(0.0, 0.0);
+                        delta_scale = 1.0;
 
                         last_frame = std::time::Instant::now();
 
