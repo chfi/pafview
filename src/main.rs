@@ -313,6 +313,7 @@ fn process_cigar(
                 }
 
                 // update query pos & target pos
+                target_pos += count;
                 if paf.strand_rev {
                     query_pos = query_pos.checked_sub(count).unwrap_or_default()
                 } else {
