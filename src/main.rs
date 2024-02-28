@@ -257,6 +257,71 @@ fn process_cigar(
     query_len: usize,
     match_edges: &mut Vec<[Vec2; 2]>,
 ) -> anyhow::Result<()> {
+    let ops = paf
+        .cigar
+        .split_inclusive(['M', 'X', '=', 'D', 'I', 'S', 'H', 'N'])
+        .filter_map(|opstr| {
+            let count = opstr[..opstr.len() - 1].parse::<usize>().ok()?;
+            let op = opstr.as_bytes()[opstr.len() - 1] as char;
+            Some((op, count))
+        });
+
+    let [mut target_pos, mut query_pos] = origin;
+
+    for (op, count) in ops {
+        match op {
+            'M' | '=' | 'X' => {
+                let x = target_pos;
+                let y = query_pos;
+
+                // TODO output match
+                {
+                    let x0 = x as f32 / target_len as f32;
+                    let y0 = y as f32 / query_len as f32;
+
+                    let x_end = if paf.strand_rev {
+                        x.checked_sub(count).unwrap_or_default()
+                    } else {
+                        x + count
+                    };
+                    let x1 = x_end as f32 / target_len as f32;
+                    let y1 = (y + count) as f32 / query_len as f32;
+
+                    match_edges.push([Vec2::new(x0, y0), Vec2::new(x1, y1)]);
+                }
+
+                // update query pos & target pos
+                target_pos += count;
+                if paf.strand_rev {
+                    query_pos = query_pos.checked_sub(count).unwrap_or_default()
+                } else {
+                    query_pos += count;
+                }
+            }
+            'D' => {
+                target_pos += count;
+            }
+            'I' => {
+                if paf.strand_rev {
+                    query_pos = query_pos.checked_sub(count).unwrap_or_default()
+                } else {
+                    query_pos += count;
+                }
+            }
+            _ => (),
+        }
+    }
+
+    Ok(())
+}
+
+fn process_cigar_compress(
+    paf: &PafLine<&str>,
+    origin: [usize; 2],
+    target_len: usize,
+    query_len: usize,
+    match_edges: &mut Vec<[Vec2; 2]>,
+) -> anyhow::Result<()> {
     use OpProj::*;
 
     let mut ops = paf
@@ -272,6 +337,13 @@ fn process_cigar(
                 _ => None,
             }
         });
+    // .filter(|op| {
+    //     let lim = 150;
+    //     match op {
+    //         Match(_) => true,
+    //         Del(c) | Ins(c) => *c > lim,
+    //     }
+    // });
 
     let mut compressed_ops = Vec::new();
 
@@ -341,7 +413,7 @@ fn process_cigar(
 struct LineVertex {
     p0: [f32; 2],
     p1: [f32; 2],
-    color: u32,
+    // color: u32,
 }
 
 fn create_multisampled_framebuffer(
@@ -441,7 +513,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
             lines.push(LineVertex {
                 p0: [x, 0f32],
                 p1: [x, y_max],
-                color,
+                // color,
             });
         }
 
@@ -451,7 +523,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
             lines.push(LineVertex {
                 p0: [0f32, y],
                 p1: [x_max, y],
-                color,
+                // color,
             });
         }
 
@@ -479,7 +551,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
             lines.push(LineVertex {
                 p0: [x0, y0].into(),
                 p1: [x1, y1].into(),
-                color,
+                // color,
             });
         }
 
@@ -501,9 +573,9 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         // 14.0 * ybl,
         // 15.0 * ybl,
         // 0.0,
-        // input.target_len as f32 / 50.0,
+        // input.target_len as f32 / 4.0,
         // 0.0,
-        // input.query_len as f32 / 50.0,
+        // input.query_len as f32 / 4.0,
         0.0,
         input.target_len as f32,
         0.0,
@@ -529,8 +601,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        let frag_width = 2.0 / size.width as f32;
-        let frag_height = 2.0 / size.height as f32;
+        let frag_width = 0.5 / size.width as f32;
+        let frag_height = 0.5 / size.height as f32;
 
         let conf = [frag_width, frag_height, 0.0, 0.0];
         let short_conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
@@ -553,6 +625,21 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
             wgpu::BindGroupEntry {
                 binding: 1,
                 resource: line_conf_uniform.as_entire_binding(),
+            },
+        ],
+    });
+
+    let short_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &short_pipeline.bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: proj_uniform.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: short_conf_uniform.as_entire_binding(),
             },
         ],
     });
@@ -696,6 +783,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                                 });
                             rpass.set_pipeline(&line_pipeline.pipeline);
                             rpass.set_bind_group(0, &line_bind_group, &[]);
+                            // rpass.set_pipeline(&short_pipeline.pipeline);
+                            // rpass.set_bind_group(0, &short_bind_group, &[]);
 
                             // first draw grid
                             // rpass.set_vertex_buffer(0, grid_buffer.slice(..));

@@ -18,7 +18,7 @@ fn vs_main(
            @builtin(vertex_index) vertex_index: u32,
            @location(0) p0: vec2f,
            @location(1) p1: vec2f,
-           @location(2) color: u32,
+           // @location(2) color: u32,
            ) -> VertexOut {
   var result: VertexOut;
 
@@ -62,10 +62,11 @@ fn vs_main(
   //   result.position.z = -10.0;
   // }
 
-  let color_u = (vec4u(color) >> vec4u(0u, 8u, 16u, 24u))
-                & vec4u(255u);
+  // let color_u = (vec4u(color) >> vec4u(0u, 8u, 16u, 24u))
+  //               & vec4u(255u);
 
-  result.color = vec4f(color_u) / vec4f(255.0);
+  // result.color = vec4f(color_u) / vec4f(255.0);
+  result.color = vec4f(0.0, 0.0, 0.0, 1.0);
 
   return result;
 }

@@ -62,7 +62,7 @@ impl LinePipeline {
                 module: &shader,
                 entry_point: "vs_main",
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 5 * std::mem::size_of::<u32>() as u64,
+                    array_stride: 4 * std::mem::size_of::<u32>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &[
                         wgpu::VertexAttribute {
@@ -75,11 +75,11 @@ impl LinePipeline {
                             offset: 8,
                             shader_location: 1,
                         },
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Uint32,
-                            offset: 16,
-                            shader_location: 2,
-                        },
+                        // wgpu::VertexAttribute {
+                        //     format: wgpu::VertexFormat::Uint32,
+                        //     offset: 16,
+                        //     shader_location: 2,
+                        // },
                     ],
                 }],
             },
@@ -155,7 +155,7 @@ impl ShortMatchPipeline {
                 module: &shader,
                 entry_point: "vs_main",
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 5 * std::mem::size_of::<u32>() as u64,
+                    array_stride: 4 * std::mem::size_of::<u32>() as u64,
                     step_mode: wgpu::VertexStepMode::Instance,
                     attributes: &[
                         wgpu::VertexAttribute {
@@ -168,11 +168,11 @@ impl ShortMatchPipeline {
                             offset: 8,
                             shader_location: 1,
                         },
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Uint32,
-                            offset: 16,
-                            shader_location: 2,
-                        },
+                        // wgpu::VertexAttribute {
+                        //     format: wgpu::VertexFormat::Uint32,
+                        //     offset: 16,
+                        //     shader_location: 2,
+                        // },
                     ],
                 }],
             },
