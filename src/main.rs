@@ -510,7 +510,13 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
             let _ = (&instance, &adapter, &line_pipeline, &short_pipeline);
 
             if let Event::AboutToWait = event {
-                window.request_redraw();
+                let result = device.poll(wgpu::Maintain::Poll);
+                if let wgpu::MaintainResult::SubmissionQueueEmpty = result {
+                    if delta.x != 0.0 || delta.y != 0.0 || delta_scale != 1.0 {
+                        println!("redraw!");
+                        window.request_redraw();
+                    }
+                }
             }
 
             if let Event::WindowEvent {
