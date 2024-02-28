@@ -652,7 +652,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
     let mut msaa_framebuffer = create_multisampled_framebuffer(&device, &config, sample_count);
 
     let mut mouse_down = false;
-    let mut last_pos = Vec2::new(0.0, 0.0);
+    let mut last_pos = None;
     let mut delta = Vec2::new(0.0, 0.0);
 
     let mut delta_scale = 1.0;
@@ -687,7 +687,10 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                         if button == MouseButton::Left {
                             match state {
                                 winit::event::ElementState::Pressed => mouse_down = true,
-                                winit::event::ElementState::Released => mouse_down = false,
+                                winit::event::ElementState::Released => {
+                                    last_pos = None;
+                                    mouse_down = false
+                                }
                             }
                         }
                     }
@@ -705,10 +708,11 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                             // TODO make panning 1-to-1
                             // let vwidth = 2.0 / projection[0][0];
                             // let vheight = 2.0 / projection[1][1];
-                            delta = (pos - last_pos) * Vec2::new(1.0, -1.0);
+                            if let Some(last) = last_pos {
+                                delta = (pos - last) * Vec2::new(1.0, -1.0);
+                            }
+                            last_pos = Some(pos);
                         }
-
-                        last_pos = pos;
                     }
                     WindowEvent::Resized(new_size) => {
                         // Reconfigure the surface with the new size
