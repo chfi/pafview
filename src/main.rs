@@ -183,59 +183,7 @@ pub fn main() -> anyhow::Result<()> {
             [x, y]
         };
 
-        let ops = paf_line
-            .cigar
-            .split_inclusive(['M', 'X', '=', 'D', 'I', 'S', 'H', 'N'])
-            .filter_map(|opstr| {
-                let count = opstr[..opstr.len() - 1].parse::<usize>().ok()?;
-                let op = opstr.as_bytes()[opstr.len() - 1] as char;
-                Some((op, count))
-            });
-
-        let [mut target_pos, mut query_pos] = origin;
-
-        for (op, count) in ops {
-            match op {
-                'M' | '=' | 'X' => {
-                    let x = target_pos;
-                    let y = query_pos;
-
-                    // TODO output match
-                    {
-                        let x0 = x as f32 / target_len as f32;
-                        let y0 = y as f32 / query_len as f32;
-
-                        let x_end = if paf_line.strand_rev {
-                            x.checked_sub(count).unwrap_or_default()
-                        } else {
-                            x + count
-                        };
-                        let x1 = x_end as f32 / target_len as f32;
-                        let y1 = (y + count) as f32 / query_len as f32;
-
-                        match_edges.push([Vec2::new(x0, y0), Vec2::new(x1, y1)]);
-                    }
-
-                    // update query pos & target pos
-                    if paf_line.strand_rev {
-                        query_pos = query_pos.checked_sub(count).unwrap_or_default()
-                    } else {
-                        query_pos += count;
-                    }
-                }
-                'D' => {
-                    target_pos += count;
-                }
-                'I' => {
-                    if paf_line.strand_rev {
-                        query_pos = query_pos.checked_sub(count).unwrap_or_default()
-                    } else {
-                        query_pos += count;
-                    }
-                }
-                _ => (),
-            }
-        }
+        process_cigar(&paf_line, origin, target_len, query_len, &mut match_edges)?;
     }
 
     let paf_input = PafInput {
@@ -261,6 +209,128 @@ pub fn main() -> anyhow::Result<()> {
     println!("AABB: min {min:?}, max {max:?}");
 
     start_window(paf_input);
+
+    Ok(())
+}
+
+// Cigar ops "projected" into a subset, with matches/mismatches combined
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum OpProj {
+    Match(usize),
+    Del(usize),
+    Ins(usize),
+}
+
+impl OpProj {
+    fn count(&self) -> usize {
+        match *self {
+            OpProj::Match(a) => a,
+            OpProj::Del(a) => a,
+            OpProj::Ins(a) => a,
+        }
+    }
+
+    fn with_count(&self, count: usize) -> Self {
+        use OpProj::*;
+        match *self {
+            Match(_) => Match(count),
+            Del(_) => Del(count),
+            Ins(_) => Ins(count),
+        }
+    }
+
+    fn is_same_op(&self, other: Self) -> bool {
+        use OpProj::*;
+        match (*self, other) {
+            (Match(_), Match(_)) => true,
+            (Del(_), Del(_)) => true,
+            (Ins(_), Ins(_)) => true,
+            _ => false,
+        }
+    }
+}
+
+fn process_cigar(
+    paf: &PafLine<&str>,
+    origin: [usize; 2],
+    target_len: usize,
+    query_len: usize,
+    match_edges: &mut Vec<[Vec2; 2]>,
+) -> anyhow::Result<()> {
+    use OpProj::*;
+
+    let mut ops = paf
+        .cigar
+        .split_inclusive(['M', 'X', '=', 'D', 'I', 'S', 'H', 'N'])
+        .filter_map(|opstr| {
+            let count = opstr[..opstr.len() - 1].parse::<usize>().ok()?;
+            let op = opstr.as_bytes()[opstr.len() - 1] as char;
+            match op {
+                'M' | '=' | 'X' => Some(Match(count)),
+                'D' => Some(Del(count)),
+                'I' => Some(Ins(count)),
+                _ => None,
+            }
+        });
+
+    let mut compressed_ops = Vec::new();
+
+    let mut last_op = ops.next().ok_or(anyhow!("Empty CIGAR!"))?;
+
+    for op in ops {
+        if last_op.is_same_op(op) {
+            // combine
+            last_op = last_op.with_count(last_op.count() + op.count());
+        } else {
+            // emit last op
+            compressed_ops.push(last_op);
+            last_op = op;
+        }
+    }
+    compressed_ops.push(last_op);
+
+    let [mut target_pos, mut query_pos] = origin;
+
+    for op in compressed_ops {
+        match op {
+            Match(count) => {
+                let x = target_pos;
+                let y = query_pos;
+
+                {
+                    let x0 = x as f32 / target_len as f32;
+                    let y0 = y as f32 / query_len as f32;
+
+                    let x_end = if paf.strand_rev {
+                        x.checked_sub(count).unwrap_or_default()
+                    } else {
+                        x + count
+                    };
+                    let x1 = x_end as f32 / target_len as f32;
+                    let y1 = (y + count) as f32 / query_len as f32;
+
+                    match_edges.push([Vec2::new(x0, y0), Vec2::new(x1, y1)]);
+                }
+
+                // update query pos & target pos
+                if paf.strand_rev {
+                    query_pos = query_pos.checked_sub(count).unwrap_or_default()
+                } else {
+                    query_pos += count;
+                }
+            }
+            Del(count) => {
+                target_pos += count;
+            }
+            Ins(count) => {
+                if paf.strand_rev {
+                    query_pos = query_pos.checked_sub(count).unwrap_or_default()
+                } else {
+                    query_pos += count;
+                }
+            }
+        }
+    }
 
     Ok(())
 }
