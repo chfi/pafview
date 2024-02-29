@@ -14,6 +14,7 @@ use std::io::prelude::*;
 
 use anyhow::anyhow;
 
+mod gui;
 mod render;
 
 use render::*;
@@ -168,8 +169,12 @@ pub fn main() -> anyhow::Result<()> {
             continue;
         };
 
-        let target_i = names.target_names.get(paf_line.tgt_name).unwrap();
-        let query_i = names.query_names.get(paf_line.query_name).unwrap();
+        let target = names.target_names.get(paf_line.tgt_name);
+        let query = names.query_names.get(paf_line.query_name);
+
+        let (Some(target_i), Some(query_i)) = (target, query) else {
+            continue;
+        };
 
         let origin = {
             let x0 = &targets[*target_i].offset;
@@ -185,6 +190,7 @@ pub fn main() -> anyhow::Result<()> {
         };
 
         process_cigar(&paf_line, origin, target_len, query_len, &mut match_edges)?;
+        // process_cigar_compress(&paf_line, origin, target_len, query_len, &mut match_edges)?;
     }
 
     let paf_input = PafInput {
@@ -579,6 +585,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
 
         let frag_width = 0.5 / size.width as f32;
         let frag_height = 0.5 / size.height as f32;
+        // let frag_width = 2.5 / size.width as f32;
+        // let frag_height = 2.5 / size.height as f32;
 
         let conf = [frag_width, frag_height, 0.0, 0.0];
         let short_conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
@@ -766,10 +774,10 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                                     timestamp_writes: None,
                                     occlusion_query_set: None,
                                 });
-                            rpass.set_pipeline(&line_pipeline.pipeline);
-                            rpass.set_bind_group(0, &line_bind_group, &[]);
-                            // rpass.set_pipeline(&short_pipeline.pipeline);
-                            // rpass.set_bind_group(0, &short_bind_group, &[]);
+                            // rpass.set_pipeline(&line_pipeline.pipeline);
+                            // rpass.set_bind_group(0, &line_bind_group, &[]);
+                            rpass.set_pipeline(&short_pipeline.pipeline);
+                            rpass.set_bind_group(0, &short_bind_group, &[]);
 
                             // first draw grid
                             // rpass.set_vertex_buffer(0, grid_buffer.slice(..));
@@ -790,12 +798,13 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                                 size_in_pixels: window.inner_size().into(),
                                 pixels_per_point: window.scale_factor() as f32,
                             },
-                            |ui| {
+                            |ctx| {
+                                gui::view_controls(&input, &mut projection, ctx);
                                 // egui::Window::new("Settings")
                                 //     .resizable(true)
                                 //     .vscroll(true)
                                 //     .default_open(false)
-                                //     .show(&ui, |mut ui| {
+                                //     .show(&ctx, |mut ui| {
                                 //         ui.label("Window!");
                                 //         ui.label("Window!");
                                 //         ui.label("Window!");
