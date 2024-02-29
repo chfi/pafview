@@ -1,4 +1,5 @@
 use bytemuck::{Pod, Zeroable};
+use egui_wgpu::ScreenDescriptor;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use ultraviolet::{Mat4, Vec2, Vec3};
@@ -416,32 +417,6 @@ struct LineVertex {
     // color: u32,
 }
 
-fn create_multisampled_framebuffer(
-    device: &wgpu::Device,
-    config: &wgpu::SurfaceConfiguration,
-    sample_count: u32,
-) -> wgpu::TextureView {
-    let multisampled_texture_extent = wgpu::Extent3d {
-        width: config.width,
-        height: config.height,
-        depth_or_array_layers: 1,
-    };
-    let multisampled_frame_descriptor = &wgpu::TextureDescriptor {
-        size: multisampled_texture_extent,
-        mip_level_count: 1,
-        sample_count,
-        dimension: wgpu::TextureDimension::D2,
-        format: config.format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        label: None,
-        view_formats: &[],
-    };
-
-    device
-        .create_texture(multisampled_frame_descriptor)
-        .create_view(&wgpu::TextureViewDescriptor::default())
-}
-
 async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
     let mut size = window.inner_size();
     size.width = size.width.max(1);
@@ -476,6 +451,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         .expect("Failed to create device");
 
     let sample_count = 4;
+    // let sample_count = 1;
 
     let swapchain_capabilities = surface.get_capabilities(&adapter);
     let swapchain_format = swapchain_capabilities.formats[0];
@@ -649,6 +625,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         .unwrap();
     surface.configure(&device, &config);
 
+    let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
+
     let mut msaa_framebuffer = create_multisampled_framebuffer(&device, &config, sample_count);
 
     let mut mouse_down = false;
@@ -682,6 +660,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                 event,
             } = event
             {
+                egui_renderer.handle_input(&window, &event);
+                // TODO block further input when appropriate (e.g. don't pan when dragging over a window)
                 match event {
                     WindowEvent::MouseInput { state, button, .. } => {
                         if button == MouseButton::Left {
@@ -721,6 +701,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                         surface.configure(&device, &config);
                         msaa_framebuffer =
                             create_multisampled_framebuffer(&device, &config, sample_count);
+                        egui_renderer.resize(&device, &config, 1);
                         // On macos the window needs to be redrawn manually after resizing
                         window.request_redraw();
                     }
@@ -798,6 +779,30 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                             rpass.set_vertex_buffer(0, match_buffer.slice(..));
                             rpass.draw(0..6, match_instances.clone());
                         }
+
+                        egui_renderer.draw(
+                            &device,
+                            &queue,
+                            &mut encoder,
+                            &window,
+                            &view,
+                            ScreenDescriptor {
+                                size_in_pixels: window.inner_size().into(),
+                                pixels_per_point: window.scale_factor() as f32,
+                            },
+                            |ui| {
+                                // egui::Window::new("Settings")
+                                //     .resizable(true)
+                                //     .vscroll(true)
+                                //     .default_open(false)
+                                //     .show(&ui, |mut ui| {
+                                //         ui.label("Window!");
+                                //         ui.label("Window!");
+                                //         ui.label("Window!");
+                                //         ui.label("Window!");
+                                //     }); //
+                            },
+                        );
 
                         queue.submit(Some(encoder.finish()));
                         frame.present();
