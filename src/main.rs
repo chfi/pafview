@@ -2,7 +2,7 @@ use bytemuck::{Pod, Zeroable};
 use egui_wgpu::ScreenDescriptor;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
-use ultraviolet::{Mat4, Vec2, Vec3};
+use ultraviolet::{DVec2, Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
     event::{Event, MouseButton, WindowEvent},
@@ -548,27 +548,15 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         (buffer, 0..instances as u32)
     };
 
-    let xbl = input.target_len as f32 / 16.0;
-    let ybl = input.query_len as f32 / 16.0;
-
-    let mut projection = ultraviolet::projection::orthographic_wgpu_dx(
-        // 14.0 * xbl,
-        // 15.0 * xbl,
-        // 14.0 * ybl,
-        // 15.0 * ybl,
-        // 0.0,
-        // input.target_len as f32 / 4.0,
-        // 0.0,
-        // input.query_len as f32 / 4.0,
-        0.0,
-        input.target_len as f32,
-        0.0,
-        input.query_len as f32,
-        0.1,
-        10.0,
-    );
+    let mut view = View {
+        x_min: 0.0,
+        x_max: input.target_len as f64,
+        y_min: 0.0,
+        y_max: input.query_len as f64,
+    };
 
     let (proj_uniform, line_conf_uniform, short_conf_uniform) = {
+        let projection = view.to_mat4();
         let proj_uniform = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&[projection]),
@@ -641,7 +629,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
 
     let mut mouse_down = false;
     let mut last_pos = None;
-    let mut delta = Vec2::new(0.0, 0.0);
+    let mut delta = DVec2::new(0.0, 0.0);
 
     let mut delta_scale = 1.0;
 
@@ -686,20 +674,20 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                     }
                     WindowEvent::MouseWheel { delta, phase, .. } => match delta {
                         winit::event::MouseScrollDelta::LineDelta(x, y) => {
-                            delta_scale = 1.0 + y * 0.01;
+                            delta_scale = 1.0 + y as f64 * 0.01;
                         }
                         winit::event::MouseScrollDelta::PixelDelta(xy) => {
-                            delta_scale = 1.0 + xy.y as f32 * 0.001;
+                            delta_scale = 1.0 + xy.y * 0.001;
                         }
                     },
                     WindowEvent::CursorMoved { position, .. } => {
-                        let pos = Vec2::new(position.x as f32, position.y as f32);
+                        let pos = DVec2::new(position.x, position.y);
                         if mouse_down {
                             // TODO make panning 1-to-1
                             // let vwidth = 2.0 / projection[0][0];
                             // let vheight = 2.0 / projection[1][1];
                             if let Some(last) = last_pos {
-                                delta = (pos - last) * Vec2::new(1.0, -1.0);
+                                delta = (pos - last) * DVec2::new(1.0, -1.0);
                             }
                             last_pos = Some(pos);
                         }
@@ -719,20 +707,19 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                         let delta_t = last_frame.elapsed().as_secs_f64();
 
                         if delta.x != 0.0 || delta.y != 0.0 || delta_scale != 1.0 {
-                            projection = Mat4::from_nonuniform_scale(Vec3::new(
-                                delta_scale,
-                                delta_scale,
-                                1.0,
-                            )) * Mat4::from_translation(
-                                delta_t as f32 * Vec3::new(delta.x, delta.y, 0.0),
-                            ) * projection;
+                            let win_size: [u32; 2] = window.inner_size().into();
+                            let dx = -delta.x * view.width() / win_size[0] as f64;
+                            let dy = -delta.y * view.height() / win_size[1] as f64;
+                            view.translate(dx, dy);
+                            view.scale_around_center(delta_scale);
+                            let projection = view.to_mat4();
                             queue.write_buffer(
                                 &proj_uniform,
                                 0,
                                 bytemuck::cast_slice(&[projection]),
                             );
                         }
-                        delta = Vec2::new(0.0, 0.0);
+                        delta = DVec2::new(0.0, 0.0);
                         delta_scale = 1.0;
 
                         last_frame = std::time::Instant::now();
@@ -801,7 +788,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                                 pixels_per_point: window.scale_factor() as f32,
                             },
                             |ctx| {
-                                gui::view_controls(&input, &mut projection, ctx);
+                                // gui::view_controls(&input, &mut projection, ctx);
                                 // egui::Window::new("Settings")
                                 //     .resizable(true)
                                 //     .vscroll(true)
