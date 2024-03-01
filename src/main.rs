@@ -16,8 +16,10 @@ use anyhow::anyhow;
 
 mod gui;
 mod render;
+mod view;
 
 use render::*;
+use view::View;
 
 struct PafInput {
     queries: Vec<AlignedSeq>,
