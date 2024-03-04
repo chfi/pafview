@@ -1,4 +1,4 @@
-use ultraviolet::{DVec2, Mat4, Vec2, Vec3};
+use ultraviolet::{DMat4, DVec2, DVec4, Mat4, Vec2, Vec3};
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
 pub struct View {
@@ -9,6 +9,35 @@ pub struct View {
 }
 
 impl View {
+    pub fn map_screen_to_view(&self, screen_dims: [u32; 2], screen_pt: impl Into<Vec2>) -> DVec2 {
+        let [sw, sh] = screen_dims;
+        let sw = sw as f64;
+        let sh = sh as f64;
+
+        let sp = screen_pt.into();
+
+        let np = DVec2::new(sp.x as f64 / sw, sp.y as f64 / sh);
+
+        let tleft = DVec2::new(self.x_min, self.y_min);
+
+        tleft + np * self.size()
+    }
+
+    pub fn map_view_to_screen(&self, screen_dims: [u32; 2], view_pt: impl Into<DVec2>) -> Vec2 {
+        let [sw, sh] = screen_dims;
+        let sdims = DVec2::new(sw as f64, sh as f64);
+
+        let vp = view_pt.into();
+
+        let nx = (vp.x - self.x_min) / self.width();
+        let ny = (vp.y - self.y_min) / self.height();
+
+        let np = DVec2::new(nx, ny);
+
+        let sp = np * sdims;
+        Vec2::new(sp.x as f32, sp.y as f32)
+    }
+
     pub fn width(&self) -> f64 {
         self.x_max - self.x_min
     }
@@ -17,10 +46,34 @@ impl View {
         self.y_max - self.y_min
     }
 
+    pub fn size(&self) -> DVec2 {
+        DVec2::new(self.width(), self.height())
+    }
+
     pub fn center(&self) -> DVec2 {
         DVec2::new(
             self.x_min + self.width() * 0.5,
             self.y_min + self.height() * 0.5,
+        )
+    }
+
+    pub fn to_dmat4(&self) -> DMat4 {
+        let right = self.x_max;
+        let left = self.x_min;
+        let top = self.y_min;
+        let bottom = self.y_max;
+        let near = 0.1;
+        let far = 10.0;
+        let rml = right - left;
+        let rpl = right + left;
+        let tmb = top - bottom;
+        let tpb = top + bottom;
+        let fmn = far - near;
+        DMat4::new(
+            DVec4::new(2.0 / rml, 0.0, 0.0, 0.0),
+            DVec4::new(0.0, 2.0 / tmb, 0.0, 0.0),
+            DVec4::new(0.0, 0.0, -1.0 / fmn, 0.0),
+            DVec4::new(-(rpl / rml), -(tpb / tmb), -(near / fmn), 1.0),
         )
     }
 
