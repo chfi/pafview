@@ -121,4 +121,76 @@ impl View {
 
         todo!();
     }
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use super::*;
+
+    prop_compose! {
+        // generate views within some set max
+        fn view_limit_strategy
+            (x_limit: f64, y_limit: f64)
+            (x_min_ in 0.0..x_limit,
+             y_min_ in 0.0..y_limit)
+            (
+                x_min in Just(x_min_),
+                y_min in Just(y_min_),
+                x_max in (x_min_ + 1.0)..x_limit,
+                y_max in (y_min_ + 1.0)..y_limit)
+             -> View {
+                View { x_min, y_min, x_max, y_max }
+            }
+    }
+
+    prop_compose! {
+        fn view_strategy()(view in view_limit_strategy(2_000_000_000.0,
+                                                       2_000_000_000.0)
+        ) -> View {
+            view
+        }
+    }
+
+    prop_compose! {
+        fn prop_view_point(view: View)(vx in 0f64..view.width(), vy in 0f64..view.height()) -> DVec2 {
+            DVec2::new(vx, vy)
+        }
+    }
+
+    proptest! {
+        #[test]
+        // TODO generate/proptest limits
+        fn screen_view_isomorphic(view in view_strategy(),
+                                  s_x in 0f32..1920.0,
+                                  s_y in 0f32..1080.0) {
+            let screen_dims = [1920, 1080u32];
+            let s_pt = Vec2::new(s_x, s_y);
+            let v_pt = view.map_screen_to_view(screen_dims, s_pt);
+
+            let s_pt_ = view.map_view_to_screen(screen_dims, v_pt);
+            let diff = s_pt_ - s_pt.into();
+            prop_assert_eq!(diff, Vec2::new(0.0, 0.0));
+        }
+
+        #[test]
+        fn view_screen_isomorphic((view, v_pt) in view_strategy()
+                                  .prop_perturb(|view, mut rng| {
+                let vx = rng.gen_range(view.x_min..view.x_max);
+                let vy = rng.gen_range(view.y_min..view.y_max);
+                (view, DVec2::new(vx, vy))
+            })
+        ) {
+            let screen_dims = [1920, 1080u32];
+
+            let s_pt = view.map_view_to_screen(screen_dims, v_pt);
+            let v_pt_ = view.map_screen_to_view(screen_dims, s_pt);
+            let diff = v_pt - v_pt_;
+
+            let eps =  std::f32::EPSILON as f64;
+            let x_eq = approx::relative_eq!(diff.x / view.width(), 0.0, epsilon = eps);
+            let y_eq = approx::relative_eq!(diff.y / view.height(), 0.0, epsilon = eps);
+            prop_assert!(x_eq && y_eq);
+        }
+    }
 }

@@ -17,3 +17,8 @@ rustc-hash = "1.1.0"
 ultraviolet = { version = "0.9.2", features = ["bytemuck", "int", "f64"] }
 wgpu = "0.19.1"
 winit = "0.29.11"
+
+[dev-dependencies]
+approx = "0.5.1"
+proptest = "1.4.0"
+rand = "0.8.5"
