@@ -9,8 +9,28 @@ pub struct View {
 }
 
 impl View {
-    pub fn map_screen_to_view(&self, screen_dims: [u32; 2], screen_pt: impl Into<Vec2>) -> DVec2 {
-        let [sw, sh] = screen_dims;
+    pub fn map_world_to_view(&self, world_pt: impl Into<DVec2>) -> DVec2 {
+        let wp = world_pt.into();
+        let tleft = DVec2::new(self.x_min, self.y_min);
+
+        let vp = wp - tleft;
+        vp
+    }
+
+    pub fn map_view_to_world(&self, view_pt: impl Into<DVec2>) -> DVec2 {
+        let vp = view_pt.into();
+        let tleft = DVec2::new(self.x_min, self.y_min);
+
+        let wp = vp + tleft;
+        wp
+    }
+
+    pub fn map_screen_to_view(
+        &self,
+        screen_dims: impl Into<[u32; 2]>,
+        screen_pt: impl Into<Vec2>,
+    ) -> DVec2 {
+        let [sw, sh] = screen_dims.into();
         let sw = sw as f64;
         let sh = sh as f64;
 
@@ -23,8 +43,12 @@ impl View {
         tleft + np * self.size()
     }
 
-    pub fn map_view_to_screen(&self, screen_dims: [u32; 2], view_pt: impl Into<DVec2>) -> Vec2 {
-        let [sw, sh] = screen_dims;
+    pub fn map_view_to_screen(
+        &self,
+        screen_dims: impl Into<[u32; 2]>,
+        view_pt: impl Into<DVec2>,
+    ) -> Vec2 {
+        let [sw, sh] = screen_dims.into();
         let sdims = DVec2::new(sw as f64, sh as f64);
 
         let vp = view_pt.into();
@@ -36,6 +60,24 @@ impl View {
 
         let sp = np * sdims;
         Vec2::new(sp.x as f32, sp.y as f32)
+    }
+
+    pub fn map_world_to_screen(
+        &self,
+        screen_dims: impl Into<[u32; 2]>,
+        world_pt: impl Into<DVec2>,
+    ) -> Vec2 {
+        let view_pt = self.map_world_to_view(world_pt);
+        self.map_view_to_screen(screen_dims, view_pt)
+    }
+
+    pub fn map_screen_to_world(
+        &self,
+        screen_dims: impl Into<[u32; 2]>,
+        screen_pt: impl Into<Vec2>,
+    ) -> DVec2 {
+        let view_pt = self.map_screen_to_view(screen_dims, screen_pt);
+        self.map_view_to_world(view_pt)
     }
 
     pub fn width(&self) -> f64 {
@@ -124,9 +166,13 @@ impl View {
 
 #[cfg(test)]
 mod tests {
-    use proptest::prelude::*;
+    use float_cmp::approx_eq;
+    use proptest::{prelude::*, test_runner::TestRng};
 
     use super::*;
+
+    // TODO generate/proptest limits
+    const AXIS_LIMIT: f64 = 100_000_000_000.0;
 
     prop_compose! {
         // generate views within some set max
@@ -145,8 +191,7 @@ mod tests {
     }
 
     prop_compose! {
-        fn view_strategy()(view in view_limit_strategy(2_000_000_000.0,
-                                                       2_000_000_000.0)
+        fn view_strategy()(view in view_limit_strategy(AXIS_LIMIT, AXIS_LIMIT)
         ) -> View {
             view
         }
@@ -158,9 +203,14 @@ mod tests {
         }
     }
 
+    fn point_in_view(view: View, mut rng: TestRng) -> (View, DVec2) {
+        let vx = rng.gen_range(view.x_min..view.x_max);
+        let vy = rng.gen_range(view.y_min..view.y_max);
+        (view, DVec2::new(vx, vy))
+    }
+
     proptest! {
         #[test]
-        // TODO generate/proptest limits
         fn screen_view_isomorphic(view in view_strategy(),
                                   s_x in 0f32..1920.0,
                                   s_y in 0f32..1080.0) {
@@ -175,11 +225,7 @@ mod tests {
 
         #[test]
         fn view_screen_isomorphic((view, v_pt) in view_strategy()
-                                  .prop_perturb(|view, mut rng| {
-                let vx = rng.gen_range(view.x_min..view.x_max);
-                let vy = rng.gen_range(view.y_min..view.y_max);
-                (view, DVec2::new(vx, vy))
-            })
+                                  .prop_perturb(point_in_view)
         ) {
             let screen_dims = [1920, 1080u32];
 
@@ -188,9 +234,44 @@ mod tests {
             let diff = v_pt - v_pt_;
 
             let eps =  std::f32::EPSILON as f64;
-            let x_eq = approx::relative_eq!(diff.x / view.width(), 0.0, epsilon = eps);
-            let y_eq = approx::relative_eq!(diff.y / view.height(), 0.0, epsilon = eps);
+            let x_eq = approx_eq!(f64, diff.x / view.width(), 0.0, epsilon = eps);
+            let y_eq = approx_eq!(f64, diff.y / view.height(), 0.0, epsilon = eps);
             prop_assert!(x_eq && y_eq);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn world_view_isomorphic(view in view_strategy(),
+                                 wx in 0f64..AXIS_LIMIT,
+                                 wy in 0f64..AXIS_LIMIT,
+        ) {
+            let w_pt = DVec2::new(wx, wy);
+            let v_pt = view.map_world_to_view(w_pt);
+            let w_pt_ = view.map_view_to_world(v_pt);
+            // .. close enough
+            let x_eps = 1_000_000f64.min(view.width()) / view.width();
+            let y_eps = 1_000_000f64.min(view.height()) / view.height();
+            prop_assert!(approx_eq!(f64, w_pt.x, w_pt_.x, epsilon = x_eps)
+                         && approx_eq!(f64, w_pt.y, w_pt_.y, epsilon = y_eps),
+                         "({}, {}) != ({}, {})",
+                         w_pt.x, w_pt.y,
+                         w_pt_.x, w_pt_.y,
+            )
+        }
+
+        #[test]
+        fn view_world_isomorphic((view, v_pt) in view_strategy()
+                                 .prop_perturb(point_in_view)
+        ) {
+            let w_pt = view.map_view_to_world(v_pt);
+            let v_pt_ = view.map_world_to_view(w_pt);
+            prop_assert!(approx_eq!(f64, v_pt.x, v_pt_.x)
+                         && approx_eq!(f64, v_pt.y, v_pt_.y),
+                         "({}, {}) != ({}, {})",
+                         v_pt.x, v_pt.y,
+                         v_pt_.x, v_pt_.y,
+            )
         }
     }
 }
