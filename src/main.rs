@@ -548,7 +548,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         (buffer, 0..instances as u32)
     };
 
-    let mut view = View {
+    let mut app_view = View {
         x_min: 0.0,
         x_max: input.target_len as f64,
         y_min: 0.0,
@@ -556,7 +556,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
     };
 
     let (proj_uniform, line_conf_uniform, short_conf_uniform) = {
-        let projection = view.to_mat4();
+        let projection = app_view.to_mat4();
         let proj_uniform = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&[projection]),
@@ -658,7 +658,13 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                 event,
             } = event
             {
-                egui_renderer.handle_input(&window, &event);
+                let resp = egui_renderer.handle_input(&window, &event);
+                if resp.repaint {
+                    window.request_redraw();
+                }
+                if resp.consumed {
+                    return;
+                }
                 // TODO block further input when appropriate (e.g. don't pan when dragging over a window)
                 match event {
                     WindowEvent::MouseInput { state, button, .. } => {
@@ -708,11 +714,11 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
 
                         if delta.x != 0.0 || delta.y != 0.0 || delta_scale != 1.0 {
                             let win_size: [u32; 2] = window.inner_size().into();
-                            let dx = -delta.x * view.width() / win_size[0] as f64;
-                            let dy = -delta.y * view.height() / win_size[1] as f64;
-                            view.translate(dx, dy);
-                            view.scale_around_center(delta_scale);
-                            let projection = view.to_mat4();
+                            let dx = -delta.x * app_view.width() / win_size[0] as f64;
+                            let dy = -delta.y * app_view.height() / win_size[1] as f64;
+                            app_view.translate(dx, dy);
+                            app_view.scale_around_center(delta_scale);
+                            let projection = app_view.to_mat4();
                             queue.write_buffer(
                                 &proj_uniform,
                                 0,
@@ -727,7 +733,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                         let frame = surface
                             .get_current_texture()
                             .expect("Failed to acquire next swap chain texture");
-                        let view = frame
+                        let frame_view = frame
                             .texture
                             .create_view(&wgpu::TextureViewDescriptor::default());
                         let mut encoder =
@@ -737,7 +743,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                         {
                             let attch = if sample_count == 1 {
                                 wgpu::RenderPassColorAttachment {
-                                    view: &view,
+                                    view: &frame_view,
                                     resolve_target: None,
                                     ops: wgpu::Operations {
                                         load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
@@ -747,7 +753,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                             } else {
                                 wgpu::RenderPassColorAttachment {
                                     view: &msaa_framebuffer,
-                                    resolve_target: Some(&view),
+                                    resolve_target: Some(&frame_view),
                                     ops: wgpu::Operations {
                                         load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                                         store: wgpu::StoreOp::Discard,
@@ -782,23 +788,13 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                             &queue,
                             &mut encoder,
                             &window,
-                            &view,
+                            &frame_view,
                             ScreenDescriptor {
                                 size_in_pixels: window.inner_size().into(),
                                 pixels_per_point: window.scale_factor() as f32,
                             },
                             |ctx| {
-                                // gui::view_controls(&input, &mut projection, ctx);
-                                // egui::Window::new("Settings")
-                                //     .resizable(true)
-                                //     .vscroll(true)
-                                //     .default_open(false)
-                                //     .show(&ctx, |mut ui| {
-                                //         ui.label("Window!");
-                                //         ui.label("Window!");
-                                //         ui.label("Window!");
-                                //         ui.label("Window!");
-                                //     }); //
+                                gui::view_controls(&input, &mut app_view, ctx);
                             },
                         );
 
