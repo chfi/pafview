@@ -27,7 +27,7 @@ struct PafInput {
     target_len: usize,
     query_len: usize,
 
-    match_edges: Vec<[Vec2; 2]>,
+    match_edges: Vec<[DVec2; 2]>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -102,6 +102,69 @@ fn parse_name_range<'a>(
     let start = fields.next()?.parse().ok()?;
     let end = fields.next()?.parse().ok()?;
     Some((name, len, start, end))
+}
+
+pub fn write_png(
+    input: &PafInput,
+    width: usize,
+    height: usize,
+    out_path: impl AsRef<std::path::Path>,
+) -> anyhow::Result<()> {
+    use line_drawing::XiaolinWu;
+    let mut px_bytes = vec![0u8; width * height * 4];
+
+    let view = View {
+        x_min: 0.0,
+        y_min: 0.0,
+        x_max: input.target_len as f64,
+        y_max: input.query_len as f64,
+    };
+
+    let w = width as i64;
+    let h = height as i64;
+
+    let screen_dims = [w as u32, h as u32];
+
+    let matches = &input.match_edges;
+
+    for &[from, to] in matches {
+        let s_from = view.map_world_to_screen(screen_dims, from);
+        let s_to = view.map_world_to_screen(screen_dims, to);
+
+        let start: [f32; 2] = s_from.into();
+        let end: [f32; 2] = s_to.into();
+
+        let line = XiaolinWu::<f32, i64>::new(start.into(), end.into());
+
+        println!("   match: ({from:?}, {to:?})");
+        println!("  screen: ({s_from:?}, {s_to:?})");
+
+        for ((x, y), val) in line {
+            println!(": {x}, {y}");
+            // x & y are in screen coordinates
+            if x < 0 || x >= w || y < 0 || y >= h {
+                continue;
+            }
+
+            let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut px_bytes);
+            let ix = x + y * w;
+
+            let val = (255.0 * val) as u8;
+            let [rgb @ .., a] = &mut pixels[ix as usize];
+            *a = 255;
+            for chan in rgb {
+                *chan = val;
+            }
+        }
+    }
+
+    lodepng::encode32_file(out_path, &px_bytes, width, height)?;
+    // let mut writer = std::fs::File::new(out_path).map(std::io::BufWriter::new)?;
+    // let mut encoder = png::Encoder::new(writer,
+
+    // let mut writer = std::io::Bu
+
+    Ok(())
 }
 
 pub fn main() -> anyhow::Result<()> {
@@ -207,8 +270,8 @@ pub fn main() -> anyhow::Result<()> {
     println!("sum query len: {query_len}");
     println!("drawing {} matches", paf_input.match_edges.len());
 
-    let mut min = Vec2::broadcast(std::f32::MAX);
-    let mut max = Vec2::broadcast(std::f32::MIN);
+    let mut min = DVec2::broadcast(std::f64::MAX);
+    let mut max = DVec2::broadcast(std::f64::MIN);
 
     for &[from, to] in paf_input.match_edges.iter() {
         min = min.min_by_component(from).min_by_component(to);
@@ -264,7 +327,7 @@ fn process_cigar(
     origin: [usize; 2],
     target_len: usize,
     query_len: usize,
-    match_edges: &mut Vec<[Vec2; 2]>,
+    match_edges: &mut Vec<[DVec2; 2]>,
 ) -> anyhow::Result<()> {
     let ops = paf
         .cigar
@@ -283,20 +346,19 @@ fn process_cigar(
                 let x = target_pos;
                 let y = query_pos;
 
-                // TODO output match
                 {
-                    let x0 = x as f32 / target_len as f32;
-                    let y0 = y as f32 / query_len as f32;
+                    let x0 = x as f64 / target_len as f64;
+                    let y0 = y as f64 / query_len as f64;
 
                     let x_end = if paf.strand_rev {
                         x.checked_sub(count).unwrap_or_default()
                     } else {
                         x + count
                     };
-                    let x1 = x_end as f32 / target_len as f32;
-                    let y1 = (y + count) as f32 / query_len as f32;
+                    let x1 = x_end as f64 / target_len as f64;
+                    let y1 = (y + count) as f64 / query_len as f64;
 
-                    match_edges.push([Vec2::new(x0, y0), Vec2::new(x1, y1)]);
+                    match_edges.push([DVec2::new(x0, y0), DVec2::new(x1, y1)]);
                 }
 
                 // update query pos & target pos
@@ -329,7 +391,7 @@ fn process_cigar_compress(
     origin: [usize; 2],
     target_len: usize,
     query_len: usize,
-    match_edges: &mut Vec<[Vec2; 2]>,
+    match_edges: &mut Vec<[DVec2; 2]>,
 ) -> anyhow::Result<()> {
     use OpProj::*;
 
@@ -379,18 +441,18 @@ fn process_cigar_compress(
                 let y = query_pos;
 
                 {
-                    let x0 = x as f32 / target_len as f32;
-                    let y0 = y as f32 / query_len as f32;
+                    let x0 = x as f64 / target_len as f64;
+                    let y0 = y as f64 / query_len as f64;
 
                     let x_end = if paf.strand_rev {
                         x.checked_sub(count).unwrap_or_default()
                     } else {
                         x + count
                     };
-                    let x1 = x_end as f32 / target_len as f32;
-                    let y1 = (y + count) as f32 / query_len as f32;
+                    let x1 = x_end as f64 / target_len as f64;
+                    let y1 = (y + count) as f64 / query_len as f64;
 
-                    match_edges.push([Vec2::new(x0, y0), Vec2::new(x1, y1)]);
+                    match_edges.push([DVec2::new(x0, y0), DVec2::new(x1, y1)]);
                 }
 
                 // update query pos & target pos
@@ -527,14 +589,14 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         let color = 0x00000000;
 
         for &[from, to] in input.match_edges.iter() {
-            let x0 = from.x * input.target_len as f32;
-            let y0 = from.y * input.query_len as f32;
-            let x1 = to.x * input.target_len as f32;
-            let y1 = to.y * input.query_len as f32;
+            let x0 = from.x * input.target_len as f64;
+            let y0 = from.y * input.query_len as f64;
+            let x1 = to.x * input.target_len as f64;
+            let y1 = to.y * input.query_len as f64;
 
             lines.push(LineVertex {
-                p0: [x0, y0].into(),
-                p1: [x1, y1].into(),
+                p0: [x0 as f32, y0 as f32].into(),
+                p1: [x1 as f32, y1 as f32].into(),
                 // color,
             });
         }
