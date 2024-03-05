@@ -182,14 +182,13 @@ pub fn main() -> anyhow::Result<()> {
     for line in reader.lines() {
         let line = line?;
         if let Some(paf_line) = parse_paf_line(line.split('\t')) {
-            let qi = names.query_names.len();
-            let ti = names.target_names.len();
-
             let query_name = paf_line.query_name.to_string();
-            let target_name = paf_line.query_name.to_string();
+            let target_name = paf_line.tgt_name.to_string();
 
-            names.query_names.insert(query_name.clone(), qi);
-            names.target_names.insert(target_name.clone(), ti);
+            names.query_names.insert(query_name.clone(), queries.len());
+            names
+                .target_names
+                .insert(target_name.clone(), targets.len());
 
             queries.push(AlignedSeq {
                 name: query_name,

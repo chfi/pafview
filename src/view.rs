@@ -163,6 +163,7 @@ impl View {
 
         todo!();
     }
+}
 
 #[cfg(test)]
 mod tests {
