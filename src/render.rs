@@ -369,3 +369,68 @@ pub fn create_multisampled_framebuffer(
         .create_texture(multisampled_frame_descriptor)
         .create_view(&wgpu::TextureViewDescriptor::default())
 }
+
+pub struct PafRenderer {
+    line_pipeline: LinePipeline,
+    msaa_samples: u32,
+
+    match_vertices: Option<wgpu::Buffer>,
+}
+
+impl PafRenderer {
+    fn draw_frame(
+        &self,
+        params: &PafDrawSet,
+        match_instances: std::ops::Range<u32>,
+        encoder: &mut CommandEncoder,
+    ) {
+        let Some(match_buffer) = &self.match_vertices else {
+            log::warn!("PafRenderer has no vertex buffer");
+            return;
+        };
+
+        let attch = if let Some(msaa_view) = &params.framebuffers.msaa_view {
+            wgpu::RenderPassColorAttachment {
+                view: msaa_view,
+                resolve_target: Some(&params.framebuffers.color_view),
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                    store: wgpu::StoreOp::Discard,
+                },
+            }
+        } else {
+            wgpu::RenderPassColorAttachment {
+                view: &params.framebuffers.color_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                    store: wgpu::StoreOp::Store,
+                },
+            }
+        };
+
+        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(attch)],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        rpass.set_pipeline(&self.line_pipeline.pipeline);
+        rpass.set_bind_group(0, &params.line_bind_group, &[]);
+        rpass.set_vertex_buffer(0, match_buffer.slice(..));
+        rpass.draw(0..6, match_instances);
+    }
+}
+
+struct PafTextures {
+    color_view: TextureView,
+    msaa_view: Option<TextureView>,
+}
+
+pub struct PafDrawSet {
+    framebuffers: PafTextures,
+
+    line_bind_group: wgpu::BindGroup,
+}
