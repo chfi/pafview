@@ -312,7 +312,7 @@ impl EguiRenderer {
         let attch = if let Some(msaa_framebuffer) = &self.msaa_framebuffer {
             wgpu::RenderPassColorAttachment {
                 view: msaa_framebuffer,
-                resolve_target: Some(&window_surface_view),
+                resolve_target: Some(window_surface_view),
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
                     store: wgpu::StoreOp::Discard,
@@ -320,7 +320,7 @@ impl EguiRenderer {
             }
         } else {
             wgpu::RenderPassColorAttachment {
-                view: &window_surface_view,
+                view: window_surface_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Load,
@@ -445,8 +445,6 @@ pub struct ImageRenderer {
     pipeline_layout: wgpu::PipelineLayout,
     pipeline: wgpu::RenderPipeline,
 
-    msaa_samples: u32,
-
     sampler: wgpu::Sampler,
 }
 
@@ -455,7 +453,6 @@ impl ImageRenderer {
         device: &wgpu::Device,
         // color_format: wgpu::TextureFormat,
         swapchain_format: wgpu::TextureFormat,
-        msaa_samples: u32,
     ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
@@ -469,7 +466,7 @@ impl ImageRenderer {
                 ty: wgpu::BindingType::Texture {
                     sample_type: wgpu::TextureSampleType::Float { filterable: true },
                     view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: msaa_samples > 1,
+                    multisampled: false,
                 },
                 count: None,
             },
@@ -507,10 +504,7 @@ impl ImageRenderer {
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: msaa_samples,
-                ..Default::default()
-            },
+            multisample: wgpu::MultisampleState::default(),
             multiview: None,
         });
 
@@ -529,7 +523,6 @@ impl ImageRenderer {
             bind_group_layout,
             pipeline_layout,
             pipeline,
-            msaa_samples,
             sampler,
         }
     }
@@ -575,8 +568,30 @@ impl ImageRenderer {
         swapchain_view: &wgpu::TextureView,
         encoder: &mut wgpu::CommandEncoder,
     ) {
-        // let attch =
+        let Some(bind_group) = &bind_group.bind_group else {
+            log::warn!(
+                "Attempted to draw using the sampled image renderer but there's no bind group"
+            );
+            return;
+        };
 
-        todo!();
+        let attch = wgpu::RenderPassColorAttachment {
+            view: swapchain_view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                store: wgpu::StoreOp::Store,
+            },
+        };
+
+        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Image Renderer"),
+            color_attachments: &[Some(attch)],
+            ..Default::default()
+        });
+
+        rpass.set_pipeline(&self.pipeline);
+        rpass.set_bind_group(0, bind_group, &[]);
+        rpass.draw(0..6, 0..1);
     }
 }
