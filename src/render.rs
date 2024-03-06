@@ -435,7 +435,14 @@ pub struct PafDrawSet {
     line_bind_group: wgpu::BindGroup,
 }
 
+pub struct ImageRendererBindGroup {
+    color_view_id: Option<wgpu::Id<wgpu::TextureView>>,
+    bind_group: Option<wgpu::BindGroup>,
+}
+
 pub struct ImageRenderer {
+    bind_group_layout: wgpu::BindGroupLayout,
+    pipeline_layout: wgpu::PipelineLayout,
     pipeline: wgpu::RenderPipeline,
 
     msaa_samples: u32,
@@ -519,9 +526,57 @@ impl ImageRenderer {
         });
 
         Self {
+            bind_group_layout,
+            pipeline_layout,
             pipeline,
             msaa_samples,
             sampler,
         }
+    }
+
+    fn create_bind_groups(
+        &self,
+        device: &wgpu::Device,
+        img_group: &mut ImageRendererBindGroup,
+        color_view: &wgpu::TextureView,
+    ) {
+        let is_up_to_date = img_group
+            .color_view_id
+            .is_some_and(|id| id == color_view.global_id());
+
+        if is_up_to_date {
+            return;
+        }
+
+        let entries = [
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&color_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&self.sampler),
+            },
+        ];
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Image Renderer"),
+            layout: &self.bind_group_layout,
+            entries: &entries,
+        });
+
+        img_group.color_view_id = Some(color_view.global_id());
+        img_group.bind_group = Some(bind_group);
+    }
+
+    fn draw(
+        &self,
+        bind_group: &ImageRendererBindGroup,
+        swapchain_view: &wgpu::TextureView,
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
+        // let attch =
+
+        todo!();
     }
 }
