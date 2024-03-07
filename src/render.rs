@@ -9,6 +9,7 @@ use std::borrow::Cow;
 use ultraviolet::{Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::SurfaceConfiguration;
+use wgpu::Texture;
 use wgpu::{CommandEncoder, Device, Queue, TextureFormat, TextureView};
 use winit::{
     event::{Event, MouseButton, WindowEvent},
@@ -375,9 +376,26 @@ pub struct PafRenderer {
     msaa_samples: u32,
 
     match_vertices: Option<wgpu::Buffer>,
+
+    active_task: Option<PafDrawTask>,
+
+    draw_sets: [PafDrawSet; 2],
 }
 
 impl PafRenderer {
+    pub fn draw(
+        &mut self,
+        view: crate::view::View,
+        window_dims: [u32; 2],
+        swapchain_view: &TextureView,
+    ) {
+        // if there's no active task, and the previous task rehas the same view & dims
+        // as being asked for, just draw the stored image
+        // otherwise, submit a new task to the queue
+
+        todo!();
+    }
+
     fn draw_frame(
         &self,
         params: &PafDrawSet,
@@ -425,8 +443,18 @@ impl PafRenderer {
 }
 
 struct PafTextures {
+    color_texture: Texture,
     color_view: TextureView,
     msaa_view: Option<TextureView>,
+}
+
+pub struct PafDrawTask {
+    target_range: std::ops::Range<u64>,
+    query_range: std::ops::Range<u64>,
+
+    window_dims: [u32; 2],
+
+    complete: std::sync::atomic::AtomicBool,
 }
 
 pub struct PafDrawSet {
