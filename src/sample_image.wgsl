@@ -12,7 +12,7 @@ fn vs_main(
 
   var uv: vec2f;
   var pos: vec2f;
-  switch i {
+  switch vertex_index % 6u {
       case 0u: {
         pos = vec2(0.0, 0.0);
         uv = vec2(0.0, 0.0);
@@ -39,14 +39,16 @@ fn vs_main(
       }
   }
 
+  var result: VertexOut;
   result.position = u_projection * vec4(pos, 0.5, 1.0);
   result.uv = uv;
 
+  return result;
 }
 
 
 @group(1) @binding(0)
-var u_texture: texture_2d<vec4f>;
+var u_texture: texture_2d<f32>;
 
 @group(1) @binding(1)
 var u_sampler: sampler;
@@ -57,6 +59,6 @@ struct FragmentOut {
 
 @fragment
 fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
-  let color = textureSample(u_color, u_texture, uv);
+  let color = textureSample(u_texture, u_sampler, uv);
   return color;
 }

@@ -616,82 +616,90 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         y_max: input.query_len as f64,
     };
 
-    let (proj_uniform, line_conf_uniform, short_conf_uniform) = {
-        let projection = app_view.to_mat4();
-        let proj_uniform = device.create_buffer_init(&BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(&[projection]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+    // let (proj_uniform, line_conf_uniform, short_conf_uniform) = {
+    //     let projection = app_view.to_mat4();
+    //     let proj_uniform = device.create_buffer_init(&BufferInitDescriptor {
+    //         label: None,
+    //         contents: bytemuck::cast_slice(&[projection]),
+    //         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    //     });
 
-        // px / window width
-        let line_width: f32 = 5.0 / 1000.0;
-        // let line_width: f32 = 15.0 / 1000.0;
-        let conf = [line_width, 0.0, 0.0, 0.0];
-        let line_conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(&conf),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+    //     // px / window width
+    //     let line_width: f32 = 5.0 / 1000.0;
+    //     // let line_width: f32 = 15.0 / 1000.0;
+    //     let conf = [line_width, 0.0, 0.0, 0.0];
+    //     let line_conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
+    //         label: None,
+    //         contents: bytemuck::cast_slice(&conf),
+    //         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    //     });
 
-        let frag_width = 0.5 / size.width as f32;
-        let frag_height = 0.5 / size.height as f32;
-        // let frag_width = 2.5 / size.width as f32;
-        // let frag_height = 2.5 / size.height as f32;
+    //     let frag_width = 0.5 / size.width as f32;
+    //     let frag_height = 0.5 / size.height as f32;
+    //     // let frag_width = 2.5 / size.width as f32;
+    //     // let frag_height = 2.5 / size.height as f32;
 
-        let conf = [frag_width, frag_height, 0.0, 0.0];
-        let short_conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
-            label: None,
-            contents: bytemuck::cast_slice(&conf),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+    //     let conf = [frag_width, frag_height, 0.0, 0.0];
+    //     let short_conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
+    //         label: None,
+    //         contents: bytemuck::cast_slice(&conf),
+    //         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    //     });
 
-        (proj_uniform, line_conf_uniform, short_conf_uniform)
-    };
+    //     (proj_uniform, line_conf_uniform, short_conf_uniform)
+    // };
 
-    let line_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: None,
-        layout: &line_pipeline.bind_group_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: proj_uniform.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: line_conf_uniform.as_entire_binding(),
-            },
-        ],
-    });
+    // let line_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    //     label: None,
+    //     layout: &line_pipeline.bind_group_layout,
+    //     entries: &[
+    //         wgpu::BindGroupEntry {
+    //             binding: 0,
+    //             resource: proj_uniform.as_entire_binding(),
+    //         },
+    //         wgpu::BindGroupEntry {
+    //             binding: 1,
+    //             resource: line_conf_uniform.as_entire_binding(),
+    //         },
+    //     ],
+    // });
 
-    let short_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: None,
-        layout: &short_pipeline.bind_group_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: proj_uniform.as_entire_binding(),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: short_conf_uniform.as_entire_binding(),
-            },
-        ],
-    });
+    // let short_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+    //     label: None,
+    //     layout: &short_pipeline.bind_group_layout,
+    //     entries: &[
+    //         wgpu::BindGroupEntry {
+    //             binding: 0,
+    //             resource: proj_uniform.as_entire_binding(),
+    //         },
+    //         wgpu::BindGroupEntry {
+    //             binding: 1,
+    //             resource: short_conf_uniform.as_entire_binding(),
+    //         },
+    //     ],
+    // });
 
     let mut config = surface
         .get_default_config(&adapter, size.width, size.height)
         .unwrap();
     surface.configure(&device, &config);
 
-    let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
-
-    let mut msaa_framebuffer = create_multisampled_framebuffer(
+    let mut paf_renderer = PafRenderer::new(
         &device,
-        [config.width, config.height],
         config.format,
         sample_count,
+        match_buffer,
+        match_instances,
     );
+
+    let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
+
+    // let mut msaa_framebuffer = create_multisampled_framebuffer(
+    //     &device,
+    //     [config.width, config.height],
+    //     config.format,
+    //     sample_count,
+    // );
 
     let mut mouse_down = false;
     let mut last_pos = None;
@@ -769,12 +777,12 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                         config.width = new_size.width.max(1);
                         config.height = new_size.height.max(1);
                         surface.configure(&device, &config);
-                        msaa_framebuffer = create_multisampled_framebuffer(
-                            &device,
-                            [config.width, config.height],
-                            config.format,
-                            sample_count,
-                        );
+                        // msaa_framebuffer = create_multisampled_framebuffer(
+                        //     &device,
+                        //     [config.width, config.height],
+                        //     config.format,
+                        //     sample_count,
+                        // );
                         egui_renderer.resize(&device, &config, 1);
                         // On macos the window needs to be redrawn manually after resizing
                         window.request_redraw();
@@ -782,18 +790,19 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                     WindowEvent::RedrawRequested => {
                         let delta_t = last_frame.elapsed().as_secs_f64();
 
+                        let win_size: [u32; 2] = window.inner_size().into();
+
                         if delta.x != 0.0 || delta.y != 0.0 || delta_scale != 1.0 {
-                            let win_size: [u32; 2] = window.inner_size().into();
                             let dx = -delta.x * app_view.width() / win_size[0] as f64;
                             let dy = -delta.y * app_view.height() / win_size[1] as f64;
                             app_view.translate(dx, dy);
                             app_view.scale_around_center(delta_scale);
-                            let projection = app_view.to_mat4();
-                            queue.write_buffer(
-                                &proj_uniform,
-                                0,
-                                bytemuck::cast_slice(&[projection]),
-                            );
+                            // let projection = app_view.to_mat4();
+                            // queue.write_buffer(
+                            //     &proj_uniform,
+                            //     0,
+                            //     bytemuck::cast_slice(&[projection]),
+                            // );
                         }
                         delta = DVec2::new(0.0, 0.0);
                         delta_scale = 1.0;
@@ -810,6 +819,17 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                             device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                                 label: None,
                             });
+
+                        paf_renderer.draw(
+                            &device,
+                            &queue,
+                            &app_view,
+                            win_size,
+                            &frame_view,
+                            &mut encoder,
+                        );
+
+                        /*
                         {
                             let attch = if sample_count == 1 {
                                 wgpu::RenderPassColorAttachment {
@@ -852,6 +872,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                             rpass.set_vertex_buffer(0, match_buffer.slice(..));
                             rpass.draw(0..6, match_instances.clone());
                         }
+                        */
 
                         egui_renderer.draw(
                             &device,
