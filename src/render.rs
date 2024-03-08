@@ -384,10 +384,12 @@ pub struct PafRenderer {
     match_vertices: wgpu::Buffer,
 
     active_task: Option<PafDrawTask>,
-    draw_sets: [Option<PafDrawSet>; 2],
+    draw_states: [PafDrawState; 2],
 }
 
 impl PafRenderer {
+    const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
     pub fn new(
         device: &wgpu::Device,
         swapchain_format: wgpu::TextureFormat,
@@ -396,12 +398,17 @@ impl PafRenderer {
     ) -> Self {
         let line_pipeline = LinePipeline::new(&device, swapchain_format, msaa_samples);
 
+        let init_state =
+            || PafDrawState::init(device, &line_pipeline.bind_group_layout, Self::COLOR_FORMAT);
+
+        let draw_states = [init_state(), init_state()];
+
         Self {
             line_pipeline,
             msaa_samples,
             match_vertices,
             active_task: None,
-            draw_sets: [None, None],
+            draw_states,
         }
     }
 
@@ -417,13 +424,14 @@ impl PafRenderer {
         let task_complete = self.active_task.as_ref().is_some_and(|t| t.is_complete());
         if task_complete {
             self.active_task = None;
-            self.draw_sets.swap(0, 1);
-            debug_assert!(self.draw_sets[0].is_some());
+            self.draw_states.swap(0, 1);
+            debug_assert!(self.draw_states[0].draw_set.is_some());
         }
 
         let task_running = self.active_task.is_some();
 
-        let need_update = self.draw_sets[0]
+        let need_update = self.draw_states[0]
+            .draw_set
             .as_ref()
             .is_some_and(|set| !set.params.matches_view_and_dims(view, window_dims));
 
@@ -431,22 +439,54 @@ impl PafRenderer {
             // if the new view and/or window dims differ from the front buffer,
             // and if there is no active task, queue a new task using the back buffer
 
-            let create_draw_set = if let Some(set) = &self.draw_sets[1] {
-                set.params.window_dims != window_dims
-            } else {
-                true
-            };
+            // let create_draw_set = if let Some(set) = &self.draw_states[1].draw_set {
+            //     set.params.window_dims != window_dims
+            // } else {
+            //     true
+            // };
 
-            if create_draw_set {
-                let params = PafDrawParams::from_view_and_dims(view, window_dims);
-
-                self.draw_sets[1] = Some(PafDrawSet {
-                    params,
-                    framebuffers: todo!(),
-                    line_bind_group: todo!(),
-                });
+            if let Some(mut set) = self.draw_states[1].draw_set.take() {
+                if set.params.window_dims != window_dims {
+                    set.recreate_framebuffers(
+                        device,
+                        &self.line_pipeline.bind_group_layout,
+                        Self::COLOR_FORMAT,
+                        self.msaa_samples,
+                        window_dims,
+                    )
+                }
+                self.draw_states[1].draw_set = Some(set);
             }
 
+            if self.draw_states[1].draw_set.is_none() {
+                self.draw_states[1].draw_set = Some(PafDrawSet::new(
+                    device,
+                    &self.line_pipeline.bind_group_layout,
+                    Self::COLOR_FORMAT,
+                    self.msaa_samples,
+                    window_dims,
+                ));
+            }
+
+            let Some(draw_set) = self.draw_states[1].draw_set.as_mut() else {
+                unreachable!();
+            };
+
+            let params = PafDrawParams::from_view_and_dims(view, window_dims);
+
+            draw_set.params = params;
+
+            // if create_draw_set {
+            // self.draw_sets[1] = Some(PafDrawSet::new(
+
+            // self.draw_sets[1] = Some(PafDrawSet {
+            //     params,
+            //     framebuffers: todo!(),
+            //     line_bind_group: todo!(),
+            // });
+            // }
+
+            /*
             let Some(draw_set) = &self.draw_sets[1] else {
                 unreachable!();
             };
@@ -458,6 +498,7 @@ impl PafRenderer {
                 // use old framebuffers & bind group if size matches, otherwise recreate
                 todo!();
             };
+            */
 
             // render pass & encoder
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -613,10 +654,130 @@ impl PafDrawParams {
     }
 }
 
-pub struct PafDrawSet {
+struct PafUniforms {
+    proj_uniform: wgpu::Buffer,
+    conf_uniform: wgpu::Buffer,
+    line_bind_group: wgpu::BindGroup,
+}
+
+struct PafDrawState {
+    draw_set: Option<PafDrawSet>,
+    uniforms: PafUniforms,
+}
+
+impl PafDrawState {
+    fn init(
+        device: &wgpu::Device,
+        bind_group_layout: &wgpu::BindGroupLayout,
+        color_format: wgpu::TextureFormat,
+    ) -> Self {
+        // let projection = view.to_mat4();
+        let mat = Mat4::identity();
+        let proj_uniform = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&[mat]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // px / window width
+        // let line_width: f32 = 5.0 / 1000.0;
+        // let line_width: f32 = 15.0 / 1000.0;
+        let conf = [1f32, 0.0, 0.0, 0.0];
+        let conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&conf),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let line_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: proj_uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: conf_uniform.as_entire_binding(),
+                },
+            ],
+        });
+
+        Self {
+            draw_set: None,
+            uniforms: PafUniforms {
+                proj_uniform,
+                conf_uniform,
+                line_bind_group,
+            },
+        }
+    }
+
+    fn update_uniforms(&self, queue: &wgpu::Queue, view: crate::view::View, window_dims: [u32; 2]) {
+        let proj = view.to_mat4();
+        queue.write_buffer(
+            &self.uniforms.proj_uniform,
+            0,
+            bytemuck::cast_slice(&[proj]),
+        );
+
+        let line_width: f32 = 5.0 / window_dims[0] as f32;
+        queue.write_buffer(
+            &self.uniforms.conf_uniform,
+            0,
+            bytemuck::cast_slice(&[line_width, 0.0, 0.0, 0.0]),
+        );
+    }
+}
+
+struct PafDrawSet {
     params: PafDrawParams,
     framebuffers: PafTextures,
-    line_bind_group: wgpu::BindGroup,
+    // uniforms: PafUniforms,
+}
+
+impl PafDrawSet {
+    fn new(
+        device: &wgpu::Device,
+        bind_group_layout: &wgpu::BindGroupLayout,
+        color_format: wgpu::TextureFormat,
+        msaa_samples: u32,
+        // view: crate::view::View,
+        // params: PafDrawParams,
+        window_dims: [u32; 2],
+    ) -> Self {
+        let framebuffers = PafTextures::new(device, color_format, window_dims, msaa_samples);
+        let params = PafDrawParams {
+            target_range: 0.0..=0.0,
+            query_range: 0.0..=0.0,
+            window_dims,
+        };
+        // let params = PafDrawParams::from_view_and_dims(view, window_dims);
+
+        Self {
+            params,
+            framebuffers,
+        }
+    }
+
+    fn recreate_framebuffers(
+        &mut self,
+        device: &wgpu::Device,
+        bind_group_layout: &wgpu::BindGroupLayout,
+        color_format: wgpu::TextureFormat,
+        msaa_samples: u32,
+        window_dims: [u32; 2],
+    ) {
+        if self.params.window_dims == window_dims {
+            return;
+        }
+
+        self.params.window_dims = window_dims;
+        self.params.query_range = 0.0..=0.0;
+        self.params.target_range = 0.0..=0.0;
+
+        self.framebuffers = PafTextures::new(device, color_format, window_dims, msaa_samples);
+    }
 }
 
 pub struct ImageRendererBindGroup {
