@@ -252,7 +252,8 @@ impl EguiRenderer {
         let msaa_framebuffer = if msaa_samples > 1 {
             Some(create_multisampled_framebuffer(
                 &device,
-                &surface_config,
+                [surface_config.width, surface_config.height],
+                surface_config.format,
                 msaa_samples,
             ))
         } else {
@@ -271,7 +272,8 @@ impl EguiRenderer {
         self.msaa_framebuffer = if msaa_samples > 1 {
             Some(create_multisampled_framebuffer(
                 &device,
-                &config,
+                [config.width, config.height],
+                config.format,
                 msaa_samples,
             ))
         } else {
@@ -349,12 +351,14 @@ impl EguiRenderer {
 
 pub fn create_multisampled_framebuffer(
     device: &wgpu::Device,
-    config: &wgpu::SurfaceConfiguration,
+    dims: [u32; 2],
+    format: wgpu::TextureFormat,
     sample_count: u32,
 ) -> wgpu::TextureView {
+    let [width, height] = dims;
     let multisampled_texture_extent = wgpu::Extent3d {
-        width: config.width,
-        height: config.height,
+        width,
+        height,
         depth_or_array_layers: 1,
     };
     let multisampled_frame_descriptor = &wgpu::TextureDescriptor {
@@ -362,7 +366,7 @@ pub fn create_multisampled_framebuffer(
         mip_level_count: 1,
         sample_count,
         dimension: wgpu::TextureDimension::D2,
-        format: config.format,
+        format: format,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         label: None,
         view_formats: &[],
@@ -524,6 +528,56 @@ struct PafTextures {
     color_texture: Texture,
     color_view: TextureView,
     msaa_view: Option<TextureView>,
+}
+
+impl PafTextures {
+    fn new(
+        device: &wgpu::Device,
+        color_format: wgpu::TextureFormat,
+        size: [u32; 2],
+        msaa_samples: u32,
+    ) -> Self {
+        let label_prefix = format!("PafTextures {size:?} MSAA:{msaa_samples}");
+
+        let extent = wgpu::Extent3d {
+            width: size[0],
+            height: size[1],
+            depth_or_array_layers: 1,
+        };
+
+        let color_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(&format!("{label_prefix} Color")),
+            size: extent,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: color_format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+
+        let color_view = color_texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some(&format!("{label_prefix} Color View")),
+            ..Default::default()
+        });
+
+        let msaa_view = if msaa_samples > 1 {
+            Some(create_multisampled_framebuffer(
+                device,
+                size,
+                color_format,
+                msaa_samples,
+            ))
+        } else {
+            None
+        };
+
+        Self {
+            color_texture,
+            color_view,
+            msaa_view,
+        }
+    }
 }
 
 struct PafDrawTask {

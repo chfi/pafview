@@ -686,7 +686,12 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
 
     let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
 
-    let mut msaa_framebuffer = create_multisampled_framebuffer(&device, &config, sample_count);
+    let mut msaa_framebuffer = create_multisampled_framebuffer(
+        &device,
+        [config.width, config.height],
+        config.format,
+        sample_count,
+    );
 
     let mut mouse_down = false;
     let mut last_pos = None;
@@ -764,8 +769,12 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                         config.width = new_size.width.max(1);
                         config.height = new_size.height.max(1);
                         surface.configure(&device, &config);
-                        msaa_framebuffer =
-                            create_multisampled_framebuffer(&device, &config, sample_count);
+                        msaa_framebuffer = create_multisampled_framebuffer(
+                            &device,
+                            [config.width, config.height],
+                            config.format,
+                            sample_count,
+                        );
                         egui_renderer.resize(&device, &config, 1);
                         // On macos the window needs to be redrawn manually after resizing
                         window.request_redraw();
