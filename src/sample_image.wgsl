@@ -1,10 +1,9 @@
-
-
-
 struct VertexOut {
   @builtin(position) position: vec4f,
   @location(0) uv: vec2f,
 }
+
+@group(0) @binding(0) var<uniform> u_projection: mat4x4f;
 
 @vertex
 fn vs_main(
@@ -40,16 +39,16 @@ fn vs_main(
       }
   }
 
-  result.position = vec4(pos, 0.5, 1.0);
+  result.position = u_projection * vec4(pos, 0.5, 1.0);
   result.uv = uv;
 
 }
 
 
-@group(0) @binding(0)
+@group(1) @binding(0)
 var u_texture: texture_2d<vec4f>;
 
-@group(0) @binding(1)
+@group(1) @binding(1)
 var u_sampler: sampler;
 
 struct FragmentOut {

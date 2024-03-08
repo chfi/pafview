@@ -366,7 +366,7 @@ pub fn create_multisampled_framebuffer(
         mip_level_count: 1,
         sample_count,
         dimension: wgpu::TextureDimension::D2,
-        format: format,
+        format,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         label: None,
         view_formats: &[],
@@ -385,6 +385,9 @@ pub struct PafRenderer {
 
     active_task: Option<PafDrawTask>,
     draw_states: [PafDrawState; 2],
+
+    image_renderer: ImageRenderer,
+    image_bind_groups: [ImageRendererBindGroup; 2],
 }
 
 impl PafRenderer {
@@ -403,28 +406,68 @@ impl PafRenderer {
 
         let draw_states = [init_state(), init_state()];
 
+        let image_renderer = ImageRenderer::new(device, swapchain_format);
+
+        let image_bind_groups = [
+            ImageRendererBindGroup::default(),
+            ImageRendererBindGroup::default(),
+        ];
+
         Self {
             line_pipeline,
             msaa_samples,
             match_vertices,
             active_task: None,
             draw_states,
+            image_renderer,
+            image_bind_groups,
         }
     }
 
-    pub fn draw(
+    fn draw_front_image(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         view: crate::view::View,
         window_dims: [u32; 2],
         swapchain_view: &TextureView,
+        encoder: &mut CommandEncoder,
+    ) {
+        let can_draw_front = self.draw_states[0].draw_set.is_some();
+
+        if let Some(set) = self.draw_states[0].draw_set.as_ref() {
+            self.image_renderer.create_bind_groups(
+                device,
+                &mut self.image_bind_groups[0],
+                &set.framebuffers.color_view,
+            )
+        }
+
+        if can_draw_front {
+            // TODO update uniform
+
+            self.image_renderer
+                .draw(&self.image_bind_groups[0], swapchain_view, encoder);
+        } else {
+            self.image_renderer.clear(swapchain_view, encoder);
+        }
+    }
+
+    fn submit_draw_matches(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        view: crate::view::View,
+        window_dims: [u32; 2],
+        instances: std::ops::Range<u32>,
+        // swapchain_view: &TextureView,
     ) {
         // if there's an active task and it has completed, swap it to the front
         let task_complete = self.active_task.as_ref().is_some_and(|t| t.is_complete());
         if task_complete {
             self.active_task = None;
             self.draw_states.swap(0, 1);
+            self.image_bind_groups.swap(0, 1);
             debug_assert!(self.draw_states[0].draw_set.is_some());
         }
 
@@ -439,12 +482,7 @@ impl PafRenderer {
             // if the new view and/or window dims differ from the front buffer,
             // and if there is no active task, queue a new task using the back buffer
 
-            // let create_draw_set = if let Some(set) = &self.draw_states[1].draw_set {
-            //     set.params.window_dims != window_dims
-            // } else {
-            //     true
-            // };
-
+            // recreate buffers if present & size mismatch
             if let Some(mut set) = self.draw_states[1].draw_set.take() {
                 if set.params.window_dims != window_dims {
                     set.recreate_framebuffers(
@@ -458,6 +496,7 @@ impl PafRenderer {
                 self.draw_states[1].draw_set = Some(set);
             }
 
+            // create buffers if not initialized
             if self.draw_states[1].draw_set.is_none() {
                 self.draw_states[1].draw_set = Some(PafDrawSet::new(
                     device,
@@ -468,65 +507,46 @@ impl PafRenderer {
                 ));
             }
 
+            let params = PafDrawParams::from_view_and_dims(view, window_dims);
+            self.draw_states[1].update_uniforms(queue, view, window_dims);
+
             let Some(draw_set) = self.draw_states[1].draw_set.as_mut() else {
                 unreachable!();
             };
 
-            let params = PafDrawParams::from_view_and_dims(view, window_dims);
-
             draw_set.params = params;
 
-            // if create_draw_set {
-            // self.draw_sets[1] = Some(PafDrawSet::new(
-
-            // self.draw_sets[1] = Some(PafDrawSet {
-            //     params,
-            //     framebuffers: todo!(),
-            //     line_bind_group: todo!(),
-            // });
-            // }
-
-            /*
-            let Some(draw_set) = &self.draw_sets[1] else {
-                unreachable!();
-            };
-
-            let draw_set = if self.draw_sets[1].is_none() {
-                // create new framebuffers & bind group
-                todo!();
-            } else {
-                // use old framebuffers & bind group if size matches, otherwise recreate
-                todo!();
-            };
-            */
-
+            let uniforms = &self.draw_states[1].uniforms;
             // render pass & encoder
             let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("PafRenderer Lines"),
             });
 
-            //
+            Self::draw_frame(
+                &self.line_pipeline,
+                draw_set,
+                uniforms,
+                &self.match_vertices,
+                instances,
+                &mut encoder,
+            );
+
+            let task = PafDrawTask::new();
+            self.active_task = Some(task.clone());
 
             queue.submit([encoder.finish()]);
-            queue.on_submitted_work_done(|| {
-                //
+            queue.on_submitted_work_done(move || {
+                task.complete
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
             });
         }
-
-        /*
-        if let Some(task) = &self.active_task {
-            // if window_dims == task.window_dims &&
-
-        } else {
-        };
-        */
-
-        todo!();
     }
 
     fn draw_frame(
-        &self,
+        line_pipeline: &LinePipeline,
         params: &PafDrawSet,
+        uniforms: &PafUniforms,
+        match_vertices: &wgpu::Buffer,
         match_instances: std::ops::Range<u32>,
         encoder: &mut CommandEncoder,
     ) {
@@ -558,9 +578,9 @@ impl PafRenderer {
             occlusion_query_set: None,
         });
 
-        rpass.set_pipeline(&self.line_pipeline.pipeline);
-        rpass.set_bind_group(0, &params.line_bind_group, &[]);
-        rpass.set_vertex_buffer(0, self.match_vertices.slice(..));
+        rpass.set_pipeline(&line_pipeline.pipeline);
+        rpass.set_bind_group(0, &uniforms.line_bind_group, &[]);
+        rpass.set_vertex_buffer(0, match_vertices.slice(..));
         rpass.draw(0..6, match_instances);
     }
 }
@@ -621,11 +641,18 @@ impl PafTextures {
     }
 }
 
+#[derive(Clone)]
 struct PafDrawTask {
     complete: Arc<AtomicBool>,
 }
 
 impl PafDrawTask {
+    fn new() -> Self {
+        Self {
+            complete: AtomicBool::new(false).into(),
+        }
+    }
+
     fn is_complete(&self) -> bool {
         self.complete.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -780,13 +807,29 @@ impl PafDrawSet {
     }
 }
 
-pub struct ImageRendererBindGroup {
+struct ImageRendererBindGroup {
+    uniform: wgpu::Buffer,
+    bind_group_0: wgpu::BindGroup,
+
     color_view_id: Option<wgpu::Id<wgpu::TextureView>>,
-    bind_group: Option<wgpu::BindGroup>,
+    bind_group_1: Option<wgpu::BindGroup>,
 }
 
-pub struct ImageRenderer {
-    bind_group_layout: wgpu::BindGroupLayout,
+impl ImageRendererBindGroups {
+    fn new(device: &wgpu::Device) -> Self {
+        let uniform = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&[mat]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // let bind_group_0 =
+    }
+}
+
+struct ImageRenderer {
+    bind_group_layout_0: wgpu::BindGroupLayout,
+    bind_group_layout_1: wgpu::BindGroupLayout,
     pipeline_layout: wgpu::PipelineLayout,
     pipeline: wgpu::RenderPipeline,
 
@@ -794,7 +837,7 @@ pub struct ImageRenderer {
 }
 
 impl ImageRenderer {
-    pub fn new(
+    fn new(
         device: &wgpu::Device,
         // color_format: wgpu::TextureFormat,
         swapchain_format: wgpu::TextureFormat,
@@ -804,7 +847,24 @@ impl ImageRenderer {
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("sample_image.wgsl"))),
         });
 
-        let bind_group_entries = [
+        let bind_group_entries_0 = [wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }];
+
+        let bind_group_layout_0 =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Image Renderer - Vertex uniform"),
+                entries: &bind_group_entries_0,
+            });
+
+        let bind_group_entries_1 = [
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::FRAGMENT,
@@ -823,14 +883,15 @@ impl ImageRenderer {
             },
         ];
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Image Renderer"),
-            entries: &bind_group_entries,
-        });
+        let bind_group_layout_1 =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Image Renderer - Frag uniform"),
+                entries: &bind_group_entries_1,
+            });
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&bind_group_layout],
+            bind_group_layouts: &[&bind_group_layout_0, &bind_group_layout_1],
             push_constant_ranges: &[],
         });
 
@@ -865,7 +926,8 @@ impl ImageRenderer {
         });
 
         Self {
-            bind_group_layout,
+            bind_group_layout_0,
+            bind_group_layout_1,
             pipeline_layout,
             pipeline,
             sampler,
@@ -899,12 +961,30 @@ impl ImageRenderer {
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Image Renderer"),
-            layout: &self.bind_group_layout,
+            layout: &self.bind_group_layout_1,
             entries: &entries,
         });
 
         img_group.color_view_id = Some(color_view.global_id());
-        img_group.bind_group = Some(bind_group);
+        img_group.bind_group_1 = Some(bind_group);
+    }
+
+    fn clear(&self, swapchain_view: &wgpu::TextureView, encoder: &mut wgpu::CommandEncoder) {
+        let attch = wgpu::RenderPassColorAttachment {
+            view: swapchain_view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                store: wgpu::StoreOp::Store,
+            },
+        };
+
+        // creating and dropping render pass to clear swapchain image
+        let rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Image Renderer"),
+            color_attachments: &[Some(attch)],
+            ..Default::default()
+        });
     }
 
     fn draw(
