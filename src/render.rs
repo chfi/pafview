@@ -6,6 +6,8 @@ use egui_winit::EventResponse;
 use egui_winit::State;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use ultraviolet::{Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::SurfaceConfiguration;
@@ -375,23 +377,104 @@ pub struct PafRenderer {
     line_pipeline: LinePipeline,
     msaa_samples: u32,
 
-    match_vertices: Option<wgpu::Buffer>,
+    match_vertices: wgpu::Buffer,
 
     active_task: Option<PafDrawTask>,
-
-    draw_sets: [PafDrawSet; 2],
+    draw_sets: [Option<PafDrawSet>; 2],
 }
 
 impl PafRenderer {
+    pub fn new(
+        device: &wgpu::Device,
+        swapchain_format: wgpu::TextureFormat,
+        msaa_samples: u32,
+        match_vertices: wgpu::Buffer,
+    ) -> Self {
+        let line_pipeline = LinePipeline::new(&device, swapchain_format, msaa_samples);
+
+        Self {
+            line_pipeline,
+            msaa_samples,
+            match_vertices,
+            active_task: None,
+            draw_sets: [None, None],
+        }
+    }
+
     pub fn draw(
         &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
         view: crate::view::View,
         window_dims: [u32; 2],
         swapchain_view: &TextureView,
     ) {
-        // if there's no active task, and the previous task rehas the same view & dims
-        // as being asked for, just draw the stored image
-        // otherwise, submit a new task to the queue
+        // if there's an active task and it has completed, swap it to the front
+        let task_complete = self.active_task.as_ref().is_some_and(|t| t.is_complete());
+        if task_complete {
+            self.active_task = None;
+            self.draw_sets.swap(0, 1);
+            debug_assert!(self.draw_sets[0].is_some());
+        }
+
+        let task_running = self.active_task.is_some();
+
+        let need_update = self.draw_sets[0]
+            .as_ref()
+            .is_some_and(|set| !set.params.matches_view_and_dims(view, window_dims));
+
+        if !task_running && need_update {
+            // if the new view and/or window dims differ from the front buffer,
+            // and if there is no active task, queue a new task using the back buffer
+
+            let create_draw_set = if let Some(set) = &self.draw_sets[1] {
+                set.params.window_dims != window_dims
+            } else {
+                true
+            };
+
+            if create_draw_set {
+                let params = PafDrawParams::from_view_and_dims(view, window_dims);
+
+                self.draw_sets[1] = Some(PafDrawSet {
+                    params,
+                    framebuffers: todo!(),
+                    line_bind_group: todo!(),
+                });
+            }
+
+            let Some(draw_set) = &self.draw_sets[1] else {
+                unreachable!();
+            };
+
+            let draw_set = if self.draw_sets[1].is_none() {
+                // create new framebuffers & bind group
+                todo!();
+            } else {
+                // use old framebuffers & bind group if size matches, otherwise recreate
+                todo!();
+            };
+
+            // render pass & encoder
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("PafRenderer Lines"),
+            });
+
+            //
+
+            queue.submit([encoder.finish()]);
+            queue.on_submitted_work_done(|| {
+                //
+            });
+        }
+
+        /*
+        if let Some(task) = &self.active_task {
+            // if window_dims == task.window_dims &&
+
+        } else {
+        };
+        */
 
         todo!();
     }
@@ -402,11 +485,6 @@ impl PafRenderer {
         match_instances: std::ops::Range<u32>,
         encoder: &mut CommandEncoder,
     ) {
-        let Some(match_buffer) = &self.match_vertices else {
-            log::warn!("PafRenderer has no vertex buffer");
-            return;
-        };
-
         let attch = if let Some(msaa_view) = &params.framebuffers.msaa_view {
             wgpu::RenderPassColorAttachment {
                 view: msaa_view,
@@ -437,7 +515,7 @@ impl PafRenderer {
 
         rpass.set_pipeline(&self.line_pipeline.pipeline);
         rpass.set_bind_group(0, &params.line_bind_group, &[]);
-        rpass.set_vertex_buffer(0, match_buffer.slice(..));
+        rpass.set_vertex_buffer(0, self.match_vertices.slice(..));
         rpass.draw(0..6, match_instances);
     }
 }
@@ -448,18 +526,42 @@ struct PafTextures {
     msaa_view: Option<TextureView>,
 }
 
-pub struct PafDrawTask {
-    target_range: std::ops::Range<u64>,
-    query_range: std::ops::Range<u64>,
+struct PafDrawTask {
+    complete: Arc<AtomicBool>,
+}
 
+impl PafDrawTask {
+    fn is_complete(&self) -> bool {
+        self.complete.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PafDrawParams {
+    target_range: std::ops::RangeInclusive<f64>,
+    query_range: std::ops::RangeInclusive<f64>,
     window_dims: [u32; 2],
+}
 
-    complete: std::sync::atomic::AtomicBool,
+impl PafDrawParams {
+    fn from_view_and_dims(view: crate::view::View, window_dims: [u32; 2]) -> Self {
+        Self {
+            target_range: view.x_range(),
+            query_range: view.y_range(),
+            window_dims,
+        }
+    }
+
+    fn matches_view_and_dims(&self, view: crate::view::View, window_dims: [u32; 2]) -> bool {
+        self.window_dims == window_dims
+            && self.target_range == view.x_range()
+            && self.query_range == view.y_range()
+    }
 }
 
 pub struct PafDrawSet {
+    params: PafDrawParams,
     framebuffers: PafTextures,
-
     line_bind_group: wgpu::BindGroup,
 }
 

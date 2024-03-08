@@ -9,6 +9,14 @@ pub struct View {
 }
 
 impl View {
+    pub fn x_range(&self) -> std::ops::RangeInclusive<f64> {
+        self.x_min..=self.x_max
+    }
+
+    pub fn y_range(&self) -> std::ops::RangeInclusive<f64> {
+        self.y_min..=self.y_max
+    }
+
     pub fn map_world_to_view(&self, world_pt: impl Into<DVec2>) -> DVec2 {
         let wp = world_pt.into();
         let tleft = DVec2::new(self.x_min, self.y_min);
