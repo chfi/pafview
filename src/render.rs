@@ -401,7 +401,8 @@ impl PafRenderer {
         match_vertices: wgpu::Buffer,
         match_instances: std::ops::Range<u32>,
     ) -> Self {
-        let line_pipeline = LinePipeline::new(&device, swapchain_format, msaa_samples);
+        log::warn!("initializing PafRenderer");
+        let line_pipeline = LinePipeline::new(&device, Self::COLOR_FORMAT, msaa_samples);
 
         let init_state =
             || PafDrawState::init(device, &line_pipeline.bind_group_layout, Self::COLOR_FORMAT);
@@ -488,6 +489,7 @@ impl PafRenderer {
         // if there's an active task and it has completed, swap it to the front
         let task_complete = self.active_task.as_ref().is_some_and(|t| t.is_complete());
         if task_complete {
+            log::info!("task complete, swapping");
             self.active_task = None;
             self.draw_states.swap(0, 1);
             self.image_bind_groups.swap(0, 1);
@@ -496,18 +498,19 @@ impl PafRenderer {
 
         let task_running = self.active_task.is_some();
 
-        let need_update = self.draw_states[0]
+        let is_up_to_date = self.draw_states[0]
             .draw_set
             .as_ref()
-            .is_some_and(|set| !set.params.matches_view_and_dims(view, window_dims));
+            .is_some_and(|set| set.params.matches_view_and_dims(view, window_dims));
 
-        if !task_running && need_update {
+        if !task_running && !is_up_to_date {
             // if the new view and/or window dims differ from the front buffer,
             // and if there is no active task, queue a new task using the back buffer
 
             // recreate buffers if present & size mismatch
             if let Some(mut set) = self.draw_states[1].draw_set.take() {
                 if set.params.window_dims != window_dims {
+                    log::warn!("recreating framebuffers");
                     set.recreate_framebuffers(
                         device,
                         &self.line_pipeline.bind_group_layout,
@@ -521,6 +524,7 @@ impl PafRenderer {
 
             // create buffers if not initialized
             if self.draw_states[1].draw_set.is_none() {
+                log::warn!("initializing PafDrawSet");
                 self.draw_states[1].draw_set = Some(PafDrawSet::new(
                     device,
                     &self.line_pipeline.bind_group_layout,
@@ -559,6 +563,7 @@ impl PafRenderer {
 
             queue.submit([encoder.finish()]);
             queue.on_submitted_work_done(move || {
+                log::info!("Task Complete");
                 task.complete
                     .store(true, std::sync::atomic::Ordering::SeqCst);
             });
@@ -608,6 +613,7 @@ impl PafRenderer {
     }
 }
 
+#[derive(Debug)]
 struct PafTextures {
     color_texture: Texture,
     color_view: TextureView,
@@ -793,6 +799,7 @@ impl PafDrawState {
     }
 }
 
+#[derive(Debug)]
 struct PafDrawSet {
     params: PafDrawParams,
     framebuffers: PafTextures,
@@ -911,7 +918,7 @@ impl ImageRenderer {
 
         let bind_group_entries_0 = [wgpu::BindGroupLayoutEntry {
             binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX,
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Uniform,
                 has_dynamic_offset: false,
@@ -929,7 +936,7 @@ impl ImageRenderer {
         let bind_group_entries_1 = [
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Texture {
                     sample_type: wgpu::TextureSampleType::Float { filterable: true },
                     view_dimension: wgpu::TextureViewDimension::D2,
@@ -939,7 +946,7 @@ impl ImageRenderer {
             },
             wgpu::BindGroupLayoutEntry {
                 binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                 count: None,
             },
@@ -1079,7 +1086,7 @@ impl ImageRenderer {
 
         rpass.set_pipeline(&self.pipeline);
         rpass.set_bind_group(0, &bind_group.bind_group_0, &[]);
-        rpass.set_bind_group(0, bind_group_1, &[]);
+        rpass.set_bind_group(1, bind_group_1, &[]);
         rpass.draw(0..6, 0..1);
     }
 }

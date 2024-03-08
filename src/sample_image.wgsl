@@ -6,35 +6,33 @@ struct VertexOut {
 @group(0) @binding(0) var<uniform> u_projection: mat4x4f;
 
 @vertex
-fn vs_main(
-           @builtin(vertex_index) vertex_index: u32,
-           ) -> VertexOut {
+fn vs_main(@builtin(vertex_index) vertex_index: u32) -> VertexOut {
 
   var uv: vec2f;
   var pos: vec2f;
   switch vertex_index % 6u {
       case 0u: {
-        pos = vec2(0.0, 0.0);
+        pos = vec2(-1.0, 1.0);
         uv = vec2(0.0, 0.0);
       }
       case 1u: {
-        pos = vec2(1.0, 0.0);
+        pos = vec2(1.0, 1.0);
         uv = vec2(1.0, 0.0);
       }
       case 2u: {
-        pos = vec2(1.0, 1.0);
-        uv = vec2(1.0, 1.0);
+        pos = vec2(-1.0, -1.0);
+        uv = vec2(0.0, 1.0);
       }
       case 3u: {
-        pos = vec2(0.0, 0.0);
-        uv = vec2(0.0, 0.0);
+        pos = vec2(1.0, 1.0);
+        uv = vec2(1.0, 0.0);
       }
       case 4u: {
-        pos = vec2(1.0, 1.0);
+        pos = vec2(1.0, -1.0);
         uv = vec2(1.0, 1.0);
       }
       default: {
-        pos = vec2(0.0, 1.0);
+        pos = vec2(-1.0, -1.0);
         uv = vec2(0.0, 1.0);
       }
   }
@@ -60,5 +58,6 @@ struct FragmentOut {
 @fragment
 fn fs_main(@location(0) uv: vec2f) -> @location(0) vec4f {
   let color = textureSample(u_texture, u_sampler, uv);
+  
   return color;
 }
