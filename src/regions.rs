@@ -23,8 +23,7 @@ pub fn draw_rect_region(
 
     let color = egui::Rgba::from_rgba_unmultiplied(1.0, 0.0, 0.0, 0.5);
 
-    let rect = egui::Rect::from_two_pos([100.0, 100.0].into(), [400.0, 400.0].into());
-    // let rect = egui::Rect::from_two_pos(s0.into(), s1.into());
+    let rect = egui::Rect::from_two_pos(s0.into(), s1.into());
 
     log::warn!("drawing rect {rect:?}");
 

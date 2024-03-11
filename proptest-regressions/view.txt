@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a257e857a5a6f9a414ec3ba1192fc2867b35bdd05a7ec0249b2a5d4532ab583c # shrinks to view = View { x_min: 0.0, y_min: 50541639803.9314, x_max: 1.0, y_max: 50541639804.9314 }, s_x = 0.0, s_y = 0.0
+cc 45bc7c3d64320beec64b833d8d44318e1b48317749846fccec278bb079728e67 # shrinks to (view, v_pt) = (View { x_min: 0.0, y_min: 23459377026.864243, x_max: 1.0, y_max: 23459377027.864243 }, DVec2 { x: 0.11194016480154145, y: 23459377027.472076 })
+cc 1bc6ea4e2720d2b82ab42f3bd9f626f21d4d2e6e961f77567e2f94df81804561 # shrinks to (view, v_pt) = (View { x_min: 0.0, y_min: 94749733671.66954, x_max: 1.0, y_max: 94749733672.66954 }, DVec2 { x: 0.08610637562188606, y: 94749733671.68669 })
+cc 9abe73c981d423c797f6c1dfc0850a1a543f52c193b6deb8be4613c1a5d28f7e # shrinks to (view, v_pt) = (View { x_min: 0.0, y_min: 91083006936.56662, x_max: 1.0, y_max: 91083006937.56662 }, DVec2 { x: 0.1851519606711054, y: 91083006937.17729 })
+cc 63a91a1d0318a915f3b68ce0230ca047621aa78d690682f647eac669a8cb3986 # shrinks to (view, v_pt) = (View { x_min: 0.0, y_min: 82215856276.76973, x_max: 1.0, y_max: 82215856277.76973 }, DVec2 { x: 0.7842559621647036, y: 82215856277.34116 })
+cc 12a97fa6aa586ce08362576d97ad8dfd58f2f2670750263188687d8ee7b5c595 # shrinks to view = View { x_min: 7878611487.36573, y_min: 0.0, x_max: 75989526282.9171, y_max: 1.0 }, wx = 82751796978.64207, wy = 0.0

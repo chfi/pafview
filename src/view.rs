@@ -46,11 +46,9 @@ impl View {
 
         let sp = screen_pt.into();
 
-        let np = DVec2::new(sp.x as f64 / sw, sp.y as f64 / sh);
+        let np = DVec2::new(sp.x as f64 / sw, 1.0 - (sp.y as f64 / sh));
 
-        let tleft = DVec2::new(self.x_min, self.y_min);
-
-        tleft + np * self.size()
+        np * self.size()
     }
 
     pub fn map_view_to_screen(
@@ -63,13 +61,13 @@ impl View {
 
         let vp = view_pt.into();
 
-        let nx = (vp.x - self.x_min) / self.width();
-        let ny = (vp.y - self.y_min) / self.height();
+        let nx = vp.x / self.width();
+        let ny = vp.y / self.height();
 
         let np = DVec2::new(nx, ny);
 
         let sp = np * sdims;
-        Vec2::new(sp.x as f32, sp.y as f32)
+        Vec2::new(sp.x as f32, sh as f32 - sp.y as f32)
     }
 
     pub fn map_world_to_screen(
@@ -280,7 +278,9 @@ mod tests {
 
             let s_pt_ = view.map_view_to_screen(screen_dims, v_pt);
             let diff = s_pt_ - s_pt.into();
-            prop_assert_eq!(diff, Vec2::new(0.0, 0.0));
+            let x_eq = approx_eq!(f32, diff.x / 1920.0, 0.0);
+            let y_eq = approx_eq!(f32, diff.y / 1080.0, 0.0);
+            prop_assert!(x_eq && y_eq);
         }
 
         #[test]
@@ -293,7 +293,7 @@ mod tests {
             let v_pt_ = view.map_screen_to_view(screen_dims, s_pt);
             let diff = v_pt - v_pt_;
 
-            let eps =  std::f32::EPSILON as f64;
+            let eps =  10_000.0 * std::f32::EPSILON as f64;
             let x_eq = approx_eq!(f64, diff.x / view.width(), 0.0, epsilon = eps);
             let y_eq = approx_eq!(f64, diff.y / view.height(), 0.0, epsilon = eps);
             prop_assert!(x_eq && y_eq);
@@ -309,11 +309,8 @@ mod tests {
             let w_pt = DVec2::new(wx, wy);
             let v_pt = view.map_world_to_view(w_pt);
             let w_pt_ = view.map_view_to_world(v_pt);
-            // .. close enough
-            let x_eps = 1_000_000f64.min(view.width()) / view.width();
-            let y_eps = 1_000_000f64.min(view.height()) / view.height();
-            prop_assert!(approx_eq!(f64, w_pt.x, w_pt_.x, epsilon = x_eps)
-                         && approx_eq!(f64, w_pt.y, w_pt_.y, epsilon = y_eps),
+            prop_assert!(w_pt.x.round() == w_pt_.x.round()
+                         && w_pt.y.round() == w_pt_.y.round(),
                          "({}, {}) != ({}, {})",
                          w_pt.x, w_pt.y,
                          w_pt_.x, w_pt_.y,

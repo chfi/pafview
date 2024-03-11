@@ -92,14 +92,14 @@ pub(crate) fn goto_range_controls(
     let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("region-painter"));
     let painter = ui.ctx().layer_painter(layer);
 
-    if goto_btn.hovered() {
-        if let Some((x, y)) = x_range.as_ref().zip(y_range.as_ref()) {
-            let x = (x.start as f64)..=(x.end as f64);
-            let y = (y.start as f64)..=(y.end as f64);
+    // if goto_btn.hovered() {
+    if let Some((x, y)) = x_range.as_ref().zip(y_range.as_ref()) {
+        let x = (x.start as f64)..=(x.end as f64);
+        let y = (y.start as f64)..=(y.end as f64);
 
-            crate::regions::draw_rect_region(&painter, window_dims, view, x, y);
-        }
+        crate::regions::draw_rect_region(&painter, window_dims, view, x, y);
     }
+    // }
 
     if goto {
         let new_view = view.fit_ranges_in_view(aspect_ratio, x_range, y_range);
