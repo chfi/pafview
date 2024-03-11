@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use ultraviolet::{DMat4, DVec2, DVec4, Mat4, Vec2, Vec3};
 
 #[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
@@ -161,16 +163,65 @@ impl View {
         self.y_max = y0 + y_hlen;
     }
 
-    /// Returns a `View` that contains all of the given `view` while adhering to
-    /// the aspect ratio given by `viewport_dims`
-    pub fn fit_view_into_viewport(view: View, viewport_dims: [u32; 2]) -> Self {
-        let [sw, sh] = viewport_dims;
+    pub fn fit_ranges_in_view(
+        &self,
+        aspect_ratio: f64,
+        x_range: Option<Range<usize>>,
+        y_range: Option<Range<usize>>,
+    ) -> Self {
+        let (x_min, x_max) = x_range
+            .map(|r| (r.start as f64, r.end as f64))
+            .unwrap_or_else(|| (self.x_min, self.x_max));
+        let (y_min, y_max) = y_range
+            .map(|r| (r.start as f64, r.end as f64))
+            .unwrap_or_else(|| (self.y_min, self.y_max));
 
-        let screen_aspect = (sw as f64) / (sh as f64);
-        let view_aspect = view.width() / view.height();
+        let size = DVec2::new(x_max - x_min, y_max - y_min);
+        let center = DVec2::new(x_min, y_min) + size * 0.5;
 
-        todo!();
+        let (_center, new_size) =
+            calculate_covering_rectangle(aspect_ratio, center.into(), size.into());
+        let new_size = DVec2::from(new_size);
+
+        let min = center - new_size * 0.5;
+        let max = center + new_size * 0.5;
+
+        Self {
+            x_min: min.x,
+            x_max: max.x,
+            y_min: min.y,
+            y_max: max.y,
+        }
     }
+}
+
+fn calculate_covering_rectangle(
+    aspect_ratio: f64,
+    center: [f64; 2],
+    size: [f64; 2],
+) -> ([f64; 2], [f64; 2]) {
+    let (w0, h0) = (size[0], size[1]); // Width and height of the input rectangle
+
+    // Calculate new width and height assuming we adjust the width to fit the aspect ratio first
+    let mut w1 = aspect_ratio * h0;
+    let mut h1 = h0;
+
+    // Check if the new size covers the input rectangle completely, adjust if necessary
+    if w1 < w0 {
+        // If new width is smaller than original width, adjust height to maintain aspect ratio
+        h1 = w0 / aspect_ratio;
+        w1 = w0;
+    }
+
+    // If initial width adjustment was enough (or too much), check if we need to adjust height instead
+    if h1 < h0 {
+        // This case might not be necessary after the above adjustment, but it's here for completeness
+        w1 = aspect_ratio * h0;
+        h1 = h0;
+    }
+
+    // The center remains the same
+    (center, [w1, h1])
 }
 
 #[cfg(test)]

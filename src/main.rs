@@ -279,7 +279,7 @@ pub fn main() -> anyhow::Result<()> {
 
     println!("AABB: min {min:?}, max {max:?}");
 
-    start_window(paf_input);
+    start_window(names, paf_input);
 
     Ok(())
 }
@@ -486,7 +486,7 @@ struct LineVertex {
     // color: u32,
 }
 
-async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
+async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, input: PafInput) {
     let mut size = window.inner_size();
     size.width = size.width.max(1);
     size.height = size.height.max(1);
@@ -885,7 +885,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
                                 pixels_per_point: window.scale_factor() as f32,
                             },
                             |ctx| {
-                                gui::view_controls(&input, &mut app_view, ctx);
+                                gui::view_controls(&name_cache, &input, &mut app_view, ctx);
                             },
                         );
 
@@ -900,7 +900,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, input: PafInput) {
         .unwrap();
 }
 
-pub fn start_window(input: PafInput) {
+pub fn start_window(name_cache: NameCache, input: PafInput) {
     let event_loop = EventLoop::new().unwrap();
     #[allow(unused_mut)]
     let mut builder = winit::window::WindowBuilder::new();
@@ -923,12 +923,12 @@ pub fn start_window(input: PafInput) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::init();
-        pollster::block_on(run(event_loop, window, input));
+        pollster::block_on(run(event_loop, window, name_cache, input));
     }
     #[cfg(target_arch = "wasm32")]
     {
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
         console_log::init().expect("could not initialize logger");
-        wasm_bindgen_futures::spawn_local(run(event_loop, window, input));
+        wasm_bindgen_futures::spawn_local(run(event_loop, window, name_cache, input));
     }
 }

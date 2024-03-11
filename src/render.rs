@@ -230,8 +230,6 @@ impl EguiRenderer {
     ) -> EguiRenderer {
         let egui_context = Context::default();
 
-        let viewport = ViewportBuilder::default();
-
         let viewport_id = egui_context.viewport_id();
 
         let egui_state = egui_winit::State::new(
