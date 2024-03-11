@@ -41,41 +41,70 @@ pub(crate) fn goto_range_controls(
         Some(start..end)
     };
 
-    let (pressed_enter, aspect_ratio) = ui.input(|i| {
+    let (pressed_enter, window_dims, aspect_ratio) = ui.input(|i| {
         let pressed = i.key_pressed(egui::Key::Enter);
         let rect = i.screen_rect();
+        let dims = [rect.width() as u32, rect.height() as u32];
         let aspect = rect.width() as f64 / rect.height() as f64;
-        (pressed, aspect)
+        (pressed, dims, aspect)
     });
 
     // Target/X
 
+    let goto_btn = ui.button("Go to range");
+
+    let mut goto = goto_btn.clicked();
+
     ui.horizontal(|ui| {
         let target_text = ui.text_edit_singleline(&mut target_buf);
-        let go = ui.button("Go to target");
+        // let go = ui.button("Go to target");
 
-        if go.clicked() || (target_text.lost_focus() && pressed_enter) {
-            if let Some(range) = parse_range(&name_cache.target_names, &input.targets, &target_buf)
-            {
-                let new_view = view.fit_ranges_in_view(aspect_ratio, Some(range), None);
-                *view = new_view;
-            }
-        }
+        goto |= target_text.lost_focus() && pressed_enter;
+
+        // if go.clicked() || (target_text.lost_focus() && pressed_enter) {
+        //     if let Some(range) = parse_range(&name_cache.target_names, &input.targets, &target_buf)
+        //     {
+        //         let new_view = view.fit_ranges_in_view(aspect_ratio, Some(range), None);
+        //         *view = new_view;
+        //     }
+        // }
     });
 
     // Query/Y
 
     ui.horizontal(|ui| {
         let query_text = ui.text_edit_singleline(&mut query_buf);
-        let go = ui.button("Go to query");
+        // let go = ui.button("Go to query");
 
-        if go.clicked() || (query_text.lost_focus() && pressed_enter) {
-            if let Some(range) = parse_range(&name_cache.query_names, &input.queries, &query_buf) {
-                let new_view = view.fit_ranges_in_view(aspect_ratio, None, Some(range));
-                *view = new_view;
-            }
-        }
+        goto |= query_text.lost_focus() && pressed_enter;
+
+        // if go.clicked() || (query_text.lost_focus() && pressed_enter) {
+        //     if let Some(range) = parse_range(&name_cache.query_names, &input.queries, &query_buf) {
+        //         let new_view = view.fit_ranges_in_view(aspect_ratio, None, Some(range));
+        //         *view = new_view;
+        //     }
+        // }
     });
+
+    let x_range = parse_range(&name_cache.target_names, &input.targets, &target_buf);
+    let y_range = parse_range(&name_cache.query_names, &input.queries, &query_buf);
+
+    let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("region-painter"));
+    let painter = ui.ctx().layer_painter(layer);
+
+    if goto_btn.hovered() {
+        if let Some((x, y)) = x_range.as_ref().zip(y_range.as_ref()) {
+            let x = (x.start as f64)..=(x.end as f64);
+            let y = (y.start as f64)..=(y.end as f64);
+
+            crate::regions::draw_rect_region(&painter, window_dims, view, x, y);
+        }
+    }
+
+    if goto {
+        let new_view = view.fit_ranges_in_view(aspect_ratio, x_range, y_range);
+        *view = new_view;
+    }
 
     ui.data_mut(|data| {
         data.insert_temp(target_id, target_buf);

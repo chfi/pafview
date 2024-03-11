@@ -15,6 +15,7 @@ use std::io::prelude::*;
 use anyhow::anyhow;
 
 mod gui;
+mod regions;
 mod render;
 mod view;
 
