@@ -161,6 +161,15 @@ impl View {
         self.y_max = y0 + y_hlen;
     }
 
+    pub fn scale_around_point(&mut self, norm_pt: impl Into<DVec2>, scale: f64) {
+        let view_pt = DVec2::new(self.x_min, self.y_min) + norm_pt.into() * self.size();
+        let diff = view_pt - self.center();
+
+        self.translate(view_pt.x, view_pt.y);
+        self.scale_around_center(scale);
+        self.translate(-view_pt.x, -view_pt.y);
+    }
+
     pub fn fit_ranges_in_view(
         &self,
         aspect_ratio: f64,

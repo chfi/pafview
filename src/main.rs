@@ -793,11 +793,24 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
 
                         let win_size: [u32; 2] = window.inner_size().into();
 
-                        if delta.x != 0.0 || delta.y != 0.0 || delta_scale != 1.0 {
+                        // if delta.x != 0.0 || delta.y != 0.0 || delta_scale != 1.0 {
+                        if delta.x != 0.0 || delta.y != 0.0 {
                             let dx = -delta.x * app_view.width() / win_size[0] as f64;
                             let dy = -delta.y * app_view.height() / win_size[1] as f64;
                             app_view.translate(dx, dy);
-                            app_view.scale_around_center(delta_scale);
+                        }
+                        if delta_scale != 1.0 {
+                            if let Some(pos) = egui_renderer.context.pointer_latest_pos() {
+                                let [w, h] = win_size;
+                                let [px, py]: [f32; 2] = pos.into();
+
+                                let x = px / w as f32;
+                                let y = py / h as f32;
+
+                                app_view.scale_around_point([x as f64, y as f64], delta_scale);
+                            }
+
+                            // let screen_pt = app_view.scale_around_center(delta_scale);
                             // let projection = app_view.to_mat4();
                             // queue.write_buffer(
                             //     &proj_uniform,
