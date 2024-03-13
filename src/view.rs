@@ -37,7 +37,7 @@ impl View {
 
     pub fn map_screen_to_view(
         &self,
-        screen_dims: impl Into<[u32; 2]>,
+        screen_dims: impl Into<[f32; 2]>,
         screen_pt: impl Into<Vec2>,
     ) -> DVec2 {
         let [sw, sh] = screen_dims.into();
@@ -53,7 +53,7 @@ impl View {
 
     pub fn map_view_to_screen(
         &self,
-        screen_dims: impl Into<[u32; 2]>,
+        screen_dims: impl Into<[f32; 2]>,
         view_pt: impl Into<DVec2>,
     ) -> Vec2 {
         let [sw, sh] = screen_dims.into();
@@ -72,7 +72,7 @@ impl View {
 
     pub fn map_world_to_screen(
         &self,
-        screen_dims: impl Into<[u32; 2]>,
+        screen_dims: impl Into<[f32; 2]>,
         world_pt: impl Into<DVec2>,
     ) -> Vec2 {
         let view_pt = self.map_world_to_view(world_pt);
@@ -81,7 +81,7 @@ impl View {
 
     pub fn map_screen_to_world(
         &self,
-        screen_dims: impl Into<[u32; 2]>,
+        screen_dims: impl Into<[f32; 2]>,
         screen_pt: impl Into<Vec2>,
     ) -> DVec2 {
         let view_pt = self.map_screen_to_view(screen_dims, screen_pt);
@@ -295,7 +295,7 @@ mod tests {
         fn screen_view_isomorphic(view in view_strategy(),
                                   s_x in 0f32..1920.0,
                                   s_y in 0f32..1080.0) {
-            let screen_dims = [1920, 1080u32];
+            let screen_dims = [1920.0, 1080f32];
             let s_pt = Vec2::new(s_x, s_y);
             let v_pt = view.map_screen_to_view(screen_dims, s_pt);
 
@@ -310,7 +310,7 @@ mod tests {
         fn view_screen_isomorphic((view, v_pt) in view_strategy()
                                   .prop_perturb(point_in_view)
         ) {
-            let screen_dims = [1920, 1080u32];
+            let screen_dims = [1920.0, 1080f32];
 
             let s_pt = view.map_view_to_screen(screen_dims, v_pt);
             let v_pt_ = view.map_screen_to_view(screen_dims, s_pt);

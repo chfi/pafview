@@ -87,12 +87,15 @@ pub fn goto_range_controls(name_cache: &NameCache, input: &PafInput, view: &mut 
     let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("region-painter"));
     let painter = ui.ctx().layer_painter(layer);
 
+    let screen_size = ui.ctx().screen_rect().size();
+
     // if goto_btn.hovered() {
     if let Some((x, y)) = x_range.as_ref().zip(y_range.as_ref()) {
         let x = (x.start as f64)..=(x.end as f64);
         let y = (y.start as f64)..=(y.end as f64);
 
-        crate::regions::draw_rect_region(&painter, window_dims, view, x, y);
+        let color = egui::Rgba::from_rgba_unmultiplied(1.0, 0.0, 0.0, 0.5);
+        crate::regions::draw_rect_region(&painter, screen_size, color, view, x, y);
     }
     // }
 
@@ -149,7 +152,7 @@ pub fn view_controls(
             let (cursor_pos, screen_dims) = ctx.input(|i| {
                 let pos = i.pointer.hover_pos();
                 let dims = i.screen_rect.size();
-                (pos, [dims.x as u32, dims.y as u32])
+                (pos, dims)
             });
 
             // ui.max_rect()
@@ -169,7 +172,7 @@ pub fn view_controls(
 
 pub fn draw_ruler_h(
     painter: &egui::Painter,
-    window_dims: [u32; 2],
+    window_dims: [f32; 2],
     screen_y: f32,
     text: &str,
     //
@@ -213,7 +216,7 @@ pub fn draw_ruler_h(
     painter.galley(egui::pos2(16.0, screen_y), galley, Color32::BLACK);
 }
 
-pub fn draw_ruler_v(painter: &egui::Painter, window_dims: [u32; 2], screen_x: f32, text: &str) {
+pub fn draw_ruler_v(painter: &egui::Painter, window_dims: [f32; 2], screen_x: f32, text: &str) {
     let [w, h] = window_dims;
     let p0 = egui::pos2(screen_x, 0.0);
     let p1 = egui::pos2(screen_x, h as f32);
@@ -265,18 +268,18 @@ pub fn draw_cursor_position_rulers(
     let painter = ctx.layer_painter(layer);
 
     let screen_size = ctx.screen_rect().size();
-    let dims = [screen_size.x as u32, screen_size.y as u32];
 
-    draw_cursor_position_rulers_impl(input, &painter, dims, view, cursor_pos)
+    draw_cursor_position_rulers_impl(input, &painter, screen_size, view, cursor_pos)
 }
 
 pub fn draw_cursor_position_rulers_impl(
     input: &PafInput,
     painter: &egui::Painter,
-    window_dims: [u32; 2],
+    window_dims: impl Into<[f32; 2]>,
     view: &crate::view::View,
     cursor_pos: impl Into<[f32; 2]>,
 ) {
+    let window_dims = window_dims.into();
     let cursor_pos = cursor_pos.into();
     let pos = Vec2::from(cursor_pos);
 

@@ -1,5 +1,6 @@
 use bytemuck::{Pod, Zeroable};
 use egui_wgpu::ScreenDescriptor;
+use regions::SelectionHandler;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use ultraviolet::{DVec2, Mat4, Vec2, Vec3};
@@ -124,7 +125,7 @@ pub fn write_png(
     let w = width as i64;
     let h = height as i64;
 
-    let screen_dims = [w as u32, h as u32];
+    let screen_dims = [w as f32, h as f32];
 
     let matches = &input.match_edges;
 
@@ -639,6 +640,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
     //     sample_count,
     // );
 
+    let mut selection_handler = SelectionHandler::default();
+
     let mut mouse_down = false;
     let mut last_pos = None;
     let mut delta = DVec2::new(0.0, 0.0);
@@ -837,6 +840,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
                                 pixels_per_point: window.scale_factor() as f32,
                             },
                             |ctx| {
+                                selection_handler.run(ctx, &mut app_view);
                                 gui::draw_cursor_position_rulers(&input, ctx, &app_view);
 
                                 // gui::view_controls(&name_cache, &input, &mut app_view, ctx);
