@@ -145,6 +145,29 @@ impl View {
         self.y_max += dy;
     }
 
+    /// Expands/contracts the view by a factor of `s`, keeping the
+    /// point corresponding to `t` fixed in the view.
+    ///
+    /// Both `t.x` and `t.y` should be in `[0, 1]`, if `s` > 1.0, the
+    /// view is zoomed out, if `s` < 1.0, it is zoomed in.
+    pub fn zoom_with_focus(&mut self, t: impl Into<DVec2>, s: f64) {
+        // log::warn!("zoomin");
+        let l = self.x_min;
+        let r = self.x_max;
+        let u = self.y_min;
+        let d = self.y_max;
+
+        let t = t.into();
+
+        let (l_, r_) = expand_with_fixpoint(l, r, t.x, s);
+        let (u_, d_) = expand_with_fixpoint(u, d, 1.0 - t.y, s);
+
+        self.x_min = l_;
+        self.x_max = r_;
+        self.y_min = u_;
+        self.y_max = d_;
+    }
+
     pub fn scale_around_center(&mut self, s: f64) {
         let x_len = self.x_max - self.x_min;
         let y_len = self.y_max - self.y_min;
@@ -159,15 +182,6 @@ impl View {
         self.x_max = x0 + x_hlen;
         self.y_min = y0 - y_hlen;
         self.y_max = y0 + y_hlen;
-    }
-
-    pub fn scale_around_point(&mut self, norm_pt: impl Into<DVec2>, scale: f64) {
-        let view_pt = DVec2::new(self.x_min, self.y_min) + norm_pt.into() * self.size();
-        let diff = view_pt - self.center();
-
-        self.translate(view_pt.x, view_pt.y);
-        self.scale_around_center(scale);
-        self.translate(-view_pt.x, -view_pt.y);
     }
 
     pub fn fit_ranges_in_view(
@@ -340,4 +354,29 @@ mod tests {
             )
         }
     }
+}
+
+fn expand_with_fixpoint(a: f64, b: f64, t: f64, s: f64) -> (f64, f64) {
+    let l = b - a;
+    let x = a + t * l;
+
+    let p_a = t;
+    let p_b = 1.0 - t;
+
+    let l_ = l * s;
+
+    /* // NB: this should probably be handled elsewhere
+        // just so things don't implode
+        if l_ < 1.0 {
+            l_ = 1.0;
+        }
+    */
+
+    let x_a = p_a * l_;
+    let x_b = p_b * l_;
+
+    let a_ = x - x_a;
+    let b_ = x + x_b;
+
+    (a_, b_)
 }

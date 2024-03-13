@@ -617,69 +617,6 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
         y_max: input.query_len as f64,
     };
 
-    // let (proj_uniform, line_conf_uniform, short_conf_uniform) = {
-    //     let projection = app_view.to_mat4();
-    //     let proj_uniform = device.create_buffer_init(&BufferInitDescriptor {
-    //         label: None,
-    //         contents: bytemuck::cast_slice(&[projection]),
-    //         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-    //     });
-
-    //     // px / window width
-    //     let line_width: f32 = 5.0 / 1000.0;
-    //     // let line_width: f32 = 15.0 / 1000.0;
-    //     let conf = [line_width, 0.0, 0.0, 0.0];
-    //     let line_conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
-    //         label: None,
-    //         contents: bytemuck::cast_slice(&conf),
-    //         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-    //     });
-
-    //     let frag_width = 0.5 / size.width as f32;
-    //     let frag_height = 0.5 / size.height as f32;
-    //     // let frag_width = 2.5 / size.width as f32;
-    //     // let frag_height = 2.5 / size.height as f32;
-
-    //     let conf = [frag_width, frag_height, 0.0, 0.0];
-    //     let short_conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
-    //         label: None,
-    //         contents: bytemuck::cast_slice(&conf),
-    //         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-    //     });
-
-    //     (proj_uniform, line_conf_uniform, short_conf_uniform)
-    // };
-
-    // let line_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-    //     label: None,
-    //     layout: &line_pipeline.bind_group_layout,
-    //     entries: &[
-    //         wgpu::BindGroupEntry {
-    //             binding: 0,
-    //             resource: proj_uniform.as_entire_binding(),
-    //         },
-    //         wgpu::BindGroupEntry {
-    //             binding: 1,
-    //             resource: line_conf_uniform.as_entire_binding(),
-    //         },
-    //     ],
-    // });
-
-    // let short_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-    //     label: None,
-    //     layout: &short_pipeline.bind_group_layout,
-    //     entries: &[
-    //         wgpu::BindGroupEntry {
-    //             binding: 0,
-    //             resource: proj_uniform.as_entire_binding(),
-    //         },
-    //         wgpu::BindGroupEntry {
-    //             binding: 1,
-    //             resource: short_conf_uniform.as_entire_binding(),
-    //         },
-    //     ],
-    // });
-
     let mut config = surface
         .get_default_config(&adapter, size.width, size.height)
         .unwrap();
@@ -755,10 +692,10 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
                     }
                     WindowEvent::MouseWheel { delta, phase, .. } => match delta {
                         winit::event::MouseScrollDelta::LineDelta(x, y) => {
-                            delta_scale = 1.0 + y as f64 * 0.01;
+                            delta_scale = 1.0 - y as f64 * 0.01;
                         }
                         winit::event::MouseScrollDelta::PixelDelta(xy) => {
-                            delta_scale = 1.0 + xy.y * 0.001;
+                            delta_scale = 1.0 - xy.y * 0.001;
                         }
                     },
                     WindowEvent::CursorMoved { position, .. } => {
@@ -807,7 +744,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
                                 let x = px / w as f32;
                                 let y = py / h as f32;
 
-                                app_view.scale_around_point([x as f64, y as f64], delta_scale);
+                                app_view.zoom_with_focus([x as f64, y as f64], delta_scale);
+                                // app_view.scale_around_point([x as f64, y as f64], delta_scale);
                             }
 
                             // let screen_pt = app_view.scale_around_center(delta_scale);
