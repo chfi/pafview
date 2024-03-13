@@ -18,6 +18,7 @@ use anyhow::anyhow;
 mod gui;
 mod regions;
 mod render;
+mod spatial;
 mod view;
 
 use render::*;
@@ -639,6 +640,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
     //     config.format,
     //     sample_count,
     // );
+
+    let rstar_match = spatial::RStarMatches::from_paf(&input);
 
     let mut selection_handler = SelectionHandler::default();
 
