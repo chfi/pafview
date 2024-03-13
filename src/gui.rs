@@ -1,15 +1,10 @@
-use egui::{util::IdTypeMap, DragValue, Ui};
+use egui::{util::IdTypeMap, Color32, DragValue, FontId, Ui};
 use rustc_hash::FxHashMap;
 use ultraviolet::{Mat4, Vec2};
 
 use crate::{view::View, AlignedSeq, NameCache, PafInput};
 
-pub(crate) fn goto_range_controls(
-    name_cache: &NameCache,
-    input: &PafInput,
-    view: &mut View,
-    ui: &mut Ui,
-) {
+pub fn goto_range_controls(name_cache: &NameCache, input: &PafInput, view: &mut View, ui: &mut Ui) {
     let target_id = ui.id().with("target-range");
     let query_id = ui.id().with("query-range");
 
@@ -112,7 +107,7 @@ pub(crate) fn goto_range_controls(
     });
 }
 
-pub(crate) fn view_controls(
+pub fn view_controls(
     name_cache: &NameCache,
     input: &PafInput,
     view: &mut View,
@@ -170,4 +165,147 @@ pub(crate) fn view_controls(
                 ui.label(format!("Cursor (world): {world_pos:?}"));
             }
         });
+}
+
+pub fn draw_ruler_h(
+    painter: &egui::Painter,
+    window_dims: [u32; 2],
+    screen_y: f32,
+    text: &str,
+    //
+) {
+    let [w, _h] = window_dims;
+    let p0 = egui::pos2(0.0, screen_y);
+    let p1 = egui::pos2(w as f32, screen_y);
+    painter.line_segment(
+        [p0, p1],
+        egui::Stroke {
+            width: 1.0,
+            color: egui::Rgba::from_gray(0.5).into(),
+        },
+    );
+
+    let mut job = egui::text::LayoutJob::default();
+    job.halign = egui::Align::LEFT;
+
+    job.append(
+        text,
+        0.0,
+        egui::text::TextFormat {
+            font_id: FontId::monospace(12.0),
+            color: Color32::PLACEHOLDER,
+            valign: egui::Align::TOP,
+            // extra_letter_spacing: todo!(),
+            // line_height: todo!(),
+            // background: todo!(),
+            // italics: todo!(),
+            // underline: todo!(),
+            // strikethrough: todo!(),
+            ..Default::default()
+        },
+    );
+
+    let galley = painter.layout_job(job);
+
+    // let galley = painter.layout_no_wrap(text.to_string(), FontId::monospace(12.0), Color32::BLACK);
+    // let txt_size = galley.size();
+
+    painter.galley(egui::pos2(16.0, screen_y), galley, Color32::BLACK);
+}
+
+pub fn draw_ruler_v(painter: &egui::Painter, window_dims: [u32; 2], screen_x: f32, text: &str) {
+    let [w, h] = window_dims;
+    let p0 = egui::pos2(screen_x, 0.0);
+    let p1 = egui::pos2(screen_x, h as f32);
+    painter.line_segment(
+        [p0, p1],
+        egui::Stroke {
+            width: 1.0,
+            color: egui::Rgba::from_gray(0.5).into(),
+        },
+    );
+
+    let mut job = egui::text::LayoutJob::default();
+    job.halign = egui::Align::LEFT;
+
+    job.append(
+        text,
+        0.0,
+        egui::text::TextFormat {
+            font_id: FontId::monospace(12.0),
+            color: Color32::PLACEHOLDER,
+            // valign: egui::Align::TOP,
+            ..Default::default()
+        },
+    );
+
+    let galley = painter.layout_job(job);
+
+    if screen_x + galley.size().x > w as f32 {
+        painter.galley(
+            egui::pos2(screen_x - 8.0 - galley.size().x, 16.0),
+            galley,
+            Color32::BLACK,
+        );
+    } else {
+        painter.galley(egui::pos2(screen_x + 8.0, 16.0), galley, Color32::BLACK);
+    }
+}
+
+pub fn draw_cursor_position_rulers(
+    input: &PafInput,
+    ctx: &egui::Context,
+    view: &crate::view::View,
+) {
+    let Some(cursor_pos) = ctx.input(|i| i.pointer.latest_pos()) else {
+        return;
+    };
+
+    let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("ruler-painter"));
+    let painter = ctx.layer_painter(layer);
+
+    let screen_size = ctx.screen_rect().size();
+    let dims = [screen_size.x as u32, screen_size.y as u32];
+
+    draw_cursor_position_rulers_impl(input, &painter, dims, view, cursor_pos)
+}
+
+pub fn draw_cursor_position_rulers_impl(
+    input: &PafInput,
+    painter: &egui::Painter,
+    window_dims: [u32; 2],
+    view: &crate::view::View,
+    cursor_pos: impl Into<[f32; 2]>,
+) {
+    let cursor_pos = cursor_pos.into();
+    let pos = Vec2::from(cursor_pos);
+
+    let world_pt = view.map_screen_to_world(window_dims, pos);
+
+    // get target sequence by doing a binary search on the targets' offsets
+    let tgt_offset = world_pt.x as usize;
+
+    if pos.x > 0.0 && pos.x < window_dims[0] as f32 {
+        let tgt_ix = input.targets.partition_point(|seq| seq.offset < tgt_offset);
+        if let Some(target) = input.targets.get(tgt_ix) {
+            let offset_in_tgt = target.offset - tgt_offset;
+            let label = format!("{}:{offset_in_tgt}", target.name);
+
+            draw_ruler_v(painter, window_dims, pos.x, &label);
+        }
+    }
+
+    // & the same for query and the Y coordinate
+
+    if pos.y > 0.0 && pos.y < window_dims[1] as f32 {
+        let qry_offset = world_pt.y as usize;
+
+        let qry_ix = input.queries.partition_point(|seq| seq.offset < qry_offset);
+        if let Some(query) = input.queries.get(qry_ix) {
+            let offset_in_qry = query.offset - qry_offset;
+            let label = format!("{}:{offset_in_qry}", query.name);
+
+            draw_ruler_h(painter, window_dims, pos.y, &label);
+        }
+    }
 }

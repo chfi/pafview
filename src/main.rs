@@ -899,7 +899,9 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
                                 pixels_per_point: window.scale_factor() as f32,
                             },
                             |ctx| {
-                                gui::view_controls(&name_cache, &input, &mut app_view, ctx);
+                                gui::draw_cursor_position_rulers(&input, ctx, &app_view);
+
+                                // gui::view_controls(&name_cache, &input, &mut app_view, ctx);
                             },
                         );
 
