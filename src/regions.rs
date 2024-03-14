@@ -82,10 +82,10 @@ impl SelectionHandler {
 
         if right_released {
             if let Some(wp0) = self.right_click_w_pos.take() {
-                let l = wp0.x.floor() as usize;
-                let r = wp1.x.ceil() as usize;
-                let u = wp0.y.floor() as usize;
-                let d = wp1.y.ceil() as usize;
+                let l = wp0.x.min(wp1.x).floor() as usize;
+                let r = wp1.x.max(wp1.x).ceil() as usize;
+                let u = wp0.y.min(wp1.y).floor() as usize;
+                let d = wp1.y.max(wp1.y).ceil() as usize;
 
                 *view = view.fit_ranges_in_view(
                     screen_size.x as f64 / screen_size.y as f64,
