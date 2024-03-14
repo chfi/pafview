@@ -6,8 +6,9 @@ use std::borrow::Cow;
 use ultraviolet::{DVec2, Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
-    event::{Event, MouseButton, WindowEvent},
+    event::{ElementState, Event, MouseButton, WindowEvent},
     event_loop::EventLoop,
+    keyboard::{KeyCode, PhysicalKey},
     window::Window,
 };
 
@@ -105,69 +106,6 @@ fn parse_name_range<'a>(
     let start = fields.next()?.parse().ok()?;
     let end = fields.next()?.parse().ok()?;
     Some((name, len, start, end))
-}
-
-pub fn write_png(
-    input: &PafInput,
-    width: usize,
-    height: usize,
-    out_path: impl AsRef<std::path::Path>,
-) -> anyhow::Result<()> {
-    use line_drawing::XiaolinWu;
-    let mut px_bytes = vec![0u8; width * height * 4];
-
-    let view = View {
-        x_min: 0.0,
-        y_min: 0.0,
-        x_max: input.target_len as f64,
-        y_max: input.query_len as f64,
-    };
-
-    let w = width as i64;
-    let h = height as i64;
-
-    let screen_dims = [w as f32, h as f32];
-
-    let matches = &input.match_edges;
-
-    for &[from, to] in matches {
-        let s_from = view.map_world_to_screen(screen_dims, from);
-        let s_to = view.map_world_to_screen(screen_dims, to);
-
-        let start: [f32; 2] = s_from.into();
-        let end: [f32; 2] = s_to.into();
-
-        let line = XiaolinWu::<f32, i64>::new(start.into(), end.into());
-
-        println!("   match: ({from:?}, {to:?})");
-        println!("  screen: ({s_from:?}, {s_to:?})");
-
-        for ((x, y), val) in line {
-            println!(": {x}, {y}");
-            // x & y are in screen coordinates
-            if x < 0 || x >= w || y < 0 || y >= h {
-                continue;
-            }
-
-            let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut px_bytes);
-            let ix = x + y * w;
-
-            let val = (255.0 * val) as u8;
-            let [rgb @ .., a] = &mut pixels[ix as usize];
-            *a = 255;
-            for chan in rgb {
-                *chan = val;
-            }
-        }
-    }
-
-    lodepng::encode32_file(out_path, &px_bytes, width, height)?;
-    // let mut writer = std::fs::File::new(out_path).map(std::io::BufWriter::new)?;
-    // let mut encoder = png::Encoder::new(writer,
-
-    // let mut writer = std::io::Bu
-
-    Ok(())
 }
 
 pub fn main() -> anyhow::Result<()> {
@@ -349,16 +287,16 @@ fn process_cigar(
                 let y = query_pos;
 
                 {
-                    let x0 = x as f64 / target_len as f64;
-                    let y0 = y as f64 / query_len as f64;
+                    let x0 = x as f64;
+                    let y0 = y as f64;
 
                     let x_end = if paf.strand_rev {
                         x.checked_sub(count).unwrap_or_default()
                     } else {
                         x + count
                     };
-                    let x1 = x_end as f64 / target_len as f64;
-                    let y1 = (y + count) as f64 / query_len as f64;
+                    let x1 = x_end as f64;
+                    let y1 = (y + count) as f64;
 
                     match_edges.push([DVec2::new(x0, y0), DVec2::new(x1, y1)]);
                 }
@@ -443,16 +381,16 @@ fn process_cigar_compress(
                 let y = query_pos;
 
                 {
-                    let x0 = x as f64 / target_len as f64;
-                    let y0 = y as f64 / query_len as f64;
+                    let x0 = x as f64;
+                    let y0 = y as f64;
 
                     let x_end = if paf.strand_rev {
                         x.checked_sub(count).unwrap_or_default()
                     } else {
                         x + count
                     };
-                    let x1 = x_end as f64 / target_len as f64;
-                    let y1 = (y + count) as f64 / query_len as f64;
+                    let x1 = x_end as f64;
+                    let y1 = (y + count) as f64;
 
                     match_edges.push([DVec2::new(x0, y0), DVec2::new(x1, y1)]);
                 }
@@ -591,14 +529,9 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
         let color = 0x00000000;
 
         for &[from, to] in input.match_edges.iter() {
-            let x0 = from.x * input.target_len as f64;
-            let y0 = from.y * input.query_len as f64;
-            let x1 = to.x * input.target_len as f64;
-            let y1 = to.y * input.query_len as f64;
-
             lines.push(LineVertex {
-                p0: [x0 as f32, y0 as f32].into(),
-                p1: [x1 as f32, y1 as f32].into(),
+                p0: [from.x as f32, from.y as f32].into(),
+                p1: [to.x as f32, to.y as f32].into(),
                 // color,
             });
         }
@@ -641,7 +574,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
     //     sample_count,
     // );
 
-    let rstar_match = spatial::RStarMatches::from_paf(&input);
+    // TODO build this on a separate thread
+    // let rstar_match = spatial::RStarMatches::from_paf(&input);
 
     let mut selection_handler = SelectionHandler::default();
 
