@@ -382,6 +382,8 @@ pub struct PafRenderer {
     match_vertices: wgpu::Buffer,
     match_instances: std::ops::Range<u32>,
 
+    grid_data: Option<(wgpu::Buffer, std::ops::Range<u32>)>,
+
     active_task: Option<PafDrawTask>,
     draw_states: [PafDrawState; 2],
 
@@ -420,12 +422,18 @@ impl PafRenderer {
             match_vertices,
             match_instances,
 
+            grid_data: None,
+
             active_task: None,
             draw_states,
 
             image_renderer,
             image_bind_groups,
         }
+    }
+
+    pub fn set_grid(&mut self, grid_data: Option<(wgpu::Buffer, std::ops::Range<u32>)>) {
+        self.grid_data = grid_data;
     }
 
     pub fn draw(
@@ -551,6 +559,7 @@ impl PafRenderer {
                 &self.line_pipeline,
                 draw_set,
                 uniforms,
+                &self.grid_data,
                 &self.match_vertices,
                 instances,
                 &mut encoder,
@@ -572,6 +581,7 @@ impl PafRenderer {
         line_pipeline: &LinePipeline,
         params: &PafDrawSet,
         uniforms: &PafUniforms,
+        grid_data: &Option<(wgpu::Buffer, std::ops::Range<u32>)>,
         match_vertices: &wgpu::Buffer,
         match_instances: std::ops::Range<u32>,
         encoder: &mut CommandEncoder,
@@ -606,6 +616,12 @@ impl PafRenderer {
 
         rpass.set_pipeline(&line_pipeline.pipeline);
         rpass.set_bind_group(0, &uniforms.line_bind_group, &[]);
+
+        if let Some((grid_vertices, grid_instances)) = grid_data {
+            rpass.set_vertex_buffer(0, grid_vertices.slice(..));
+            rpass.draw(0..6, grid_instances.clone());
+        }
+
         rpass.set_vertex_buffer(0, match_vertices.slice(..));
         rpass.draw(0..6, match_instances);
     }

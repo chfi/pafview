@@ -254,27 +254,31 @@ pub fn main() -> anyhow::Result<()> {
             let query_name = paf_line.query_name.to_string();
             let target_name = paf_line.tgt_name.to_string();
 
-            names.query_names.insert(query_name.clone(), queries.len());
-            names
-                .target_names
-                .insert(target_name.clone(), targets.len());
+            if !names.query_names.contains_key(&query_name) {
+                names.query_names.insert(query_name.clone(), queries.len());
+                queries.push(AlignedSeq {
+                    name: query_name,
+                    len: paf_line.query_seq_len,
+                    ..AlignedSeq::default()
+                });
+            }
 
-            queries.push(AlignedSeq {
-                name: query_name,
-                len: paf_line.query_seq_len,
-                ..AlignedSeq::default()
-            });
-            targets.push(AlignedSeq {
-                name: target_name,
-                len: paf_line.tgt_seq_len,
-                ..AlignedSeq::default()
-            });
+            if !names.target_names.contains_key(&target_name) {
+                names
+                    .target_names
+                    .insert(target_name.clone(), targets.len());
+                targets.push(AlignedSeq {
+                    name: target_name,
+                    len: paf_line.tgt_seq_len,
+                    ..AlignedSeq::default()
+                });
+            }
         }
     }
 
     let process_aligned = |aseqs: &mut [AlignedSeq]| {
         let mut by_len = aseqs.iter().map(|a| a.len).enumerate().collect::<Vec<_>>();
-        by_len.sort_by_key(|(_id, len)| *len);
+        by_len.sort_by_key(|(_id, len)| std::cmp::Reverse(*len as isize));
 
         let mut offset = 0;
 
@@ -690,6 +694,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
         match_instances,
     );
 
+    paf_renderer.set_grid(Some((grid_buffer, grid_instances)));
+
     let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
 
     // let mut msaa_framebuffer = create_multisampled_framebuffer(
@@ -811,7 +817,6 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
 
                         let win_size: [u32; 2] = window.inner_size().into();
 
-                        // if delta.x != 0.0 || delta.y != 0.0 || delta_scale != 1.0 {
                         if delta.x != 0.0 || delta.y != 0.0 {
                             let dx = -delta.x * app_view.width() / win_size[0] as f64;
                             let dy = -delta.y * app_view.height() / win_size[1] as f64;
@@ -826,16 +831,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
                                 let y = py / h as f32;
 
                                 app_view.zoom_with_focus([x as f64, y as f64], delta_scale);
-                                // app_view.scale_around_point([x as f64, y as f64], delta_scale);
                             }
-
-                            // let screen_pt = app_view.scale_around_center(delta_scale);
-                            // let projection = app_view.to_mat4();
-                            // queue.write_buffer(
-                            //     &proj_uniform,
-                            //     0,
-                            //     bytemuck::cast_slice(&[projection]),
-                            // );
                         }
                         delta = DVec2::new(0.0, 0.0);
                         delta_scale = 1.0;
@@ -862,51 +858,6 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
                             &mut encoder,
                         );
 
-                        /*
-                        {
-                            let attch = if sample_count == 1 {
-                                wgpu::RenderPassColorAttachment {
-                                    view: &frame_view,
-                                    resolve_target: None,
-                                    ops: wgpu::Operations {
-                                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                                        store: wgpu::StoreOp::Store,
-                                    },
-                                }
-                            } else {
-                                wgpu::RenderPassColorAttachment {
-                                    view: &msaa_framebuffer,
-                                    resolve_target: Some(&frame_view),
-                                    ops: wgpu::Operations {
-                                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                                        store: wgpu::StoreOp::Discard,
-                                    },
-                                }
-                            };
-
-                            let mut rpass =
-                                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                                    label: None,
-                                    color_attachments: &[Some(attch)],
-                                    depth_stencil_attachment: None,
-                                    timestamp_writes: None,
-                                    occlusion_query_set: None,
-                                });
-                            // rpass.set_pipeline(&line_pipeline.pipeline);
-                            // rpass.set_bind_group(0, &line_bind_group, &[]);
-                            rpass.set_pipeline(&short_pipeline.pipeline);
-                            rpass.set_bind_group(0, &short_bind_group, &[]);
-
-                            // first draw grid
-                            // rpass.set_vertex_buffer(0, grid_buffer.slice(..));
-                            // rpass.draw(0..6, grid_instances.clone());
-
-                            // then matches
-                            rpass.set_vertex_buffer(0, match_buffer.slice(..));
-                            rpass.draw(0..6, match_instances.clone());
-                        }
-                        */
-
                         egui_renderer.draw(
                             &device,
                             &queue,
@@ -919,10 +870,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
                             },
                             |ctx| {
                                 selection_handler.run(ctx, &mut app_view);
-                                regions::draw_paf_line_aabbs(&input, ctx, &app_view);
+                                // regions::draw_paf_line_aabbs(&input, ctx, &app_view);
                                 gui::draw_cursor_position_rulers(&input, ctx, &app_view);
-
-                                // gui::view_controls(&name_cache, &input, &mut app_view, ctx);
                             },
                         );
 
