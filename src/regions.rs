@@ -36,6 +36,26 @@ pub fn draw_rect_region(
     painter.rect_filled(rect, 0.0, color);
 }
 
+pub fn draw_paf_line_aabbs(input: &crate::PafInput, ctx: &egui::Context, view: &crate::view::View) {
+    let painter = ctx.layer_painter(egui::LayerId::new(
+        egui::Order::Background,
+        "line-aabb".into(),
+    ));
+
+    let screen_size = ctx.screen_rect().size();
+    // let screen_size = screen_size.into();
+
+    // let color = color.into();
+    let color = egui::Rgba::from_rgba_unmultiplied(1.0, 0.0, 0.0, 0.5);
+    for line in &input.processed_lines {
+        let aabb_min = line.aabb_min;
+        let aabb_max = line.aabb_max;
+        let x_range = aabb_min.x..=aabb_max.x;
+        let y_range = aabb_min.y..=aabb_max.y;
+        draw_rect_region(&painter, screen_size, color, view, x_range, y_range);
+    }
+}
+
 #[derive(Default)]
 pub struct SelectionHandler {
     right_click_w_pos: Option<DVec2>,

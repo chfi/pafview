@@ -14,8 +14,9 @@ pub struct RStarMatches {
 impl RStarMatches {
     pub fn from_paf(input: &super::PafInput) -> Self {
         let elems = input
-            .match_edges
+            .processed_lines
             .iter()
+            .flat_map(|l| l.match_edges.iter())
             .enumerate()
             .map(|(ix, &[p0, p1])| TreePoint::new(Line::new(p0.into(), p1.into()), ix))
             .collect();

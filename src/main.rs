@@ -31,7 +31,135 @@ struct PafInput {
     target_len: usize,
     query_len: usize,
 
+    // match_edges: Vec<[DVec2; 2]>,
+    processed_lines: Vec<ProcessedCigar>,
+}
+
+impl PafInput {
+    fn total_matches(&self) -> usize {
+        self.processed_lines
+            .iter()
+            .map(|l| l.match_edges.len())
+            .sum()
+    }
+}
+
+struct ProcessedCigar {
+    target_id: usize,
+    target_offset: u64,
+    target_len: u64,
+
+    query_id: usize,
+    query_offset: u64,
+    query_len: u64,
+
     match_edges: Vec<[DVec2; 2]>,
+    match_offsets: Vec<[u64; 2]>,
+
+    aabb_min: DVec2,
+    aabb_max: DVec2,
+}
+
+impl ProcessedCigar {
+    fn from_line(
+        name_cache: &NameCache,
+        paf_line: &PafLine<&str>,
+        origin: [u64; 2],
+    ) -> anyhow::Result<Self> {
+        let ops = paf_line
+            .cigar
+            .split_inclusive(['M', 'X', '=', 'D', 'I', 'S', 'H', 'N'])
+            .filter_map(|opstr| {
+                let count = opstr[..opstr.len() - 1].parse::<u64>().ok()?;
+                let op = opstr.as_bytes()[opstr.len() - 1] as char;
+                Some((op, count))
+            });
+
+        let [mut target_pos, mut query_pos] = origin;
+
+        let target_id = *name_cache
+            .target_names
+            .get(paf_line.tgt_name)
+            .ok_or_else(|| anyhow!("Target sequence `{}` not found", paf_line.tgt_name))?;
+        let query_id = *name_cache
+            .query_names
+            .get(paf_line.query_name)
+            .ok_or_else(|| anyhow!("Query sequence `{}` not found", paf_line.query_name))?;
+
+        let mut match_edges = Vec::new();
+        let mut match_offsets = Vec::new();
+
+        let mut aabb_min = DVec2::broadcast(std::f64::MAX);
+        let mut aabb_max = DVec2::broadcast(std::f64::MIN);
+
+        for (op, count) in ops {
+            match op {
+                'M' | '=' | 'X' => {
+                    let x = target_pos;
+                    let y = query_pos;
+
+                    {
+                        let x0 = x as f64;
+                        let y0 = y as f64;
+
+                        let x_end = if paf_line.strand_rev {
+                            x.checked_sub(count).unwrap_or_default()
+                        } else {
+                            x + count
+                        };
+                        let x1 = x_end as f64;
+                        let y1 = (y + count) as f64;
+
+                        let p0 = DVec2::new(x0, y0);
+                        let p1 = DVec2::new(x1, y1);
+
+                        aabb_min = aabb_min.min_by_component(p0).min_by_component(p1);
+                        aabb_max = aabb_max.max_by_component(p0).max_by_component(p1);
+
+                        match_edges.push([p0, p1]);
+                        match_offsets.push([target_pos, query_pos]);
+                    }
+
+                    target_pos += count;
+                    if paf_line.strand_rev {
+                        query_pos = query_pos.checked_sub(count).unwrap_or_default()
+                    } else {
+                        query_pos += count;
+                    }
+                }
+                'D' => {
+                    target_pos += count;
+                }
+                'I' => {
+                    if paf_line.strand_rev {
+                        query_pos = query_pos.checked_sub(count).unwrap_or_default()
+                    } else {
+                        query_pos += count;
+                    }
+                }
+                _ => (),
+            }
+        }
+
+        let target_len = target_pos - origin[0];
+        let query_len = query_pos - origin[1];
+
+        Ok(Self {
+            target_id,
+            target_offset: origin[0],
+            target_len,
+
+            query_id,
+            query_offset: origin[1],
+            query_len,
+
+            match_edges,
+            match_offsets,
+
+            aabb_min,
+            aabb_max,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -164,7 +292,7 @@ pub fn main() -> anyhow::Result<()> {
     let query_len = process_aligned(&mut queries);
 
     // process matches
-    let mut match_edges = Vec::new();
+    let mut processed_lines = Vec::new();
 
     let reader = std::fs::File::open(&paf_path).map(std::io::BufReader::new)?;
 
@@ -191,10 +319,12 @@ pub fn main() -> anyhow::Result<()> {
             } else {
                 y0 + paf_line.query_seq_start
             };
-            [x, y]
+            [x as u64, y as u64]
         };
 
-        process_cigar(&paf_line, origin, target_len, query_len, &mut match_edges)?;
+        processed_lines.push(ProcessedCigar::from_line(&names, &paf_line, origin)?);
+
+        // process_cigar(&paf_line, origin, &mut match_edges)?;
         // process_cigar_compress(&paf_line, origin, target_len, query_len, &mut match_edges)?;
     }
 
@@ -203,22 +333,17 @@ pub fn main() -> anyhow::Result<()> {
         targets,
         target_len,
         query_len,
-        match_edges,
+        processed_lines,
     };
 
     println!("sum target len: {target_len}");
     println!("sum query len: {query_len}");
-    println!("drawing {} matches", paf_input.match_edges.len());
-
-    let mut min = DVec2::broadcast(std::f64::MAX);
-    let mut max = DVec2::broadcast(std::f64::MIN);
-
-    for &[from, to] in paf_input.match_edges.iter() {
-        min = min.min_by_component(from).min_by_component(to);
-        max = max.max_by_component(from).max_by_component(to);
-    }
-
-    println!("AABB: min {min:?}, max {max:?}");
+    let total_matches: usize = paf_input
+        .processed_lines
+        .iter()
+        .map(|l| l.match_edges.len())
+        .sum();
+    println!("drawing {} matches", total_matches);
 
     start_window(names, paf_input);
 
@@ -265,8 +390,6 @@ impl OpProj {
 fn process_cigar(
     paf: &PafLine<&str>,
     origin: [usize; 2],
-    target_len: usize,
-    query_len: usize,
     match_edges: &mut Vec<[DVec2; 2]>,
 ) -> anyhow::Result<()> {
     let ops = paf
@@ -523,17 +646,19 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
     };
 
     let (match_buffer, match_instances) = {
-        let instances = input.match_edges.len();
-        let mut lines: Vec<LineVertex> = Vec::with_capacity(instances);
+        let instance_count = input.total_matches();
 
-        let color = 0x00000000;
+        let mut lines: Vec<LineVertex> = Vec::with_capacity(instance_count);
 
-        for &[from, to] in input.match_edges.iter() {
-            lines.push(LineVertex {
-                p0: [from.x as f32, from.y as f32].into(),
-                p1: [to.x as f32, to.y as f32].into(),
-                // color,
-            });
+        // let color = 0x00000000;
+
+        for line in &input.processed_lines {
+            for &[from, to] in line.match_edges.iter() {
+                lines.push(LineVertex {
+                    p0: [from.x as f32, from.y as f32].into(),
+                    p1: [to.x as f32, to.y as f32].into(),
+                });
+            }
         }
 
         let buffer = device.create_buffer_init(&BufferInitDescriptor {
@@ -542,7 +667,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
-        (buffer, 0..instances as u32)
+        (buffer, 0..instance_count as u32)
     };
 
     let mut app_view = View {
@@ -794,6 +919,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
                             },
                             |ctx| {
                                 selection_handler.run(ctx, &mut app_view);
+                                regions::draw_paf_line_aabbs(&input, ctx, &app_view);
                                 gui::draw_cursor_position_rulers(&input, ctx, &app_view);
 
                                 // gui::view_controls(&name_cache, &input, &mut app_view, ctx);
@@ -852,7 +978,16 @@ pub fn write_png(
     out_path: impl AsRef<std::path::Path>,
 ) -> anyhow::Result<()> {
     use line_drawing::XiaolinWu;
+    // let width = width * 4;
+    // let height = height * 4;
+
     let mut px_bytes = vec![0u8; width * height * 4];
+
+    for channels in bytemuck::cast_slice_mut::<_, [u8; 4]>(&mut px_bytes) {
+        for c in channels {
+            *c = 255;
+        }
+    }
 
     let w = width as i64;
     let h = height as i64;
@@ -881,7 +1016,10 @@ pub fn write_png(
 
     println!("screen_dims: {w}, {h}");
 
-    let matches = &input.match_edges;
+    let matches = input
+        .processed_lines
+        .iter()
+        .flat_map(|l| l.match_edges.iter());
 
     let mut min_x = std::i64::MAX;
     let mut min_y = min_x;
