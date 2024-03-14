@@ -870,7 +870,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
                             },
                             |ctx| {
                                 selection_handler.run(ctx, &mut app_view);
-                                // regions::draw_paf_line_aabbs(&input, ctx, &app_view);
+                                // regions::paf_line_debug_aabbs(&input, ctx, &app_view);
                                 gui::draw_cursor_position_rulers(&input, ctx, &app_view);
                             },
                         );
