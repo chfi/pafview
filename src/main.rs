@@ -630,6 +630,22 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
                             }
                         }
                     }
+                    WindowEvent::KeyboardInput { event, .. } => {
+                        if let PhysicalKey::Code(KeyCode::F12) = event.physical_key {
+                            if event.state != ElementState::Pressed {
+                                return;
+                            }
+
+                            // if event.state
+                            let [w, h]: [u32; 2] = window.inner_size().into();
+                            let path = "screenshot.png";
+                            log::info!("taking screenshot");
+                            match write_png(&input, &app_view, w as usize, h as usize, path) {
+                                Ok(_) => log::info!("wrote screenshot to {path}"),
+                                Err(e) => log::info!("error writing screenshot: {e:?}"),
+                            }
+                        }
+                    }
                     WindowEvent::MouseWheel { delta, phase, .. } => match delta {
                         winit::event::MouseScrollDelta::LineDelta(x, y) => {
                             delta_scale = 1.0 - y as f64 * 0.01;
@@ -826,4 +842,97 @@ pub fn start_window(name_cache: NameCache, input: PafInput) {
         console_log::init().expect("could not initialize logger");
         wasm_bindgen_futures::spawn_local(run(event_loop, window, name_cache, input));
     }
+}
+
+pub fn write_png(
+    input: &PafInput,
+    view: &crate::view::View,
+    width: usize,
+    height: usize,
+    out_path: impl AsRef<std::path::Path>,
+) -> anyhow::Result<()> {
+    use line_drawing::XiaolinWu;
+    let mut px_bytes = vec![0u8; width * height * 4];
+
+    let w = width as i64;
+    let h = height as i64;
+
+    let screen_dims = [w as f32, h as f32];
+
+    /*
+    let line = XiaolinWu::<f32, i64>::new([100f32, 100.0].into(), [400f32, 400.0].into());
+
+    for ((x, y), val) in line {
+        if x < 0 || x >= w || y < 0 || y >= h {
+            continue;
+        }
+
+        let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut px_bytes);
+        let ix = x + y * w;
+
+        let val = (255.0 * (1.0 - val)) as u8;
+        let [rgb @ .., a] = &mut pixels[ix as usize];
+        *a = 255;
+        for chan in rgb {
+            *chan = val;
+        }
+    }
+    */
+
+    println!("screen_dims: {w}, {h}");
+
+    let matches = &input.match_edges;
+
+    let mut min_x = std::i64::MAX;
+    let mut min_y = min_x;
+    let mut max_x = std::i64::MIN;
+    let mut max_y = max_x;
+    let mut px_count = 0;
+
+    for &[from, to] in matches {
+        let s_from = view.map_world_to_screen(screen_dims, from);
+        let s_to = view.map_world_to_screen(screen_dims, to);
+
+        let start: [f32; 2] = s_from.into();
+        let end: [f32; 2] = s_to.into();
+
+        let line = XiaolinWu::<f32, i64>::new(start.into(), end.into());
+
+        // for ((x, y), val) in line {
+        // let mut seen = false;
+        for ((x, y), val) in line {
+            // x & y are in screen coordinates
+            if x < 0 || x >= w || y < 0 || y >= h {
+                continue;
+            }
+            px_count += 1;
+
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+            // if !seen {
+            //     println!("{x}, {y}");
+            //     seen = true;
+            // }
+
+            let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut px_bytes);
+            let ix = x + y * w;
+
+            let val = (255.0 * (1.0 - val)) as u8;
+            let [rgb @ .., a] = &mut pixels[ix as usize];
+            *a = 255;
+            for chan in rgb {
+                *chan = val;
+            }
+        }
+    }
+
+    println!("min_x: {min_x}\tmin_y: {min_y}");
+    println!("max_x: {max_x}\tmax_y: {max_y}");
+    println!("touched pixels {px_count} times");
+
+    lodepng::encode32_file(out_path, &px_bytes, width, height)?;
+
+    Ok(())
 }
