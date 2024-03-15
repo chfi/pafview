@@ -65,14 +65,21 @@ pub fn draw_annotation_test_window(
 ) {
     let id_str = "annotation-test-window";
     let id = egui::Id::new(id_str);
-    let (mut entry_text, mut annot_state) = ctx.data(|d| {
-        let text = d.get_temp::<String>(id).unwrap_or_default();
+    let (mut range_text, mut label_text, mut annot_state) = ctx.data(|d| {
+        let (range_text, label_text) = d.get_temp::<(String, String)>(id).unwrap_or_default();
         let state = d.get_temp::<AnnotTestState>(id).unwrap_or_default();
-        (text, state)
+        (range_text, label_text, state)
     });
 
     egui::Window::new("Annotation Test").show(&ctx, |ui| {
-        let annot_text = ui.text_edit_singleline(&mut entry_text);
+        ui.horizontal(|ui| {
+            ui.label("Range");
+            ui.text_edit_singleline(&mut range_text);
+        });
+        ui.horizontal(|ui| {
+            ui.label("Label");
+            ui.text_edit_singleline(&mut label_text);
+        });
     });
 
     let parse_range = |text: &str| {
@@ -84,7 +91,7 @@ pub fn draw_annotation_test_window(
         Some((name.to_string(), [start, end]))
     };
 
-    if let key @ Some((name, [start, end])) = parse_range(&entry_text).as_ref() {
+    if let key @ Some((name, [start, end])) = parse_range(&range_text).as_ref() {
         if key != annot_state.key.as_ref() {
             let new_outputs = find_matches_for_target_range(names, input, &name, *start..*end);
             annot_state.key = key.cloned();
@@ -110,18 +117,42 @@ pub fn draw_annotation_test_window(
         let matches = annot_state.match_output.lock();
         let mut aabb_min = Vec2::broadcast(std::f32::MAX);
         let mut aabb_max = Vec2::broadcast(std::f32::MIN);
-        for (_match_i, matches) in matches.iter() {
-            for &[from, to] in matches.iter() {
+        for (cigar_i, matches) in matches.iter() {
+            for (match_i, &[from, to]) in matches.iter().enumerate() {
                 let s0 = view.map_world_to_screen(dims, from);
                 let s1 = view.map_world_to_screen(dims, to);
 
                 aabb_min = aabb_min.min_by_component(s0).min_by_component(s1);
                 aabb_max = aabb_max.max_by_component(s0).max_by_component(s1);
 
-                let s0: [f32; 2] = s0.into();
-                let s1: [f32; 2] = s1.into();
+                let p0: [f32; 2] = s0.into();
+                let p1: [f32; 2] = s1.into();
 
-                painter.line_segment([s0.into(), s1.into()], stroke);
+                painter.line_segment([p0.into(), p1.into()], stroke);
+
+                if match_i == matches.len() / 2 {
+                    let d = s1 - s0;
+                    let angle = d.y.atan2(d.x) as f32;
+
+                    let mut job = egui::text::LayoutJob::default();
+                    job.append(
+                        &label_text,
+                        0.0,
+                        egui::text::TextFormat {
+                            font_id: egui::FontId::monospace(12.0),
+                            color: egui::Color32::PLACEHOLDER,
+                            ..Default::default()
+                        },
+                    );
+
+                    let galley = painter.layout_job(job);
+
+                    let mut text_shape =
+                        egui::epaint::TextShape::new(p0.into(), galley, egui::Color32::BLACK);
+                    text_shape.angle = angle;
+
+                    painter.add(text_shape);
+                }
             }
         }
 
@@ -131,7 +162,7 @@ pub fn draw_annotation_test_window(
     }
 
     ctx.data_mut(|d| {
-        d.insert_temp(id, entry_text);
+        d.insert_temp(id, (range_text, label_text));
         d.insert_temp(id, annot_state);
     });
 }
