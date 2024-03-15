@@ -276,24 +276,25 @@ pub fn main() -> anyhow::Result<()> {
         }
     }
 
-    let process_aligned = |aseqs: &mut [AlignedSeq]| {
-        let mut by_len = aseqs.iter().map(|a| a.len).enumerate().collect::<Vec<_>>();
-        by_len.sort_by_key(|(_id, len)| std::cmp::Reverse(*len as isize));
+    targets.sort_by_key(|seq| std::cmp::Reverse(seq.len));
+    queries.sort_by_key(|seq| std::cmp::Reverse(seq.len));
 
+    let process_aligned = |names: &mut FxHashMap<String, usize>, aseqs: &mut [AlignedSeq]| {
         let mut offset = 0;
 
-        for (rank, (i, _len)) in by_len.into_iter().enumerate() {
-            let entry = &mut aseqs[i];
-            entry.rank = rank;
-            entry.offset = offset;
-            offset += entry.len;
+        for (new_id, seq) in aseqs.iter_mut().enumerate() {
+            if let Some(id) = names.get_mut(&seq.name) {
+                *id = new_id;
+            }
+            seq.offset = offset;
+            offset += seq.len;
         }
 
         offset
     };
 
-    let target_len = process_aligned(&mut targets);
-    let query_len = process_aligned(&mut queries);
+    let target_len = process_aligned(&mut names.target_names, &mut targets);
+    let query_len = process_aligned(&mut names.query_names, &mut queries);
 
     // process matches
     let mut processed_lines = Vec::new();

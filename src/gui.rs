@@ -286,28 +286,25 @@ pub fn draw_cursor_position_rulers_impl(
     let world_pt = view.map_screen_to_world(window_dims, pos);
 
     // get target sequence by doing a binary search on the targets' offsets
-    let tgt_offset = world_pt.x as usize;
+    if world_pt.x > 0.0 && world_pt.x < input.target_len as f64 {
+        let tgt_offset = world_pt.x as usize;
 
-    if pos.x > 0.0 && pos.x < window_dims[0] as f32 {
         let tgt_ix = input.targets.partition_point(|seq| seq.offset < tgt_offset);
         if let Some(target) = input.targets.get(tgt_ix) {
             let offset_in_tgt = target.offset - tgt_offset;
-            let label = format!("{}:{offset_in_tgt}", target.name);
-
+            let label = format!("{}:{offset_in_tgt}\t{}", target.name, world_pt.x);
             draw_ruler_v(painter, window_dims, pos.x, &label);
         }
     }
 
     // & the same for query and the Y coordinate
-
-    if pos.y > 0.0 && pos.y < window_dims[1] as f32 {
+    if world_pt.y > 0.0 && world_pt.y < input.query_len as f64 {
         let qry_offset = world_pt.y as usize;
 
         let qry_ix = input.queries.partition_point(|seq| seq.offset < qry_offset);
         if let Some(query) = input.queries.get(qry_ix) {
             let offset_in_qry = query.offset - qry_offset;
-            let label = format!("{}:{offset_in_qry}", query.name);
-
+            let label = format!("{}:{offset_in_qry}\t{}", query.name, world_pt.y);
             draw_ruler_h(painter, window_dims, pos.y, &label);
         }
     }
