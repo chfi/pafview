@@ -1,27 +1,17 @@
-use bytemuck::{Pod, Zeroable};
-use egui::{Context, ViewportBuilder};
+use egui::Context;
 use egui_wgpu::Renderer;
 use egui_wgpu::ScreenDescriptor;
 use egui_winit::EventResponse;
 use egui_winit::State;
-use rustc_hash::FxHashMap;
 use std::borrow::Cow;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use ultraviolet::{Mat4, Vec2, Vec3};
+use ultraviolet::Mat4;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use wgpu::SurfaceConfiguration;
 use wgpu::Texture;
 use wgpu::{CommandEncoder, Device, Queue, TextureFormat, TextureView};
-use winit::{
-    event::{Event, MouseButton, WindowEvent},
-    event_loop::EventLoop,
-    window::Window,
-};
-
-use std::io::prelude::*;
-
-use anyhow::anyhow;
+use winit::{event::WindowEvent, window::Window};
 
 pub struct LinePipeline {
     pub bind_group_layout: wgpu::BindGroupLayout,

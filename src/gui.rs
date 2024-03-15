@@ -52,33 +52,14 @@ pub fn goto_range_controls(name_cache: &NameCache, input: &PafInput, view: &mut 
 
     ui.horizontal(|ui| {
         let target_text = ui.text_edit_singleline(&mut target_buf);
-        // let go = ui.button("Go to target");
-
         goto |= target_text.lost_focus() && pressed_enter;
-
-        // if go.clicked() || (target_text.lost_focus() && pressed_enter) {
-        //     if let Some(range) = parse_range(&name_cache.target_names, &input.targets, &target_buf)
-        //     {
-        //         let new_view = view.fit_ranges_in_view(aspect_ratio, Some(range), None);
-        //         *view = new_view;
-        //     }
-        // }
     });
 
     // Query/Y
 
     ui.horizontal(|ui| {
         let query_text = ui.text_edit_singleline(&mut query_buf);
-        // let go = ui.button("Go to query");
-
         goto |= query_text.lost_focus() && pressed_enter;
-
-        // if go.clicked() || (query_text.lost_focus() && pressed_enter) {
-        //     if let Some(range) = parse_range(&name_cache.query_names, &input.queries, &query_buf) {
-        //         let new_view = view.fit_ranges_in_view(aspect_ratio, None, Some(range));
-        //         *view = new_view;
-        //     }
-        // }
     });
 
     let x_range = parse_range(&name_cache.target_names, &input.targets, &target_buf);
@@ -120,10 +101,7 @@ pub fn view_controls(
         // .resizable(true)
         // .vscroll(true)
         // .default_open(false)
-        .show(&ctx, |mut ui| {
-            let x_limit = input.target_len as f64;
-            let y_limit = input.query_len as f64;
-
+        .show(&ctx, |ui| {
             goto_range_controls(name_cache, input, view, ui);
 
             // let x_min =
@@ -198,20 +176,11 @@ pub fn draw_ruler_h(
             font_id: FontId::monospace(12.0),
             color: Color32::PLACEHOLDER,
             valign: egui::Align::TOP,
-            // extra_letter_spacing: todo!(),
-            // line_height: todo!(),
-            // background: todo!(),
-            // italics: todo!(),
-            // underline: todo!(),
-            // strikethrough: todo!(),
             ..Default::default()
         },
     );
 
     let galley = painter.layout_job(job);
-
-    // let galley = painter.layout_no_wrap(text.to_string(), FontId::monospace(12.0), Color32::BLACK);
-    // let txt_size = galley.size();
 
     painter.galley(egui::pos2(16.0, screen_y), galley, Color32::BLACK);
 }
@@ -292,7 +261,7 @@ pub fn draw_cursor_position_rulers_impl(
         let tgt_ix = input.targets.partition_point(|seq| seq.offset < tgt_offset);
         if let Some(target) = input.targets.get(tgt_ix) {
             let offset_in_tgt = target.offset - tgt_offset;
-            let label = format!("{}:{offset_in_tgt}\t{}", target.name, world_pt.x);
+            let label = format!("{}:{offset_in_tgt}", target.name);
             draw_ruler_v(painter, window_dims, pos.x, &label);
         }
     }
@@ -304,7 +273,7 @@ pub fn draw_cursor_position_rulers_impl(
         let qry_ix = input.queries.partition_point(|seq| seq.offset < qry_offset);
         if let Some(query) = input.queries.get(qry_ix) {
             let offset_in_qry = query.offset - qry_offset;
-            let label = format!("{}:{offset_in_qry}\t{}", query.name, world_pt.y);
+            let label = format!("{}:{offset_in_qry}", query.name);
             draw_ruler_h(painter, window_dims, pos.y, &label);
         }
     }

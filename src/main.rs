@@ -594,11 +594,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
     let swapchain_capabilities = surface.get_capabilities(&adapter);
     let swapchain_format = swapchain_capabilities.formats[0];
 
-    let line_pipeline = LinePipeline::new(&device, swapchain_format, sample_count);
-    let short_pipeline = ShortMatchPipeline::new(&device, swapchain_format, sample_count);
-
     let (grid_buffer, grid_instances) = {
-        let instances = input.targets.len() + input.queries.len();
+        let instances = input.targets.len() + input.queries.len() + 2;
         let mut lines: Vec<LineVertex> = Vec::with_capacity(instances);
 
         let mut targets_sort = input
@@ -619,17 +616,19 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
         let x_max = input.target_len as f32;
         let y_max = input.query_len as f32;
 
-        let color = 0x00000000;
-
         // X
         for t in input.targets.iter() {
             let x = t.offset as f32;
             lines.push(LineVertex {
                 p0: [x, 0f32],
                 p1: [x, y_max],
-                // color,
             });
         }
+        lines.push(LineVertex {
+            p0: [x_max, 0f32],
+            p1: [x_max, y_max],
+            // color,
+        });
 
         // Y
         for q in input.queries.iter() {
@@ -637,9 +636,13 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
             lines.push(LineVertex {
                 p0: [0f32, y],
                 p1: [x_max, y],
-                // color,
             });
         }
+        lines.push(LineVertex {
+            p0: [0f32, y_max],
+            p1: [x_max, y_max],
+            // color,
+        });
 
         let buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
@@ -718,7 +721,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
             // Have the closure take ownership of the resources.
             // `event_loop.run` never returns, therefore we must do this to ensure
             // the resources are properly cleaned up.
-            let _ = (&instance, &adapter, &line_pipeline, &short_pipeline);
+            let _ = (&instance, &adapter);
 
             if let Event::AboutToWait = event {
                 let result = device.poll(wgpu::Maintain::Poll);
