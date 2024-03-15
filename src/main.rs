@@ -799,6 +799,13 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
                     }
                     WindowEvent::Resized(new_size) => {
                         // Reconfigure the surface with the new size
+
+                        let old_size = [config.width, config.height];
+
+                        if new_size.width > 0 && new_size.height > 0 {
+                            app_view = app_view.resize_for_window_size(old_size, new_size);
+                        }
+
                         config.width = new_size.width.max(1);
                         config.height = new_size.height.max(1);
                         surface.configure(&device, &config);

@@ -214,6 +214,30 @@ impl View {
             y_max: max.y,
         }
     }
+
+    pub fn resize_for_window_size(
+        &self,
+        old_window_size: impl Into<[u32; 2]>,
+        new_window_size: impl Into<[u32; 2]>,
+    ) -> Self {
+        let [_ow, oh] = old_window_size.into();
+        let [nw, nh] = new_window_size.into();
+
+        let new_aspect = nw as f64 / nh as f64;
+
+        let old_h_scale = self.height() / oh as f64;
+        let new_height = nh as f64 * old_h_scale;
+        let new_width = new_height * new_aspect;
+
+        let center = self.center();
+
+        Self {
+            x_min: center.x - new_width * 0.5,
+            x_max: center.x + new_width * 0.5,
+            y_min: center.y - new_height * 0.5,
+            y_max: center.y + new_height * 0.5,
+        }
+    }
 }
 
 fn calculate_covering_rectangle(
