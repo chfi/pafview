@@ -19,6 +19,17 @@ impl View {
         self.y_min..=self.y_max
     }
 
+    pub fn x_range_usize(&self) -> std::ops::Range<usize> {
+        let l = self.x_min.floor() as usize;
+        let r = self.x_max.ceil() as usize;
+        l..r
+    }
+    pub fn y_range_usize(&self) -> std::ops::Range<usize> {
+        let u = self.y_min.floor() as usize;
+        let d = self.y_max.ceil() as usize;
+        u..d
+    }
+
     pub fn map_world_to_view(&self, world_pt: impl Into<DVec2>) -> DVec2 {
         let wp = world_pt.into();
         let tleft = DVec2::new(self.x_min, self.y_min);

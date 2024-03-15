@@ -114,29 +114,26 @@ impl SelectionHandler {
         ));
 
         if let Some(wp0) = self.right_click_w_pos {
+            let l = wp0.x.min(wp1.x);
+            let r = wp0.x.max(wp1.x);
+            let u = wp0.y.min(wp1.y);
+            let d = wp0.y.max(wp1.y);
+
             let color = egui::Rgba::from_rgba_unmultiplied(1.0, 0.0, 0.0, 0.5);
-            draw_rect_region(
-                &painter,
-                screen_size,
-                color,
-                view,
-                wp0.x..=wp1.x,
-                wp0.y..=wp1.y,
-            );
-        }
+            draw_rect_region(&painter, screen_size, color, view, l..=r, u..=d);
 
-        if right_released {
-            if let Some(wp0) = self.right_click_w_pos.take() {
-                let l = wp0.x.min(wp1.x).floor() as usize;
-                let r = wp1.x.max(wp1.x).ceil() as usize;
-                let u = wp0.y.min(wp1.y).floor() as usize;
-                let d = wp1.y.max(wp1.y).ceil() as usize;
+            let l = l.floor() as usize;
+            let r = r.ceil() as usize;
+            let u = u.floor() as usize;
+            let d = d.ceil() as usize;
 
+            if right_released {
                 *view = view.fit_ranges_in_view(
                     screen_size.x as f64 / screen_size.y as f64,
                     Some(l..r),
                     Some(u..d),
                 );
+                self.right_click_w_pos.take();
             }
         }
     }
