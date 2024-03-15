@@ -1,6 +1,6 @@
 struct VertConfig {
   line_width: f32,
-  pad0: f32,
+  brightness: f32,
   pad1: f32,
   pad2: f32,
 }
@@ -57,16 +57,10 @@ fn vs_main(
   result.position = projection * vec4(pp, 0.0, 1.0);
   result.position.z = 0.5;
 
-  // if (distance(p0, p1) > view_width) {
-  // if (distance(p0, p1) > 1000.0) {
-  //   result.position.z = -10.0;
-  // }
-
   // let color_u = (vec4u(color) >> vec4u(0u, 8u, 16u, 24u))
   //               & vec4u(255u);
+  result.color = vec4f(vec3f(config.brightness), 1.0);
 
-  // result.color = vec4f(color_u) / vec4f(255.0);
-  result.color = vec4f(0.0, 0.0, 0.0, 1.0);
 
   return result;
 }

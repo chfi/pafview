@@ -404,8 +404,7 @@ impl PafRenderer {
         log::warn!("initializing PafRenderer");
         let line_pipeline = LinePipeline::new(&device, Self::COLOR_FORMAT, msaa_samples);
 
-        let init_state =
-            || PafDrawState::init(device, &line_pipeline.bind_group_layout, Self::COLOR_FORMAT);
+        let init_state = || PafDrawState::init(device, &line_pipeline.bind_group_layout);
 
         let draw_states = [init_state(), init_state()];
 
@@ -615,13 +614,14 @@ impl PafRenderer {
         });
 
         rpass.set_pipeline(&line_pipeline.pipeline);
-        rpass.set_bind_group(0, &uniforms.line_bind_group, &[]);
 
         if let Some((grid_vertices, grid_instances)) = grid_data {
+            rpass.set_bind_group(0, &uniforms.grid_bind_group, &[]);
             rpass.set_vertex_buffer(0, grid_vertices.slice(..));
             rpass.draw(0..6, grid_instances.clone());
         }
 
+        rpass.set_bind_group(0, &uniforms.line_bind_group, &[]);
         rpass.set_vertex_buffer(0, match_vertices.slice(..));
         rpass.draw(0..6, match_instances);
     }
@@ -736,6 +736,9 @@ struct PafUniforms {
     proj_uniform: wgpu::Buffer,
     conf_uniform: wgpu::Buffer,
     line_bind_group: wgpu::BindGroup,
+
+    grid_conf_uniform: wgpu::Buffer,
+    grid_bind_group: wgpu::BindGroup,
 }
 
 struct PafDrawState {
@@ -744,11 +747,7 @@ struct PafDrawState {
 }
 
 impl PafDrawState {
-    fn init(
-        device: &wgpu::Device,
-        bind_group_layout: &wgpu::BindGroupLayout,
-        color_format: wgpu::TextureFormat,
-    ) -> Self {
+    fn init(device: &wgpu::Device, bind_group_layout: &wgpu::BindGroupLayout) -> Self {
         // let projection = view.to_mat4();
         let mat = Mat4::identity();
         let proj_uniform = device.create_buffer_init(&BufferInitDescriptor {
@@ -757,10 +756,9 @@ impl PafDrawState {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        // px / window width
-        // let line_width: f32 = 5.0 / 1000.0;
-        // let line_width: f32 = 15.0 / 1000.0;
-        let conf = [1f32, 0.0, 0.0, 0.0];
+        // NB: the values here don't matter since they'll get immediately updated
+        //     by self.update_uniforms()
+        let conf = [5f32, 0f32, 0.0, 0.0];
         let conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&conf),
@@ -781,12 +779,36 @@ impl PafDrawState {
             ],
         });
 
+        let conf = [1f32, 1.0f32, 0.0, 0.0];
+        let grid_conf_uniform = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&conf),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let grid_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: proj_uniform.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: grid_conf_uniform.as_entire_binding(),
+                },
+            ],
+        });
+
         Self {
             draw_set: None,
             uniforms: PafUniforms {
                 proj_uniform,
                 conf_uniform,
                 line_bind_group,
+
+                grid_conf_uniform,
+                grid_bind_group,
             },
         }
     }
@@ -804,11 +826,23 @@ impl PafDrawState {
             bytemuck::cast_slice(&[proj]),
         );
 
+        let line_brightness = 0.0;
+        // px / window width
+        // let line_width: f32 = 5.0 / 1000.0;
+        // let line_width: f32 = 15.0 / 1000.0;
         let line_width: f32 = 5.0 / window_dims[0] as f32;
         queue.write_buffer(
             &self.uniforms.conf_uniform,
             0,
-            bytemuck::cast_slice(&[line_width, 0.0, 0.0, 0.0]),
+            bytemuck::cast_slice(&[line_width, line_brightness, 0.0, 0.0]),
+        );
+
+        let line_width: f32 = 1.0 / window_dims[0] as f32;
+        let line_brightness = 0.0;
+        queue.write_buffer(
+            &self.uniforms.grid_conf_uniform,
+            0,
+            bytemuck::cast_slice(&[line_width, line_brightness, 0.0, 0.0]),
         );
     }
 }

@@ -698,13 +698,6 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
 
     let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
 
-    // let mut msaa_framebuffer = create_multisampled_framebuffer(
-    //     &device,
-    //     [config.width, config.height],
-    //     config.format,
-    //     sample_count,
-    // );
-
     // TODO build this on a separate thread
     // let rstar_match = spatial::RStarMatches::from_paf(&input);
 
