@@ -1,3 +1,4 @@
+use annotations::AnnotationGuiHandler;
 use bimap::BiMap;
 use bytemuck::{Pod, Zeroable};
 use egui_wgpu::ScreenDescriptor;
@@ -227,6 +228,16 @@ fn parse_name_range<'a>(
 }
 
 pub fn main() -> anyhow::Result<()> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        env_logger::init();
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        console_log::init().expect("could not initialize logger");
+    }
+
     let mut args = std::env::args();
     let paf_path = args.nth(1).ok_or(anyhow!("Path to PAF not provided"))?;
 
@@ -341,6 +352,7 @@ pub fn main() -> anyhow::Result<()> {
     let mut annotations = AnnotationStore::default();
 
     if let Some(bed_path) = bed_path {
+        log::info!("Loading BED file `{bed_path}`");
         match annotations.load_bed_file(&seq_names, &bed_path) {
             Ok(_) => {
                 log::info!("Loaded BED file `{bed_path}`");
@@ -901,8 +913,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
                                 //     ctx,
                                 //     &app_view,
                                 // );
-                                // annot_gui_handler.show_annotation_list(ctx, &app);
-                                // annot_gui_handler.draw_annotations(ctx, &app, &mut app_view);
+                                annot_gui_handler.show_annotation_list(ctx, &app);
+                                annot_gui_handler.draw_annotations(ctx, &app, &mut app_view);
                                 gui::draw_cursor_position_rulers(&app.paf_input, ctx, &app_view);
                             },
                         );
@@ -940,13 +952,10 @@ fn start_window(app: PafViewerApp) {
 
     #[cfg(not(target_arch = "wasm32"))]
     {
-        env_logger::init();
         pollster::block_on(run(event_loop, window, app));
     }
     #[cfg(target_arch = "wasm32")]
     {
-        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-        console_log::init().expect("could not initialize logger");
         wasm_bindgen_futures::spawn_local(run(event_loop, window, app));
     }
 }

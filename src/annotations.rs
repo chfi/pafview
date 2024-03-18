@@ -119,8 +119,9 @@ pub struct Record {
 
 #[derive(Default)]
 pub struct AnnotationGuiHandler {
-    // prepared_records: Vec<(String, Vec<[DVec2; 2]>)>,
-    prepared_records: BTreeMap<(usize, usize), (String, Vec<[DVec2; 2]>)>,
+    prepared_records: BTreeMap<(usize, usize), (String, Vec<Vec<[DVec2; 2]>>)>,
+
+    prepared_galleys: FxHashMap<String, Arc<egui::text::Galley>>,
 }
 
 impl AnnotationGuiHandler {
@@ -130,10 +131,11 @@ impl AnnotationGuiHandler {
 
             if ui.button("Show annotations").clicked() {
                 if self.prepared_records.is_empty() {
-                    for (file_path, list_id) in app.annotations.annotation_sources.iter() {
-                        let list = &app.annotations.annotation_lists[*list_id];
+                    for (file_path, &list_id) in app.annotations.annotation_sources.iter() {
+                        let list = &app.annotations.annotation_lists[list_id];
+                        log::info!("Processing {file_path:?}");
 
-                        for record in &list.records {
+                        for (record_id, record) in list.records.iter().enumerate() {
                             // let seq_id = app.seq_names.get_by_right(&record.seq_id);
 
                             let matches = find_matches_for_target_range(
@@ -145,6 +147,10 @@ impl AnnotationGuiHandler {
                             .into_iter()
                             .map(|(_, v)| v)
                             .collect::<Vec<_>>();
+
+                            let key = (list_id, record_id);
+                            self.prepared_records
+                                .insert(key, (record.label.clone(), matches));
                         }
                     }
                 }
@@ -158,7 +164,76 @@ impl AnnotationGuiHandler {
         app: &PafViewerApp,
         view: &crate::view::View,
     ) {
-        todo!();
+        let id_str = "annotation-painter";
+        let id = egui::Id::new(id_str);
+
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, id));
+
+        let dims = ctx.screen_rect().size();
+
+        for ((list_id, record_id), (label, match_sets)) in self.prepared_records.iter() {
+            // TODO
+
+            if !self.prepared_galleys.contains_key(label) {
+                // TODO this technically has to be redone if points-per-pixel changes
+                let mut job = egui::text::LayoutJob::default();
+                job.append(
+                    label,
+                    0.0,
+                    egui::text::TextFormat {
+                        font_id: egui::FontId::monospace(12.0),
+                        color: egui::Color32::PLACEHOLDER,
+                        ..Default::default()
+                    },
+                );
+
+                let galley = painter.layout_job(job);
+                self.prepared_galleys.insert(label.to_string(), galley);
+            }
+
+            let Some(galley) = self.prepared_galleys.get(label) else {
+                unreachable!();
+            };
+
+            let color = app.annotations.annotation_lists[*list_id].records[*record_id].color;
+
+            let stroke = egui::Stroke { width: 4.0, color };
+
+            for matches in match_sets {
+                if matches.is_empty() {
+                    continue;
+                }
+
+                for &[from, to] in matches {
+                    let s0 = view.map_world_to_screen(dims, from);
+                    let s1 = view.map_world_to_screen(dims, to);
+
+                    let d = s1 - s0;
+                    let angle = d.y.atan2(d.x) as f32;
+
+                    let p0: [f32; 2] = s0.into();
+                    let p1: [f32; 2] = s1.into();
+                    painter.line_segment([p0.into(), p1.into()], stroke);
+                }
+
+                let [start, _] = matches[0];
+                let [_, end] = matches[matches.len() - 1];
+
+                let s0 = view.map_world_to_screen(dims, start);
+                let s1 = view.map_world_to_screen(dims, end);
+
+                let d = s1 - s0;
+                let angle = d.y.atan2(d.x) as f32;
+
+                let p: [f32; 2] = (s0 + (s1 - s0) * 0.5).into();
+
+                let mut text_shape =
+                    egui::epaint::TextShape::new(p.into(), galley.clone(), egui::Color32::BLACK);
+                text_shape.angle = angle;
+
+                painter.add(text_shape);
+            }
+        }
     }
 }
 
