@@ -65,7 +65,7 @@ struct ProcessedCigar {
 
 impl ProcessedCigar {
     fn from_line(
-        name_cache: &NameCache,
+        seq_names: &FxHashMap<String, usize>,
         paf_line: &PafLine<&str>,
         origin: [u64; 2],
     ) -> anyhow::Result<Self> {
@@ -80,12 +80,10 @@ impl ProcessedCigar {
 
         let [mut target_pos, mut query_pos] = origin;
 
-        let target_id = *name_cache
-            .seq_names
+        let target_id = *seq_names
             .get(paf_line.tgt_name)
             .ok_or_else(|| anyhow!("Target sequence `{}` not found", paf_line.tgt_name))?;
-        let query_id = *name_cache
-            .seq_names
+        let query_id = *seq_names
             .get(paf_line.query_name)
             .ok_or_else(|| anyhow!("Query sequence `{}` not found", paf_line.query_name))?;
 
@@ -193,11 +191,6 @@ struct AlignedSeq {
     offset: usize,
 }
 
-#[derive(Default)]
-struct NameCache {
-    seq_names: FxHashMap<String, usize>,
-}
-
 fn parse_paf_line<'a>(mut fields: impl Iterator<Item = &'a str>) -> Option<PafLine<&'a str>> {
     let (query_name, query_seq_len, query_seq_start, query_seq_end) =
         parse_name_range(&mut fields)?;
@@ -241,7 +234,6 @@ pub fn main() -> anyhow::Result<()> {
     // parse paf
     let reader = std::fs::File::open(&paf_path).map(std::io::BufReader::new)?;
 
-    let mut names = NameCache::default();
     let mut target_names = FxHashMap::default();
     let mut query_names = FxHashMap::default();
 
@@ -298,7 +290,7 @@ pub fn main() -> anyhow::Result<()> {
     let target_len = process_aligned(&mut target_names, &mut targets);
     let query_len = process_aligned(&mut query_names, &mut queries);
 
-    names.seq_names = target_names;
+    let seq_names = target_names;
 
     // process matches
     let mut processed_lines = Vec::new();
@@ -311,8 +303,8 @@ pub fn main() -> anyhow::Result<()> {
             continue;
         };
 
-        let target = names.seq_names.get(paf_line.tgt_name);
-        let query = names.seq_names.get(paf_line.query_name);
+        let target = seq_names.get(paf_line.tgt_name);
+        let query = seq_names.get(paf_line.query_name);
 
         let (Some(target_i), Some(query_i)) = (target, query) else {
             continue;
@@ -331,7 +323,7 @@ pub fn main() -> anyhow::Result<()> {
             [x as u64, y as u64]
         };
 
-        processed_lines.push(ProcessedCigar::from_line(&names, &paf_line, origin)?);
+        processed_lines.push(ProcessedCigar::from_line(&seq_names, &paf_line, origin)?);
 
         // process_cigar(&paf_line, origin, &mut match_edges)?;
         // process_cigar_compress(&paf_line, origin, target_len, query_len, &mut match_edges)?;
@@ -348,7 +340,7 @@ pub fn main() -> anyhow::Result<()> {
     let mut annotations = AnnotationStore::default();
 
     if let Some(bed_path) = bed_path {
-        match annotations.load_bed_file(&names.seq_names, &bed_path) {
+        match annotations.load_bed_file(&seq_names, &bed_path) {
             Ok(_) => {
                 log::info!("Loaded BED file `{bed_path}`");
                 //
@@ -366,7 +358,13 @@ pub fn main() -> anyhow::Result<()> {
         .sum();
     println!("drawing {} matches", total_matches);
 
-    start_window(names, paf_input);
+    let app = PafViewerApp {
+        paf_input,
+        seq_names,
+        annotations,
+    };
+
+    start_window(app);
 
     Ok(())
 }
@@ -571,7 +569,7 @@ struct LineVertex {
     // color: u32,
 }
 
-async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, input: PafInput) {
+async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
     let mut size = window.inner_size();
     size.width = size.width.max(1);
     size.height = size.height.max(1);
@@ -611,6 +609,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
     let swapchain_format = swapchain_capabilities.formats[0];
 
     let (grid_buffer, grid_instances) = {
+        let input = &app.paf_input;
         let instances = input.targets.len() + input.queries.len() + 2;
         let mut lines: Vec<LineVertex> = Vec::with_capacity(instances);
 
@@ -670,6 +669,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
     };
 
     let (match_buffer, match_instances) = {
+        let input = &app.paf_input;
         let instance_count = input.total_matches();
 
         let mut lines: Vec<LineVertex> = Vec::with_capacity(instance_count);
@@ -696,9 +696,9 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
 
     let mut app_view = View {
         x_min: 0.0,
-        x_max: input.target_len as f64,
+        x_max: app.paf_input.target_len as f64,
         y_min: 0.0,
-        y_max: input.query_len as f64,
+        y_max: app.paf_input.query_len as f64,
     };
 
     let mut config = surface
@@ -784,7 +784,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
                             let [w, h]: [u32; 2] = window.inner_size().into();
                             let path = "screenshot.png";
                             log::info!("taking screenshot");
-                            match write_png(&input, &app_view, w as usize, h as usize, path) {
+                            match write_png(&app.paf_input, &app_view, w as usize, h as usize, path)
+                            {
                                 Ok(_) => log::info!("wrote screenshot to {path}"),
                                 Err(e) => log::info!("error writing screenshot: {e:?}"),
                             }
@@ -892,12 +893,12 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
                                 selection_handler.run(ctx, &mut app_view);
                                 // regions::paf_line_debug_aabbs(&input, ctx, &app_view);
                                 // annotations::draw_annotation_test_window(
-                                //     &name_cache,
-                                //     &input,
+                                //     &app.seq_names,
+                                //     &app.paf_input,
                                 //     ctx,
                                 //     &app_view,
                                 // );
-                                gui::draw_cursor_position_rulers(&input, ctx, &app_view);
+                                gui::draw_cursor_position_rulers(&app.paf_input, ctx, &app_view);
                             },
                         );
 
@@ -912,7 +913,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, name_cache: NameCache, i
         .unwrap();
 }
 
-pub fn start_window(name_cache: NameCache, input: PafInput) {
+pub fn start_window(app: PafViewerApp) {
     let event_loop = EventLoop::new().unwrap();
     #[allow(unused_mut)]
     let mut builder = winit::window::WindowBuilder::new();
@@ -935,13 +936,13 @@ pub fn start_window(name_cache: NameCache, input: PafInput) {
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::init();
-        pollster::block_on(run(event_loop, window, name_cache, input));
+        pollster::block_on(run(event_loop, window, app));
     }
     #[cfg(target_arch = "wasm32")]
     {
         std::panic::set_hook(Box::new(console_error_panic_hook::hook));
         console_log::init().expect("could not initialize logger");
-        wasm_bindgen_futures::spawn_local(run(event_loop, window, name_cache, input));
+        wasm_bindgen_futures::spawn_local(run(event_loop, window, app));
     }
 }
 
@@ -1048,4 +1049,12 @@ pub fn write_png(
     lodepng::encode32_file(out_path, &px_bytes, width, height)?;
 
     Ok(())
+}
+
+struct PafViewerApp {
+    paf_input: PafInput,
+
+    seq_names: FxHashMap<String, usize>,
+
+    annotations: AnnotationStore,
 }

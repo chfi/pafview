@@ -4,15 +4,15 @@ use anyhow::{anyhow, Result};
 use rustc_hash::FxHashMap;
 use ultraviolet::{DVec2, Vec2};
 
-use crate::{NameCache, PafInput};
+use crate::PafInput;
 
 pub fn find_matches_for_target_range(
-    names: &NameCache,
+    seq_names: &FxHashMap<String, usize>,
     input: &PafInput,
     target_name: &str,
     target_range: std::ops::Range<u64>,
 ) -> Vec<(usize, Vec<[DVec2; 2]>)> {
-    let Some(&target_id) = names.seq_names.get(target_name) else {
+    let Some(&target_id) = seq_names.get(target_name) else {
         return Vec::new();
     };
     let target = &input.targets[target_id];
@@ -60,7 +60,7 @@ struct AnnotTestState {
 }
 
 pub fn draw_annotation_test_window(
-    names: &NameCache,
+    seq_names: &FxHashMap<String, usize>,
     input: &PafInput,
     ctx: &egui::Context,
     view: &crate::view::View,
@@ -95,7 +95,7 @@ pub fn draw_annotation_test_window(
 
     if let key @ Some((name, [start, end])) = parse_range(&range_text).as_ref() {
         if key != annot_state.key.as_ref() {
-            let new_outputs = find_matches_for_target_range(names, input, &name, *start..*end);
+            let new_outputs = find_matches_for_target_range(seq_names, input, &name, *start..*end);
             annot_state.key = key.cloned();
             let mut outputs = annot_state.match_output.lock();
             *outputs = new_outputs;

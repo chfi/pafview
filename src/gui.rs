@@ -2,9 +2,14 @@ use egui::{util::IdTypeMap, Color32, DragValue, FontId, Ui};
 use rustc_hash::FxHashMap;
 use ultraviolet::{Mat4, Vec2};
 
-use crate::{view::View, AlignedSeq, NameCache, PafInput};
+use crate::{view::View, AlignedSeq, PafInput};
 
-pub fn goto_range_controls(name_cache: &NameCache, input: &PafInput, view: &mut View, ui: &mut Ui) {
+pub fn goto_range_controls(
+    seq_names: &FxHashMap<String, usize>,
+    input: &PafInput,
+    view: &mut View,
+    ui: &mut Ui,
+) {
     let target_id = ui.id().with("target-range");
     let query_id = ui.id().with("query-range");
 
@@ -62,8 +67,8 @@ pub fn goto_range_controls(name_cache: &NameCache, input: &PafInput, view: &mut 
         goto |= query_text.lost_focus() && pressed_enter;
     });
 
-    let x_range = parse_range(&name_cache.seq_names, &input.targets, &target_buf);
-    let y_range = parse_range(&name_cache.seq_names, &input.queries, &query_buf);
+    let x_range = parse_range(&seq_names, &input.targets, &target_buf);
+    let y_range = parse_range(&seq_names, &input.queries, &query_buf);
 
     let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("region-painter"));
     let painter = ui.ctx().layer_painter(layer);
@@ -92,7 +97,7 @@ pub fn goto_range_controls(name_cache: &NameCache, input: &PafInput, view: &mut 
 }
 
 pub fn view_controls(
-    name_cache: &NameCache,
+    seq_names: &FxHashMap<String, usize>,
     input: &PafInput,
     view: &mut View,
     ctx: &egui::Context,
@@ -102,7 +107,7 @@ pub fn view_controls(
         // .vscroll(true)
         // .default_open(false)
         .show(&ctx, |ui| {
-            goto_range_controls(name_cache, input, view, ui);
+            goto_range_controls(seq_names, input, view, ui);
 
             // let x_min =
             //     DragValue::new(&mut view.x_min).clamp_range(0f64..=(v.x_max - 1.0).max(0.0));
