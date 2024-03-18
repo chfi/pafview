@@ -12,7 +12,7 @@ pub fn find_matches_for_target_range(
     target_name: &str,
     target_range: std::ops::Range<u64>,
 ) -> Vec<(usize, Vec<[DVec2; 2]>)> {
-    let Some(&target_id) = names.target_names.get(target_name) else {
+    let Some(&target_id) = names.seq_names.get(target_name) else {
         return Vec::new();
     };
     let target = &input.targets[target_id];
@@ -285,14 +285,18 @@ pub fn hashed_rgb(name: &str) -> [u8; 3] {
     // let mut hasher = Sha256::new();
     // hasher.update(name.as_bytes());
     // let hash = hasher.finalize();
+    // let r = hash[24];
+    // let g = hash[8];
+    // let b = hash[16];
+
     use std::hash::{Hash, Hasher};
     let mut hasher = std::hash::DefaultHasher::default();
     name.as_bytes().hash(&mut hasher);
     let hash = hasher.finish().to_ne_bytes();
 
-    let r = hash[24];
-    let g = hash[8];
-    let b = hash[16];
+    let r = hash[0];
+    let g = hash[1];
+    let b = hash[2];
 
     [r, g, b]
 }

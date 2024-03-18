@@ -62,8 +62,8 @@ pub fn goto_range_controls(name_cache: &NameCache, input: &PafInput, view: &mut 
         goto |= query_text.lost_focus() && pressed_enter;
     });
 
-    let x_range = parse_range(&name_cache.target_names, &input.targets, &target_buf);
-    let y_range = parse_range(&name_cache.query_names, &input.queries, &query_buf);
+    let x_range = parse_range(&name_cache.seq_names, &input.targets, &target_buf);
+    let y_range = parse_range(&name_cache.seq_names, &input.queries, &query_buf);
 
     let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("region-painter"));
     let painter = ui.ctx().layer_painter(layer);

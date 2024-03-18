@@ -81,11 +81,11 @@ impl ProcessedCigar {
         let [mut target_pos, mut query_pos] = origin;
 
         let target_id = *name_cache
-            .target_names
+            .seq_names
             .get(paf_line.tgt_name)
             .ok_or_else(|| anyhow!("Target sequence `{}` not found", paf_line.tgt_name))?;
         let query_id = *name_cache
-            .query_names
+            .seq_names
             .get(paf_line.query_name)
             .ok_or_else(|| anyhow!("Query sequence `{}` not found", paf_line.query_name))?;
 
@@ -181,7 +181,7 @@ struct PafLine<S> {
     cigar: S,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct AlignedSeq {
     // name of the given sequence
     name: String,
@@ -193,16 +193,9 @@ struct AlignedSeq {
     offset: usize,
 }
 
-// #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-// struct AlignedSeq {
-//     name: String,
-//     len: usize,
-// }
-
 #[derive(Default)]
 struct NameCache {
-    query_names: FxHashMap<String, usize>,
-    target_names: FxHashMap<String, usize>,
+    seq_names: FxHashMap<String, usize>,
 }
 
 fn parse_paf_line<'a>(mut fields: impl Iterator<Item = &'a str>) -> Option<PafLine<&'a str>> {
@@ -249,9 +242,11 @@ pub fn main() -> anyhow::Result<()> {
     let reader = std::fs::File::open(&paf_path).map(std::io::BufReader::new)?;
 
     let mut names = NameCache::default();
+    let mut target_names = FxHashMap::default();
+    let mut query_names = FxHashMap::default();
 
-    let mut queries = Vec::<AlignedSeq>::new();
     let mut targets = Vec::<AlignedSeq>::new();
+    let mut queries = Vec::<AlignedSeq>::new();
 
     for line in reader.lines() {
         let line = line?;
@@ -259,8 +254,8 @@ pub fn main() -> anyhow::Result<()> {
             let query_name = paf_line.query_name.to_string();
             let target_name = paf_line.tgt_name.to_string();
 
-            if !names.query_names.contains_key(&query_name) {
-                names.query_names.insert(query_name.clone(), queries.len());
+            if !query_names.contains_key(&query_name) {
+                query_names.insert(query_name.clone(), queries.len());
                 queries.push(AlignedSeq {
                     name: query_name,
                     len: paf_line.query_seq_len,
@@ -268,10 +263,8 @@ pub fn main() -> anyhow::Result<()> {
                 });
             }
 
-            if !names.target_names.contains_key(&target_name) {
-                names
-                    .target_names
-                    .insert(target_name.clone(), targets.len());
+            if !target_names.contains_key(&target_name) {
+                target_names.insert(target_name.clone(), targets.len());
                 targets.push(AlignedSeq {
                     name: target_name,
                     len: paf_line.tgt_seq_len,
@@ -283,6 +276,10 @@ pub fn main() -> anyhow::Result<()> {
 
     targets.sort_by_key(|seq| std::cmp::Reverse(seq.len));
     queries.sort_by_key(|seq| std::cmp::Reverse(seq.len));
+
+    let mut all_seqs = targets.iter().chain(&queries).cloned().collect::<Vec<_>>();
+    all_seqs.sort_by_cached_key(|seq| (std::cmp::Reverse(seq.len), seq.name.clone()));
+    all_seqs.dedup_by_key(|seq| (std::cmp::Reverse(seq.len), seq.name.clone()));
 
     let process_aligned = |names: &mut FxHashMap<String, usize>, aseqs: &mut [AlignedSeq]| {
         let mut offset = 0;
@@ -298,8 +295,10 @@ pub fn main() -> anyhow::Result<()> {
         offset
     };
 
-    let target_len = process_aligned(&mut names.target_names, &mut targets);
-    let query_len = process_aligned(&mut names.query_names, &mut queries);
+    let target_len = process_aligned(&mut target_names, &mut targets);
+    let query_len = process_aligned(&mut query_names, &mut queries);
+
+    names.seq_names = target_names;
 
     // process matches
     let mut processed_lines = Vec::new();
@@ -312,8 +311,8 @@ pub fn main() -> anyhow::Result<()> {
             continue;
         };
 
-        let target = names.target_names.get(paf_line.tgt_name);
-        let query = names.query_names.get(paf_line.query_name);
+        let target = names.seq_names.get(paf_line.tgt_name);
+        let query = names.seq_names.get(paf_line.query_name);
 
         let (Some(target_i), Some(query_i)) = (target, query) else {
             continue;
@@ -349,7 +348,7 @@ pub fn main() -> anyhow::Result<()> {
     let mut annotations = AnnotationStore::default();
 
     if let Some(bed_path) = bed_path {
-        match annotations.load_bed_file(&names.target_names, &bed_path) {
+        match annotations.load_bed_file(&names.seq_names, &bed_path) {
             Ok(_) => {
                 log::info!("Loaded BED file `{bed_path}`");
                 //
