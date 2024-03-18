@@ -1,20 +1,242 @@
-use std::{borrow::Borrow, path::PathBuf, sync::Arc};
+use std::{borrow::Borrow, collections::BTreeMap, path::PathBuf, sync::Arc};
 
 use anyhow::{anyhow, Result};
+use bimap::BiMap;
 use rustc_hash::FxHashMap;
 use ultraviolet::{DVec2, Vec2};
 
-use crate::PafInput;
+use crate::{PafInput, PafViewerApp};
+
+#[derive(Default)]
+pub struct AnnotationStore {
+    annotation_sources: FxHashMap<PathBuf, usize>,
+    annotation_lists: Vec<RecordList>,
+    // annotation_sources: FxHashMap<PathBuf, RecordList>,
+}
+
+impl AnnotationStore {
+    pub fn load_bed_file(
+        &mut self,
+        seq_names: &BiMap<String, usize>,
+        bed_path: impl AsRef<std::path::Path>,
+    ) -> Result<()> {
+        use std::io::prelude::*;
+        use std::io::BufReader;
+
+        let bed_reader = std::fs::File::open(bed_path.as_ref()).map(BufReader::new)?;
+
+        let mut record_list: Vec<Record> = Vec::new();
+
+        for line in bed_reader.lines() {
+            let line = line?;
+            let fields = line.trim().split('\t').collect::<Vec<_>>();
+
+            if fields.len() < 4 {
+                continue;
+            }
+
+            let seq_name = *fields
+                .get(0)
+                .ok_or(anyhow!("Sequence name missing from BED row"))?;
+            let seq_id = *seq_names
+                .get_by_left(seq_name)
+                .ok_or(anyhow!("Could not find sequence `{seq_name}`"))?;
+
+            let parse_range = |from: usize, to: usize| -> Option<std::ops::Range<u64>> {
+                let start = fields.get(from);
+                let end = fields.get(to);
+                start.zip(end).and_then(|(s, e)| {
+                    let s = s.parse().ok()?;
+                    let e = e.parse().ok()?;
+                    Some(s..e)
+                })
+            };
+
+            let seq_range = parse_range(1, 2).ok_or_else(|| {
+                anyhow!(
+                    "Could not parse `{:?}`, `{:?}` as interval",
+                    fields.get(1),
+                    fields.get(2)
+                )
+            })?;
+
+            let label = fields.get(3).unwrap().to_string();
+
+            let rev_strand = fields.get(5).map(|&s| s == "-").unwrap_or(false);
+
+            let thick_range = parse_range(6, 7);
+
+            let color = fields.get(8).map(|rgb| {
+                let rgb = rgb.split(',').collect::<Vec<_>>();
+                let chan = |i: usize| {
+                    rgb.get(i)
+                        .and_then(|s: &&str| s.parse().ok())
+                        .unwrap_or(0usize) as u8
+                };
+                let r = chan(0);
+                let g = chan(1);
+                let b = chan(2);
+                egui::Color32::from_rgb(r, g, b)
+            });
+
+            let color = if let Some(color) = color {
+                color
+            } else {
+                let [r, g, b] = string_hash_color(&label);
+                egui::Rgba::from_rgb(r, g, b).into()
+            };
+
+            record_list.push(Record {
+                seq_id,
+                seq_range,
+                color,
+                label,
+            });
+        }
+        let source = bed_path.as_ref().to_owned();
+
+        self.annotation_sources
+            .insert(source, self.annotation_lists.len());
+        self.annotation_lists.push(RecordList {
+            records: record_list,
+        });
+
+        Ok(())
+    }
+}
+
+pub struct RecordList {
+    records: Vec<Record>,
+}
+
+pub struct Record {
+    seq_id: usize,
+    seq_range: std::ops::Range<u64>,
+
+    color: egui::Color32,
+    label: String,
+}
+
+#[derive(Default)]
+pub struct AnnotationGuiHandler {
+    // prepared_records: Vec<(String, Vec<[DVec2; 2]>)>,
+    prepared_records: BTreeMap<(usize, usize), (String, Vec<[DVec2; 2]>)>,
+}
+
+impl AnnotationGuiHandler {
+    pub fn show_annotation_list(&mut self, ctx: &egui::Context, app: &PafViewerApp) {
+        egui::Window::new("Annotations").show(&ctx, |ui| {
+            // TODO scrollable & filterable list of annotation records
+
+            if ui.button("Show annotations").clicked() {
+                if self.prepared_records.is_empty() {
+                    for (file_path, list_id) in app.annotations.annotation_sources.iter() {
+                        let list = &app.annotations.annotation_lists[*list_id];
+
+                        for record in &list.records {
+                            // let seq_id = app.seq_names.get_by_right(&record.seq_id);
+
+                            let matches = find_matches_for_target_range(
+                                &app.seq_names,
+                                &app.paf_input,
+                                record.seq_id,
+                                record.seq_range.clone(),
+                            )
+                            .into_iter()
+                            .map(|(_, v)| v)
+                            .collect::<Vec<_>>();
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    pub fn draw_annotations(
+        &mut self,
+        ctx: &egui::Context,
+        app: &PafViewerApp,
+        view: &crate::view::View,
+    ) {
+        todo!();
+    }
+}
+
+pub fn hashed_rgb(name: &str) -> [u8; 3] {
+    // use sha2::Digest;
+    // use sha2::Sha256;
+
+    // let mut hasher = Sha256::new();
+    // hasher.update(name.as_bytes());
+    // let hash = hasher.finalize();
+    // let r = hash[24];
+    // let g = hash[8];
+    // let b = hash[16];
+
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::hash::DefaultHasher::default();
+    name.as_bytes().hash(&mut hasher);
+    let hash = hasher.finish().to_ne_bytes();
+
+    let r = hash[0];
+    let g = hash[1];
+    let b = hash[2];
+
+    [r, g, b]
+}
+
+pub fn string_hash_color_f32(input: &str) -> [f32; 3] {
+    let [s_r, s_g, s_b] = hashed_rgb(input);
+
+    let r_f = (s_r as f32) / std::u8::MAX as f32;
+    let g_f = (s_g as f32) / std::u8::MAX as f32;
+    let b_f = (s_b as f32) / std::u8::MAX as f32;
+
+    let sum = r_f + g_f + b_f;
+
+    [r_f / sum, g_f / sum, b_f / sum]
+}
+
+pub fn string_hash_color_alt(path_name: &str) -> [f32; 3] {
+    string_hash_color_f32(path_name)
+}
+
+pub fn string_hash_color(path_name: &str) -> [f32; 3] {
+    let [path_r, path_g, path_b] = hashed_rgb(path_name);
+
+    let r_f = (path_r as f32) / std::u8::MAX as f32;
+    let g_f = (path_g as f32) / std::u8::MAX as f32;
+    let b_f = (path_b as f32) / std::u8::MAX as f32;
+
+    let sum = r_f + g_f + b_f;
+
+    let r_f = r_f / sum;
+    let g_f = g_f / sum;
+    let b_f = b_f / sum;
+
+    let f = (1.0 / r_f.max(g_f).max(b_f)).min(1.5);
+
+    let r_u = (255. * (r_f * f).min(1.0)).round();
+    let g_u = (255. * (g_f * f).min(1.0)).round();
+    let b_u = (255. * (b_f * f).min(1.0)).round();
+
+    let r_f = (r_u as f32) / std::u8::MAX as f32;
+    let g_f = (g_u as f32) / std::u8::MAX as f32;
+    let b_f = (b_u as f32) / std::u8::MAX as f32;
+
+    [r_f, g_f, b_f]
+}
 
 pub fn find_matches_for_target_range(
-    seq_names: &FxHashMap<String, usize>,
+    seq_names: &BiMap<String, usize>,
     input: &PafInput,
-    target_name: &str,
+    // target_name: &str,
+    target_id: usize,
     target_range: std::ops::Range<u64>,
 ) -> Vec<(usize, Vec<[DVec2; 2]>)> {
-    let Some(&target_id) = seq_names.get(target_name) else {
-        return Vec::new();
-    };
+    // let Some(&target_id) = seq_names.get(target_name) else {
+    //     return Vec::new();
+    // };
     let target = &input.targets[target_id];
     let global_tgt_offset = target.offset as u64 + target_range.start;
 
@@ -60,7 +282,7 @@ struct AnnotTestState {
 }
 
 pub fn draw_annotation_test_window(
-    seq_names: &FxHashMap<String, usize>,
+    seq_names: &BiMap<String, usize>,
     input: &PafInput,
     ctx: &egui::Context,
     view: &crate::view::View,
@@ -95,7 +317,11 @@ pub fn draw_annotation_test_window(
 
     if let key @ Some((name, [start, end])) = parse_range(&range_text).as_ref() {
         if key != annot_state.key.as_ref() {
-            let new_outputs = find_matches_for_target_range(seq_names, input, &name, *start..*end);
+            let new_outputs = if let Some(seq_id) = seq_names.get_by_left(name) {
+                find_matches_for_target_range(seq_names, input, *seq_id, *start..*end)
+            } else {
+                vec![]
+            };
             annot_state.key = key.cloned();
             let mut outputs = annot_state.match_output.lock();
             *outputs = new_outputs;
@@ -167,178 +393,4 @@ pub fn draw_annotation_test_window(
         d.insert_temp(id, (range_text, label_text));
         d.insert_temp(id, annot_state);
     });
-}
-
-#[derive(Default)]
-pub struct AnnotationStore {
-    annotation_sources: FxHashMap<PathBuf, RecordList>,
-}
-
-impl AnnotationStore {
-    pub fn load_bed_file(
-        &mut self,
-        seq_names: &FxHashMap<String, usize>,
-        bed_path: impl AsRef<std::path::Path>,
-    ) -> Result<()> {
-        use std::io::prelude::*;
-        use std::io::BufReader;
-
-        let bed_reader = std::fs::File::open(bed_path.as_ref()).map(BufReader::new)?;
-
-        let mut record_list: Vec<Record> = Vec::new();
-
-        for line in bed_reader.lines() {
-            let line = line?;
-            let fields = line.trim().split('\t').collect::<Vec<_>>();
-
-            if fields.len() < 4 {
-                continue;
-            }
-
-            let seq_name = *fields
-                .get(0)
-                .ok_or(anyhow!("Sequence name missing from BED row"))?;
-            let seq_id = *seq_names
-                .get(seq_name)
-                .ok_or(anyhow!("Could not find sequence `{seq_name}`"))?;
-
-            let parse_range = |from: usize, to: usize| -> Option<std::ops::Range<usize>> {
-                let start = fields.get(from);
-                let end = fields.get(to);
-                start.zip(end).and_then(|(s, e)| {
-                    let s = s.parse().ok()?;
-                    let e = e.parse().ok()?;
-                    Some(s..e)
-                })
-            };
-
-            let seq_range = parse_range(1, 2).ok_or_else(|| {
-                anyhow!(
-                    "Could not parse `{:?}`, `{:?}` as interval",
-                    fields.get(1),
-                    fields.get(2)
-                )
-            })?;
-
-            let label = fields.get(3).unwrap().to_string();
-
-            let rev_strand = fields.get(5).map(|&s| s == "-").unwrap_or(false);
-
-            let thick_range = parse_range(6, 7);
-
-            let color = fields.get(8).map(|rgb| {
-                let rgb = rgb.split(',').collect::<Vec<_>>();
-                let chan = |i: usize| {
-                    rgb.get(i)
-                        .and_then(|s: &&str| s.parse().ok())
-                        .unwrap_or(0usize) as u8
-                };
-                let r = chan(0);
-                let g = chan(1);
-                let b = chan(2);
-                egui::Color32::from_rgb(r, g, b)
-            });
-
-            let color = if let Some(color) = color {
-                color
-            } else {
-                let [r, g, b] = string_hash_color(&label);
-                egui::Rgba::from_rgb(r, g, b).into()
-            };
-
-            record_list.push(Record {
-                seq_id,
-                seq_range,
-                color,
-                label,
-            });
-        }
-        let source = bed_path.as_ref().to_owned();
-
-        self.annotation_sources.insert(
-            source,
-            RecordList {
-                records: record_list,
-            },
-        );
-
-        Ok(())
-    }
-}
-
-pub struct RecordList {
-    records: Vec<Record>,
-}
-
-pub struct Record {
-    seq_id: usize,
-    seq_range: std::ops::Range<usize>,
-
-    color: egui::Color32,
-    label: String,
-}
-
-pub fn hashed_rgb(name: &str) -> [u8; 3] {
-    // use sha2::Digest;
-    // use sha2::Sha256;
-
-    // let mut hasher = Sha256::new();
-    // hasher.update(name.as_bytes());
-    // let hash = hasher.finalize();
-    // let r = hash[24];
-    // let g = hash[8];
-    // let b = hash[16];
-
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::hash::DefaultHasher::default();
-    name.as_bytes().hash(&mut hasher);
-    let hash = hasher.finish().to_ne_bytes();
-
-    let r = hash[0];
-    let g = hash[1];
-    let b = hash[2];
-
-    [r, g, b]
-}
-
-pub fn string_hash_color_f32(input: &str) -> [f32; 3] {
-    let [s_r, s_g, s_b] = hashed_rgb(input);
-
-    let r_f = (s_r as f32) / std::u8::MAX as f32;
-    let g_f = (s_g as f32) / std::u8::MAX as f32;
-    let b_f = (s_b as f32) / std::u8::MAX as f32;
-
-    let sum = r_f + g_f + b_f;
-
-    [r_f / sum, g_f / sum, b_f / sum]
-}
-
-pub fn string_hash_color_alt(path_name: &str) -> [f32; 3] {
-    string_hash_color_f32(path_name)
-}
-
-pub fn string_hash_color(path_name: &str) -> [f32; 3] {
-    let [path_r, path_g, path_b] = hashed_rgb(path_name);
-
-    let r_f = (path_r as f32) / std::u8::MAX as f32;
-    let g_f = (path_g as f32) / std::u8::MAX as f32;
-    let b_f = (path_b as f32) / std::u8::MAX as f32;
-
-    let sum = r_f + g_f + b_f;
-
-    let r_f = r_f / sum;
-    let g_f = g_f / sum;
-    let b_f = b_f / sum;
-
-    let f = (1.0 / r_f.max(g_f).max(b_f)).min(1.5);
-
-    let r_u = (255. * (r_f * f).min(1.0)).round();
-    let g_u = (255. * (g_f * f).min(1.0)).round();
-    let b_u = (255. * (b_f * f).min(1.0)).round();
-
-    let r_f = (r_u as f32) / std::u8::MAX as f32;
-    let g_f = (g_u as f32) / std::u8::MAX as f32;
-    let b_f = (b_u as f32) / std::u8::MAX as f32;
-
-    [r_f, g_f, b_f]
 }

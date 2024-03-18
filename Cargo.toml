@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.80"
+bimap = "0.6.3"
 bytemuck = { version = "1.14.3", features = ["derive"] }
 egui = { version = "0.26.2", features = ["mint"] }
 egui-wgpu = { version = "0.26.2", features = ["winit", "wayland", "x11"] }

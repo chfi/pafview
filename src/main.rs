@@ -1,3 +1,4 @@
+use bimap::BiMap;
 use bytemuck::{Pod, Zeroable};
 use egui_wgpu::ScreenDescriptor;
 use regions::SelectionHandler;
@@ -65,7 +66,7 @@ struct ProcessedCigar {
 
 impl ProcessedCigar {
     fn from_line(
-        seq_names: &FxHashMap<String, usize>,
+        seq_names: &BiMap<String, usize>,
         paf_line: &PafLine<&str>,
         origin: [u64; 2],
     ) -> anyhow::Result<Self> {
@@ -81,10 +82,10 @@ impl ProcessedCigar {
         let [mut target_pos, mut query_pos] = origin;
 
         let target_id = *seq_names
-            .get(paf_line.tgt_name)
+            .get_by_left(paf_line.tgt_name)
             .ok_or_else(|| anyhow!("Target sequence `{}` not found", paf_line.tgt_name))?;
         let query_id = *seq_names
-            .get(paf_line.query_name)
+            .get_by_left(paf_line.query_name)
             .ok_or_else(|| anyhow!("Query sequence `{}` not found", paf_line.query_name))?;
 
         let mut match_edges = Vec::new();
@@ -290,7 +291,7 @@ pub fn main() -> anyhow::Result<()> {
     let target_len = process_aligned(&mut target_names, &mut targets);
     let query_len = process_aligned(&mut query_names, &mut queries);
 
-    let seq_names = target_names;
+    let seq_names = target_names.into_iter().collect::<bimap::BiMap<_, _>>();
 
     // process matches
     let mut processed_lines = Vec::new();
@@ -303,8 +304,8 @@ pub fn main() -> anyhow::Result<()> {
             continue;
         };
 
-        let target = seq_names.get(paf_line.tgt_name);
-        let query = seq_names.get(paf_line.query_name);
+        let target = seq_names.get_by_left(paf_line.tgt_name);
+        let query = seq_names.get_by_left(paf_line.query_name);
 
         let (Some(target_i), Some(query_i)) = (target, query) else {
             continue;
@@ -718,6 +719,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
 
     let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
 
+    let mut annot_gui_handler = AnnotationGuiHandler::default();
+
     // TODO build this on a separate thread
     // let rstar_match = spatial::RStarMatches::from_paf(&input);
 
@@ -898,6 +901,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
                                 //     ctx,
                                 //     &app_view,
                                 // );
+                                // annot_gui_handler.show_annotation_list(ctx, &app);
+                                // annot_gui_handler.draw_annotations(ctx, &app, &mut app_view);
                                 gui::draw_cursor_position_rulers(&app.paf_input, ctx, &app_view);
                             },
                         );
@@ -913,7 +918,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
         .unwrap();
 }
 
-pub fn start_window(app: PafViewerApp) {
+fn start_window(app: PafViewerApp) {
     let event_loop = EventLoop::new().unwrap();
     #[allow(unused_mut)]
     let mut builder = winit::window::WindowBuilder::new();
@@ -1054,7 +1059,7 @@ pub fn write_png(
 struct PafViewerApp {
     paf_input: PafInput,
 
-    seq_names: FxHashMap<String, usize>,
+    seq_names: bimap::BiMap<String, usize>,
 
     annotations: AnnotationStore,
 }
