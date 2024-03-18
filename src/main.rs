@@ -26,6 +26,8 @@ mod view;
 use render::*;
 use view::View;
 
+use crate::annotations::AnnotationStore;
+
 struct PafInput {
     queries: Vec<AlignedSeq>,
     targets: Vec<AlignedSeq>,
@@ -241,6 +243,8 @@ pub fn main() -> anyhow::Result<()> {
     let mut args = std::env::args();
     let paf_path = args.nth(1).ok_or(anyhow!("Path to PAF not provided"))?;
 
+    let bed_path = args.next();
+
     // parse paf
     let reader = std::fs::File::open(&paf_path).map(std::io::BufReader::new)?;
 
@@ -341,6 +345,18 @@ pub fn main() -> anyhow::Result<()> {
         query_len,
         processed_lines,
     };
+
+    let mut annotations = AnnotationStore::default();
+
+    if let Some(bed_path) = bed_path {
+        match annotations.load_bed_file(&names.target_names, &bed_path) {
+            Ok(_) => {
+                log::info!("Loaded BED file `{bed_path}`");
+                //
+            }
+            Err(err) => log::error!("Error loading BED file at path `{bed_path}`: {err:?}"),
+        }
+    }
 
     println!("sum target len: {target_len}");
     println!("sum query len: {query_len}");
