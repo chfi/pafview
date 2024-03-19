@@ -1,7 +1,13 @@
-use std::{borrow::Borrow, collections::BTreeMap, path::PathBuf, sync::Arc};
+use std::{
+    borrow::Borrow,
+    collections::{BTreeMap, VecDeque},
+    path::PathBuf,
+    sync::Arc,
+};
 
 use anyhow::{anyhow, Result};
 use bimap::BiMap;
+use egui::Galley;
 use rustc_hash::FxHashMap;
 use ultraviolet::{DVec2, Vec2};
 
@@ -121,7 +127,146 @@ pub struct Record {
 pub struct AnnotationGuiHandler {
     prepared_records: BTreeMap<(usize, usize), (String, Vec<Vec<[DVec2; 2]>>)>,
 
-    prepared_galleys: FxHashMap<String, Arc<egui::text::Galley>>,
+    prepared_galleys: FxHashMap<String, Arc<Galley>>,
+}
+
+struct SeqPairAnnotations {
+    target_id: usize,
+    query_id: usize,
+
+    anchor_min: DVec2,
+    anchor_max: DVec2,
+    // in order from start to end on the line between the anchors
+    labels: Vec<(String, (f64, f64))>,
+}
+
+struct LayoutConfig {
+    max_rows: usize,
+}
+
+impl std::default::Default for LayoutConfig {
+    fn default() -> Self {
+        Self { max_rows: 3 }
+    }
+}
+
+fn draw_annotation_labels(
+    ctx: &egui::Context,
+    annots: &SeqPairAnnotations,
+    galleys: &mut FxHashMap<String, Arc<Galley>>,
+    cfg: LayoutConfig,
+) {
+    let id_str = "annotation-painter";
+    let id = egui::Id::new(id_str);
+
+    let screen_size = ctx.screen_rect().size();
+
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, id));
+
+    // let mut remaining = VecDeque::new();
+    let mut remaining = Vec::new();
+
+    for (ix, (text, (from, to))) in annots.labels.iter().enumerate() {
+        if !galleys.contains_key(text) {
+            let mut job = egui::text::LayoutJob::default();
+            job.append(
+                text,
+                0.0,
+                egui::text::TextFormat {
+                    font_id: egui::FontId::monospace(12.0),
+                    color: egui::Color32::PLACEHOLDER,
+                    ..Default::default()
+                },
+            );
+            galleys.insert(text.to_string(), painter.layout_job(job));
+        }
+
+        let Some(galley) = galleys.get(text) else {
+            unreachable!();
+        };
+
+        let range = *from..=*to;
+
+        remaining.push((ix, range, galley.clone()));
+    }
+
+    // remaining.sort_by_key(|(_, range, _)| *range.start());
+    remaining.sort_by(|(_, r0, _), (_, r1, _)| r0.start().partial_cmp(r1.start()).unwrap());
+
+    let mut remaining = remaining.into_iter().collect::<VecDeque<_>>();
+
+    // labels to draw; index into `annots.labels` plus offset along
+    // the line `annots.anchor_min` to `annots.anchor_max`, in screenspace
+    let mut current_row: Vec<(usize, f32)> = Vec::new();
+
+    let mut overflow: Vec<(usize, f32)> = Vec::new();
+
+    let mut last_added: Option<std::ops::RangeInclusive<f32>> = None;
+
+    loop {
+        let Some((ix, anchor_range, galley)) = remaining.pop_front() else {
+            break;
+        };
+
+        // let next_anchor =
+
+        // match last_added.take() {
+        //     Some(last_range) => {
+        //     }
+        //     None => {
+        //         //
+        //     }
+        // };
+
+        // if let Some(last_range) = last_added {
+        //     //
+        // } else {
+        //     //
+        // }
+    }
+}
+
+impl SeqPairAnnotations {
+    fn blocks_from_processed_line(
+        // fn from_processed_line(
+        seq_names: &BiMap<String, usize>,
+        input: &PafInput,
+        records: &[Record],
+    ) -> Option<Vec<Self>> {
+        // go through the records, partitioning them by sequence (target) name
+
+        // (target_id, list of relevant records)
+        let mut columns: FxHashMap<usize, Vec<&Record>> = FxHashMap::default();
+
+        for (record_id, record) in records.iter().enumerate() {
+            // let Some(seq_name) = seq_names.get_by_right(&record.seq_id) else {
+            //     continue;
+            // };
+
+            let column_records = columns.entry(record.seq_id).or_default();
+            column_records.push(record);
+        }
+
+        for (_tgt_id, records) in columns.iter_mut() {
+            records.sort_by_key(|&r| (r.seq_range.start, r.seq_range.end));
+        }
+
+        // for
+
+        // let target_id = line.target_id;
+        // let query_id = line.query_id;
+
+        // let [start, _] = *line.match_edges.get(0)?;
+        // let [_, end] = *line.match_edges.get(line.match_edges.len() - 1)?;
+
+        // this might all be the wrong way around...
+
+        // for record in records {
+        //     //
+        // }
+
+        todo!();
+    }
 }
 
 impl AnnotationGuiHandler {
