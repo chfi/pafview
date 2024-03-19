@@ -125,7 +125,8 @@ pub struct Record {
 
 #[derive(Default)]
 pub struct AnnotationGuiHandler {
-    prepared_records: BTreeMap<(usize, usize), (String, Vec<Vec<[DVec2; 2]>>)>,
+    // prepared_records: BTreeMap<(usize, usize), (String, Vec<Vec<[DVec2; 2]>>)>,
+    seq_pair_annots: FxHashMap<(usize, usize), SeqPairAnnotations>,
 
     prepared_galleys: FxHashMap<String, Arc<Galley>>,
 }
@@ -134,8 +135,8 @@ struct SeqPairAnnotations {
     target_id: usize,
     query_id: usize,
 
-    anchor_min: DVec2,
-    anchor_max: DVec2,
+    anchor_start: DVec2,
+    anchor_end: DVec2,
     // in order from start to end on the line between the anchors
     labels: Vec<(String, (f64, f64))>,
 }
@@ -154,7 +155,8 @@ fn draw_annotation_labels(
     ctx: &egui::Context,
     annots: &SeqPairAnnotations,
     galleys: &mut FxHashMap<String, Arc<Galley>>,
-    cfg: LayoutConfig,
+    // cfg: LayoutConfig,
+    view: &crate::view::View,
 ) {
     let id_str = "annotation-painter";
     let id = egui::Id::new(id_str);
@@ -197,10 +199,17 @@ fn draw_annotation_labels(
 
     // labels to draw; index into `annots.labels` plus offset along
     // the line `annots.anchor_min` to `annots.anchor_max`, in screenspace
-    let mut current_row: Vec<(usize, f32)> = Vec::new();
+    // let mut current_row: Vec<(usize, f32)> = Vec::new();
+
+    let s0 = view.map_world_to_screen(screen_size, annots.anchor_start);
+    let s1 = view.map_world_to_screen(screen_size, annots.anchor_end);
+
+    let d = s1 - s0;
+    let main_angle = d.y.atan2(d.x) as f32;
 
     let mut overflow: Vec<(usize, f32)> = Vec::new();
 
+    // let mut last_added: Option<std::ops::RangeInclusive<f64>> = None;
     let mut last_added: Option<std::ops::RangeInclusive<f32>> = None;
 
     loop {
@@ -208,31 +217,43 @@ fn draw_annotation_labels(
             break;
         };
 
-        // let next_anchor =
+        let text_width = galley.size().x;
 
-        // match last_added.take() {
-        //     Some(last_range) => {
-        //     }
-        //     None => {
-        //         //
-        //     }
-        // };
+        let t = *anchor_range.start();
+        let center = annots.anchor_start + (annots.anchor_end - annots.anchor_start) * t;
 
-        // if let Some(last_range) = last_added {
-        //     //
-        // } else {
-        //     //
-        // }
+        let p: [f32; 2] = view.map_world_to_screen(screen_size, center).into();
+
+        let t_s = t / (annots.anchor_end - annots.anchor_start).mag();
+
+        let r_start = t_s as f32;
+        let r_end = r_start + text_width;
+
+        // this is definitely wrong
+
+        let last_covers = last_added
+            .as_ref()
+            .is_some_and(|last_range| *last_range.end() > r_end);
+
+        if !last_covers {
+            last_added = Some(r_start..=r_end);
+
+            let mut text_shape =
+                egui::epaint::TextShape::new(p.into(), galley.clone(), egui::Color32::BLACK);
+            text_shape.angle = main_angle;
+
+            painter.add(text_shape);
+        }
     }
 }
 
 impl SeqPairAnnotations {
     fn blocks_from_processed_line(
         // fn from_processed_line(
-        seq_names: &BiMap<String, usize>,
+        // seq_names: &BiMap<String, usize>,
         input: &PafInput,
         records: &[Record],
-    ) -> Option<Vec<Self>> {
+    ) -> Option<FxHashMap<(usize, usize), Self>> {
         // go through the records, partitioning them by sequence (target) name
 
         // (target_id, list of relevant records)
@@ -251,21 +272,50 @@ impl SeqPairAnnotations {
             records.sort_by_key(|&r| (r.seq_range.start, r.seq_range.end));
         }
 
-        // for
+        let mut pairs: FxHashMap<(usize, usize), SeqPairAnnotations> = FxHashMap::default();
 
-        // let target_id = line.target_id;
-        // let query_id = line.query_id;
+        // this should probably all be turned inside out or something like that
+        for (target_id, records) in columns {
+            let cigars = input
+                .processed_lines
+                .iter()
+                .filter(|c| c.target_id == target_id);
 
-        // let [start, _] = *line.match_edges.get(0)?;
-        // let [_, end] = *line.match_edges.get(line.match_edges.len() - 1)?;
+            for cigar in cigars {
+                let query_id = cigar.query_id;
+                let key = (target_id, query_id);
 
-        // this might all be the wrong way around...
+                if !pairs.contains_key(&key) {
+                    let [anchor_start, _] = cigar.match_edges[0];
+                    let [_, anchor_end] = cigar.match_edges[cigar.match_edges.len() - 1];
 
-        // for record in records {
-        //     //
-        // }
+                    pairs.insert(
+                        key,
+                        SeqPairAnnotations {
+                            target_id,
+                            query_id,
+                            anchor_start,
+                            anchor_end,
+                            labels: Vec::new(),
+                        },
+                    );
+                }
 
-        todo!();
+                let Some(pair) = pairs.get_mut(&key) else {
+                    unreachable!();
+                };
+
+                for record in &records {
+                    let total_len = cigar.target_len as f64;
+                    let t0 = record.seq_range.start as f64 / total_len;
+                    let t1 = record.seq_range.end as f64 / total_len;
+
+                    pair.labels.push((record.label.to_string(), (t0, t1)));
+                }
+            }
+        }
+
+        Some(pairs)
     }
 }
 
@@ -275,6 +325,42 @@ impl AnnotationGuiHandler {
             // TODO scrollable & filterable list of annotation records
 
             if ui.button("Show annotations").clicked() {
+                if self.seq_pair_annots.is_empty() {
+                    for (file_path, &list_id) in app.annotations.annotation_sources.iter() {
+                        let list = &app.annotations.annotation_lists[list_id];
+                        log::info!("Processing {file_path:?}");
+
+                        let blocks = SeqPairAnnotations::blocks_from_processed_line(
+                            &app.paf_input,
+                            &list.records,
+                        );
+
+                        if let Some(blocks) = blocks {
+                            self.seq_pair_annots = blocks;
+                        }
+                        /*
+                        for (record_id, record) in list.records.iter().enumerate() {
+                            // let seq_id = app.seq_names.get_by_right(&record.seq_id);
+
+                            let matches = find_matches_for_target_range(
+                                &app.seq_names,
+                                &app.paf_input,
+                                record.seq_id,
+                                record.seq_range.clone(),
+                            )
+                            .into_iter()
+                            .map(|(_, v)| v)
+                            .collect::<Vec<_>>();
+
+                            let key = (list_id, record_id);
+                            self.prepared_records
+                                .insert(key, (record.label.clone(), matches));
+                        }
+                            */
+                    }
+                }
+
+                /*
                 if self.prepared_records.is_empty() {
                     for (file_path, &list_id) in app.annotations.annotation_sources.iter() {
                         let list = &app.annotations.annotation_lists[list_id];
@@ -299,6 +385,7 @@ impl AnnotationGuiHandler {
                         }
                     }
                 }
+                */
             }
         });
     }
@@ -316,6 +403,11 @@ impl AnnotationGuiHandler {
 
         let dims = ctx.screen_rect().size();
 
+        for seq_pair_annots in self.seq_pair_annots.values() {
+            draw_annotation_labels(ctx, seq_pair_annots, &mut self.prepared_galleys, view);
+        }
+
+        /*
         for ((list_id, record_id), (label, match_sets)) in self.prepared_records.iter() {
             // TODO
 
@@ -344,6 +436,7 @@ impl AnnotationGuiHandler {
 
             let stroke = egui::Stroke { width: 4.0, color };
 
+            /*
             for matches in match_sets {
                 if matches.is_empty() {
                     continue;
@@ -378,7 +471,9 @@ impl AnnotationGuiHandler {
 
                 painter.add(text_shape);
             }
+            */
         }
+        */
     }
 }
 
