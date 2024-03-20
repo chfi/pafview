@@ -72,17 +72,17 @@ impl AnnotationStore {
 
             let thick_range = parse_range(6, 7);
 
-            let color = fields.get(8).map(|rgb| {
-                let rgb = rgb.split(',').collect::<Vec<_>>();
-                let chan = |i: usize| {
-                    rgb.get(i)
-                        .and_then(|s: &&str| s.parse().ok())
-                        .unwrap_or(0usize) as u8
-                };
-                let r = chan(0);
-                let g = chan(1);
-                let b = chan(2);
-                egui::Color32::from_rgb(r, g, b)
+            let color = fields.get(8).and_then(|rgb| {
+                let mut rgb = rgb.split(',');
+
+                let mut next_chan =
+                    || -> Option<u8> { rgb.next().and_then(|s: &str| s.parse().ok()) };
+
+                let r = next_chan()?;
+                let g = next_chan()?;
+                let b = next_chan()?;
+
+                Some(egui::Color32::from_rgb(r, g, b))
             });
 
             let color = if let Some(color) = color {
@@ -125,12 +125,174 @@ pub struct Record {
 
 #[derive(Default)]
 pub struct AnnotationGuiHandler {
-    // prepared_records: BTreeMap<(usize, usize), (String, Vec<Vec<[DVec2; 2]>>)>,
-    seq_pair_annots: FxHashMap<(usize, usize), SeqPairAnnotations>,
+    // target_enabled: Vec<bool>,
+    // query_enabled: Vec<bool>,
 
-    prepared_galleys: FxHashMap<String, Arc<Galley>>,
+    // draw_target_regions: FxHashMap<String,
+    record_states: FxHashMap<(usize, usize), AnnotationState>,
 }
 
+struct AnnotationState {
+    draw_target_region: bool,
+    draw_query_region: bool,
+
+    galley: Option<Arc<Galley>>,
+    seq_region: std::ops::RangeInclusive<f64>,
+}
+
+impl AnnotationGuiHandler {
+    pub fn show_annotation_list(&mut self, ctx: &egui::Context, app: &PafViewerApp) {
+        egui::Window::new("Annotations").show(&ctx, |ui| {
+            // TODO scrollable & filterable list of annotation records
+
+            // if ui.button("Show annotations").clicked() {
+            for (_file_path, &list_id) in app.annotations.annotation_sources.iter() {
+                let list = &app.annotations.annotation_lists[list_id];
+
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for (record_id, record) in list.records.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("{}", record.label));
+
+                            let target_btn = ui.button("Target");
+                            let query_btn = ui.button("Query");
+
+                            let state = self.get_region_state(app, list_id, record_id);
+
+                            if target_btn.clicked() {
+                                state.draw_target_region = !state.draw_target_region;
+                                log::info!(
+                                    "drawing {} target region: {}\t(region {:?})",
+                                    record.label,
+                                    state.draw_target_region,
+                                    state.seq_region
+                                );
+                            }
+
+                            if query_btn.clicked() {
+                                state.draw_query_region = !state.draw_query_region;
+                                log::info!(
+                                    "drawing {} query region: {}\t(region {:?})",
+                                    record.label,
+                                    state.draw_query_region,
+                                    state.seq_region
+                                );
+                            }
+                        });
+                    }
+                });
+            }
+        });
+    }
+
+    pub fn draw_annotations(
+        &mut self,
+        ctx: &egui::Context,
+        app: &PafViewerApp,
+        view: &crate::view::View,
+    ) {
+        let screen_size = ctx.screen_rect().size();
+
+        let id_str = "annotation-regions-painter";
+        let id = egui::Id::new(id_str);
+
+        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, id));
+
+        for ((list_id, record_id), state) in self.record_states.iter_mut() {
+            let record = &app.annotations.annotation_lists[*list_id].records[*record_id];
+
+            let color = egui::Rgba::from(record.color).multiply(0.5);
+
+            if state.draw_target_region {
+                let x0 = *state.seq_region.start();
+                let x1 = *state.seq_region.end();
+                let s0 = view.map_world_to_screen(screen_size, DVec2::new(x0, 0.0));
+                let s1 = view.map_world_to_screen(
+                    screen_size,
+                    DVec2::new(x1, app.paf_input.target_len as f64),
+                );
+
+                let mut rect = egui::Rect::from_x_y_ranges(s0.x..=s1.x, s0.y..=s1.y);
+                if rect.width() < 0.5 {
+                    rect.set_width(1.0);
+                }
+                log::info!("drawing target region: {rect:?}\tcolor: {color:?}");
+
+                painter.rect_filled(rect, 0.0, color);
+            }
+
+            if state.draw_query_region {
+                let y0 = *state.seq_region.start();
+                let y1 = *state.seq_region.end();
+                let s0 = view.map_world_to_screen(screen_size, DVec2::new(0.0, y0));
+                let s1 = view.map_world_to_screen(
+                    screen_size,
+                    DVec2::new(app.paf_input.target_len as f64, y1),
+                );
+
+                let mut rect = egui::Rect::from_x_y_ranges(s0.x..=s1.x, s0.y..=s1.y);
+
+                if rect.height() < 0.5 {
+                    rect.set_height(1.0);
+                }
+
+                log::info!("drawing query region: {rect:?}\tcolor: {color:?}");
+                painter.rect_filled(rect, 0.0, color);
+            }
+        }
+        //
+    }
+
+    fn get_region_state(
+        &mut self,
+        app: &PafViewerApp,
+        annotation_list_id: usize,
+        record_id: usize,
+    ) -> &mut AnnotationState {
+        let key = (annotation_list_id, record_id);
+
+        if !self.record_states.contains_key(&key) {
+            let record = &app.annotations.annotation_lists[annotation_list_id].records[record_id];
+
+            let seq = &app.paf_input.targets[record.seq_id];
+
+            let start_w = (seq.offset + record.seq_range.start) as f64;
+            let end_w = (seq.offset + record.seq_range.end) as f64;
+
+            self.record_states.insert(
+                key,
+                AnnotationState {
+                    draw_target_region: false,
+                    draw_query_region: false,
+                    galley: None,
+                    seq_region: start_w..=end_w,
+                },
+            );
+        }
+
+        let Some(state) = self.record_states.get_mut(&key) else {
+            unreachable!();
+        };
+
+        state
+    }
+
+    fn enable_annotation_region(
+        &mut self,
+        app: &PafViewerApp,
+        annotation_list_id: usize,
+        record_id: usize,
+        draw_target_region: Option<bool>,
+        draw_query_region: Option<bool>,
+    ) {
+        let state = self.get_region_state(app, annotation_list_id, record_id);
+
+        state.draw_target_region = draw_target_region.unwrap_or(state.draw_target_region);
+        state.draw_query_region = draw_query_region.unwrap_or(state.draw_query_region);
+    }
+}
+
+/*
 struct SeqPairAnnotations {
     target_id: usize,
     query_id: usize,
@@ -234,6 +396,8 @@ fn draw_annotation_labels(
         let last_covers = last_added
             .as_ref()
             .is_some_and(|last_range| *last_range.end() > r_end);
+
+        // log::warn!("
 
         if !last_covers {
             last_added = Some(r_start..=r_end);
@@ -360,32 +524,32 @@ impl AnnotationGuiHandler {
                     }
                 }
 
-                /*
-                if self.prepared_records.is_empty() {
-                    for (file_path, &list_id) in app.annotations.annotation_sources.iter() {
-                        let list = &app.annotations.annotation_lists[list_id];
-                        log::info!("Processing {file_path:?}");
+/*
+if self.prepared_records.is_empty() {
+    for (file_path, &list_id) in app.annotations.annotation_sources.iter() {
+        let list = &app.annotations.annotation_lists[list_id];
+        log::info!("Processing {file_path:?}");
 
-                        for (record_id, record) in list.records.iter().enumerate() {
-                            // let seq_id = app.seq_names.get_by_right(&record.seq_id);
+        for (record_id, record) in list.records.iter().enumerate() {
+            // let seq_id = app.seq_names.get_by_right(&record.seq_id);
 
-                            let matches = find_matches_for_target_range(
-                                &app.seq_names,
-                                &app.paf_input,
-                                record.seq_id,
-                                record.seq_range.clone(),
-                            )
-                            .into_iter()
-                            .map(|(_, v)| v)
-                            .collect::<Vec<_>>();
+            let matches = find_matches_for_target_range(
+                &app.seq_names,
+                &app.paf_input,
+                record.seq_id,
+                record.seq_range.clone(),
+            )
+            .into_iter()
+            .map(|(_, v)| v)
+            .collect::<Vec<_>>();
 
-                            let key = (list_id, record_id);
-                            self.prepared_records
-                                .insert(key, (record.label.clone(), matches));
-                        }
-                    }
-                }
-                */
+            let key = (list_id, record_id);
+            self.prepared_records
+                .insert(key, (record.label.clone(), matches));
+        }
+    }
+}
+*/
             }
         });
     }
@@ -407,75 +571,76 @@ impl AnnotationGuiHandler {
             draw_annotation_labels(ctx, seq_pair_annots, &mut self.prepared_galleys, view);
         }
 
-        /*
-        for ((list_id, record_id), (label, match_sets)) in self.prepared_records.iter() {
-            // TODO
+/*
+for ((list_id, record_id), (label, match_sets)) in self.prepared_records.iter() {
+    // TODO
 
-            if !self.prepared_galleys.contains_key(label) {
-                // TODO this technically has to be redone if points-per-pixel changes
-                let mut job = egui::text::LayoutJob::default();
-                job.append(
-                    label,
-                    0.0,
-                    egui::text::TextFormat {
-                        font_id: egui::FontId::monospace(12.0),
-                        color: egui::Color32::PLACEHOLDER,
-                        ..Default::default()
-                    },
-                );
+    if !self.prepared_galleys.contains_key(label) {
+        // TODO this technically has to be redone if points-per-pixel changes
+        let mut job = egui::text::LayoutJob::default();
+        job.append(
+            label,
+            0.0,
+            egui::text::TextFormat {
+                font_id: egui::FontId::monospace(12.0),
+                color: egui::Color32::PLACEHOLDER,
+                ..Default::default()
+            },
+        );
 
-                let galley = painter.layout_job(job);
-                self.prepared_galleys.insert(label.to_string(), galley);
-            }
+        let galley = painter.layout_job(job);
+        self.prepared_galleys.insert(label.to_string(), galley);
+    }
 
-            let Some(galley) = self.prepared_galleys.get(label) else {
-                unreachable!();
-            };
+    let Some(galley) = self.prepared_galleys.get(label) else {
+        unreachable!();
+    };
 
-            let color = app.annotations.annotation_lists[*list_id].records[*record_id].color;
+    let color = app.annotations.annotation_lists[*list_id].records[*record_id].color;
 
-            let stroke = egui::Stroke { width: 4.0, color };
+    let stroke = egui::Stroke { width: 4.0, color };
 
-            /*
-            for matches in match_sets {
-                if matches.is_empty() {
-                    continue;
-                }
-
-                for &[from, to] in matches {
-                    let s0 = view.map_world_to_screen(dims, from);
-                    let s1 = view.map_world_to_screen(dims, to);
-
-                    let d = s1 - s0;
-                    let angle = d.y.atan2(d.x) as f32;
-
-                    let p0: [f32; 2] = s0.into();
-                    let p1: [f32; 2] = s1.into();
-                    painter.line_segment([p0.into(), p1.into()], stroke);
-                }
-
-                let [start, _] = matches[0];
-                let [_, end] = matches[matches.len() - 1];
-
-                let s0 = view.map_world_to_screen(dims, start);
-                let s1 = view.map_world_to_screen(dims, end);
-
-                let d = s1 - s0;
-                let angle = d.y.atan2(d.x) as f32;
-
-                let p: [f32; 2] = (s0 + (s1 - s0) * 0.5).into();
-
-                let mut text_shape =
-                    egui::epaint::TextShape::new(p.into(), galley.clone(), egui::Color32::BLACK);
-                text_shape.angle = angle;
-
-                painter.add(text_shape);
-            }
-            */
+    /*
+    for matches in match_sets {
+        if matches.is_empty() {
+            continue;
         }
-        */
+
+        for &[from, to] in matches {
+            let s0 = view.map_world_to_screen(dims, from);
+            let s1 = view.map_world_to_screen(dims, to);
+
+            let d = s1 - s0;
+            let angle = d.y.atan2(d.x) as f32;
+
+            let p0: [f32; 2] = s0.into();
+            let p1: [f32; 2] = s1.into();
+            painter.line_segment([p0.into(), p1.into()], stroke);
+        }
+
+        let [start, _] = matches[0];
+        let [_, end] = matches[matches.len() - 1];
+
+        let s0 = view.map_world_to_screen(dims, start);
+        let s1 = view.map_world_to_screen(dims, end);
+
+        let d = s1 - s0;
+        let angle = d.y.atan2(d.x) as f32;
+
+        let p: [f32; 2] = (s0 + (s1 - s0) * 0.5).into();
+
+        let mut text_shape =
+            egui::epaint::TextShape::new(p.into(), galley.clone(), egui::Color32::BLACK);
+        text_shape.angle = angle;
+
+        painter.add(text_shape);
+    }
+    */
+}
+*/
     }
 }
+*/
 
 pub fn hashed_rgb(name: &str) -> [u8; 3] {
     // use sha2::Digest;

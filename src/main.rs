@@ -33,8 +33,8 @@ use crate::annotations::AnnotationStore;
 struct PafInput {
     queries: Vec<AlignedSeq>,
     targets: Vec<AlignedSeq>,
-    target_len: usize,
-    query_len: usize,
+    target_len: u64,
+    query_len: u64,
 
     // match_edges: Vec<[DVec2; 2]>,
     processed_lines: Vec<ProcessedCigar>,
@@ -168,14 +168,14 @@ impl ProcessedCigar {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct PafLine<S> {
     query_name: S,
-    query_seq_len: usize,
-    query_seq_start: usize,
-    query_seq_end: usize,
+    query_seq_len: u64,
+    query_seq_start: u64,
+    query_seq_end: u64,
 
     tgt_name: S,
-    tgt_seq_len: usize,
-    tgt_seq_start: usize,
-    tgt_seq_end: usize,
+    tgt_seq_len: u64,
+    tgt_seq_start: u64,
+    tgt_seq_end: u64,
 
     strand_rev: bool,
     cigar: S,
@@ -186,11 +186,11 @@ struct AlignedSeq {
     // name of the given sequence
     name: String,
     // its length
-    len: usize,
+    len: u64,
     // its rank among other seqs in the query or target set
     rank: usize,
     // its start offset in the global all-to-all alignment matrix
-    offset: usize,
+    offset: u64,
 }
 
 fn parse_paf_line<'a>(mut fields: impl Iterator<Item = &'a str>) -> Option<PafLine<&'a str>> {
@@ -219,7 +219,7 @@ fn parse_paf_line<'a>(mut fields: impl Iterator<Item = &'a str>) -> Option<PafLi
 
 fn parse_name_range<'a>(
     mut fields: impl Iterator<Item = &'a str>,
-) -> Option<(&'a str, usize, usize, usize)> {
+) -> Option<(&'a str, u64, u64, u64)> {
     let name = fields.next()?;
     let len = fields.next()?.parse().ok()?;
     let start = fields.next()?.parse().ok()?;

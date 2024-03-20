@@ -122,10 +122,10 @@ impl SelectionHandler {
             let color = egui::Rgba::from_rgba_unmultiplied(1.0, 0.0, 0.0, 0.5);
             draw_rect_region(&painter, screen_size, color, view, l..=r, u..=d);
 
-            let l = l.floor() as usize;
-            let r = r.ceil() as usize;
-            let u = u.floor() as usize;
-            let d = d.ceil() as usize;
+            let l = l.floor() as u64;
+            let r = r.ceil() as u64;
+            let u = u.floor() as u64;
+            let d = d.ceil() as u64;
 
             if right_released {
                 *view = view.fit_ranges_in_view(

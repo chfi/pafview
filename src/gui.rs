@@ -24,7 +24,7 @@ pub fn goto_range_controls(
     let parse_range = |names: &FxHashMap<String, usize>,
                        seqs: &[AlignedSeq],
                        txt: &str|
-     -> Option<std::ops::Range<usize>> {
+     -> Option<std::ops::Range<u64>> {
         let mut split = txt.split(':');
         let name = split.next()?;
         let id = *names.get(name)?;
@@ -34,7 +34,7 @@ pub fn goto_range_controls(
         let mut range = split
             .next()?
             .split('-')
-            .filter_map(|s| s.parse::<usize>().ok());
+            .filter_map(|s| s.parse::<u64>().ok());
         let start = range.next()? + offset;
         let end = range.next()? + offset;
 
@@ -261,7 +261,7 @@ pub fn draw_cursor_position_rulers_impl(
 
     // get target sequence by doing a binary search on the targets' offsets
     if world_pt.x > 0.0 && world_pt.x < input.target_len as f64 {
-        let tgt_offset = world_pt.x as usize;
+        let tgt_offset = world_pt.x as u64;
 
         let tgt_ix = input.targets.partition_point(|seq| seq.offset < tgt_offset);
         if let Some(target) = input.targets.get(tgt_ix) {
@@ -273,7 +273,7 @@ pub fn draw_cursor_position_rulers_impl(
 
     // & the same for query and the Y coordinate
     if world_pt.y > 0.0 && world_pt.y < input.query_len as f64 {
-        let qry_offset = world_pt.y as usize;
+        let qry_offset = world_pt.y as u64;
 
         let qry_ix = input.queries.partition_point(|seq| seq.offset < qry_offset);
         if let Some(query) = input.queries.get(qry_ix) {

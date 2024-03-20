@@ -198,8 +198,8 @@ impl View {
     pub fn fit_ranges_in_view(
         &self,
         aspect_ratio: f64,
-        x_range: Option<Range<usize>>,
-        y_range: Option<Range<usize>>,
+        x_range: Option<Range<u64>>,
+        y_range: Option<Range<u64>>,
     ) -> Self {
         let (x_min, x_max) = x_range
             .map(|r| (r.start as f64, r.end as f64))
