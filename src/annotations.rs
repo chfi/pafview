@@ -203,7 +203,22 @@ impl AnnotationGuiHandler {
 
             let color = egui::Rgba::from(record.color).multiply(0.5);
 
-            let extra = 0.1 * app.paf_input.target_len as f64;
+            let extra = 0.03 * app.paf_input.target_len as f64;
+
+            if state.galley.is_none() && (state.draw_target_region || state.draw_query_region) {
+                let mut job = egui::text::LayoutJob::default();
+                job.append(
+                    &record.label,
+                    0.0,
+                    egui::text::TextFormat {
+                        font_id: egui::FontId::monospace(12.0),
+                        color: egui::Color32::PLACEHOLDER,
+                        ..Default::default()
+                    },
+                );
+                let galley = painter.layout_job(job);
+                state.galley = Some(galley);
+            }
 
             if state.draw_target_region {
                 let x0 = *state.seq_region.start();
@@ -222,9 +237,14 @@ impl AnnotationGuiHandler {
                     rect.set_width(1.0);
                 }
 
-                // TODO draw label
-
                 painter.rect_filled(rect, 0.0, color);
+
+                let mut label_pos = rect.left_top();
+                label_pos.y = label_pos.y.max(5.0);
+
+                if let Some(galley) = state.galley.as_ref() {
+                    painter.galley(label_pos, galley.clone(), egui::Color32::BLACK);
+                }
             }
 
             if state.draw_query_region {
@@ -245,6 +265,13 @@ impl AnnotationGuiHandler {
                 }
 
                 painter.rect_filled(rect, 0.0, color);
+
+                let mut label_pos = rect.left_top();
+                label_pos.x = label_pos.x.max(5.0);
+
+                if let Some(galley) = state.galley.as_ref() {
+                    painter.galley(label_pos, galley.clone(), egui::Color32::BLACK);
+                }
             }
         }
     }
