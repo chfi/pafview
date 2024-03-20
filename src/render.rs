@@ -61,27 +61,38 @@ impl LinePipeline {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: "vs_main",
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 4 * std::mem::size_of::<u32>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &[
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Float32x2,
+                buffers: &[
+                    wgpu::VertexBufferLayout {
+                        array_stride: 4 * std::mem::size_of::<u32>() as u64,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &[
+                            wgpu::VertexAttribute {
+                                format: wgpu::VertexFormat::Float32x2,
+                                offset: 0,
+                                shader_location: 0,
+                            },
+                            wgpu::VertexAttribute {
+                                format: wgpu::VertexFormat::Float32x2,
+                                offset: 8,
+                                shader_location: 1,
+                            },
+                            // wgpu::VertexAttribute {
+                            //     format: wgpu::VertexFormat::Uint32,
+                            //     offset: 16,
+                            //     shader_location: 2,
+                            // },
+                        ],
+                    },
+                    wgpu::VertexBufferLayout {
+                        array_stride: 1 * std::mem::size_of::<u32>() as u64,
+                        step_mode: wgpu::VertexStepMode::Instance,
+                        attributes: &[wgpu::VertexAttribute {
+                            format: wgpu::VertexFormat::Uint32,
                             offset: 0,
-                            shader_location: 0,
-                        },
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Float32x2,
-                            offset: 8,
-                            shader_location: 1,
-                        },
-                        // wgpu::VertexAttribute {
-                        //     format: wgpu::VertexFormat::Uint32,
-                        //     offset: 16,
-                        //     shader_location: 2,
-                        // },
-                    ],
-                }],
+                            shader_location: 2,
+                        }],
+                    },
+                ],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -370,9 +381,10 @@ pub struct PafRenderer {
     msaa_samples: u32,
 
     match_vertices: wgpu::Buffer,
+    match_colors: wgpu::Buffer,
     match_instances: std::ops::Range<u32>,
 
-    grid_data: Option<(wgpu::Buffer, std::ops::Range<u32>)>,
+    grid_data: Option<(wgpu::Buffer, wgpu::Buffer, std::ops::Range<u32>)>,
 
     active_task: Option<PafDrawTask>,
     draw_states: [PafDrawState; 2],
@@ -389,6 +401,7 @@ impl PafRenderer {
         swapchain_format: wgpu::TextureFormat,
         msaa_samples: u32,
         match_vertices: wgpu::Buffer,
+        match_colors: wgpu::Buffer,
         match_instances: std::ops::Range<u32>,
     ) -> Self {
         log::warn!("initializing PafRenderer");
@@ -409,6 +422,7 @@ impl PafRenderer {
             line_pipeline,
             msaa_samples,
             match_vertices,
+            match_colors,
             match_instances,
 
             grid_data: None,
@@ -421,7 +435,10 @@ impl PafRenderer {
         }
     }
 
-    pub fn set_grid(&mut self, grid_data: Option<(wgpu::Buffer, std::ops::Range<u32>)>) {
+    pub fn set_grid(
+        &mut self,
+        grid_data: Option<(wgpu::Buffer, wgpu::Buffer, std::ops::Range<u32>)>,
+    ) {
         self.grid_data = grid_data;
     }
 
@@ -550,6 +567,7 @@ impl PafRenderer {
                 uniforms,
                 &self.grid_data,
                 &self.match_vertices,
+                &self.match_colors,
                 instances,
                 &mut encoder,
             );
@@ -570,8 +588,9 @@ impl PafRenderer {
         line_pipeline: &LinePipeline,
         params: &PafDrawSet,
         uniforms: &PafUniforms,
-        grid_data: &Option<(wgpu::Buffer, std::ops::Range<u32>)>,
+        grid_data: &Option<(wgpu::Buffer, wgpu::Buffer, std::ops::Range<u32>)>,
         match_vertices: &wgpu::Buffer,
+        match_colors: &wgpu::Buffer,
         match_instances: std::ops::Range<u32>,
         encoder: &mut CommandEncoder,
     ) {
@@ -605,14 +624,16 @@ impl PafRenderer {
 
         rpass.set_pipeline(&line_pipeline.pipeline);
 
-        if let Some((grid_vertices, grid_instances)) = grid_data {
+        if let Some((grid_vertices, grid_colors, grid_instances)) = grid_data {
             rpass.set_bind_group(0, &uniforms.grid_bind_group, &[]);
             rpass.set_vertex_buffer(0, grid_vertices.slice(..));
+            rpass.set_vertex_buffer(1, grid_colors.slice(..));
             rpass.draw(0..6, grid_instances.clone());
         }
 
         rpass.set_bind_group(0, &uniforms.line_bind_group, &[]);
         rpass.set_vertex_buffer(0, match_vertices.slice(..));
+        rpass.set_vertex_buffer(1, match_colors.slice(..));
         rpass.draw(0..6, match_instances);
     }
 }

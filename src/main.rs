@@ -59,6 +59,7 @@ struct ProcessedCigar {
     query_len: u64,
 
     match_edges: Vec<[DVec2; 2]>,
+    match_is_match: Vec<bool>,
     match_offsets: Vec<[u64; 2]>,
 
     aabb_min: DVec2,
@@ -91,6 +92,7 @@ impl ProcessedCigar {
 
         let mut match_edges = Vec::new();
         let mut match_offsets = Vec::new();
+        let mut match_is_match = Vec::new();
 
         let mut aabb_min = DVec2::broadcast(std::f64::MAX);
         let mut aabb_max = DVec2::broadcast(std::f64::MIN);
@@ -121,6 +123,8 @@ impl ProcessedCigar {
 
                         match_edges.push([p0, p1]);
                         match_offsets.push([target_pos, query_pos]);
+
+                        match_is_match.push(op == 'M' || op == '=');
                     }
 
                     target_pos += count;
@@ -158,6 +162,7 @@ impl ProcessedCigar {
 
             match_edges,
             match_offsets,
+            match_is_match,
 
             aabb_min,
             aabb_max,
@@ -621,7 +626,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
     let swapchain_capabilities = surface.get_capabilities(&adapter);
     let swapchain_format = swapchain_capabilities.formats[0];
 
-    let (grid_buffer, grid_instances) = {
+    let (grid_buffer, grid_color_buffer, grid_instances) = {
         let input = &app.paf_input;
         let instances = input.targets.len() + input.queries.len() + 2;
         let mut lines: Vec<LineVertex> = Vec::with_capacity(instances);
@@ -678,23 +683,45 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
-        (buffer, 0..instances as u32)
+        let color_data = vec![0xFF000000u32; lines.len()];
+
+        let color_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&color_data),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        (buffer, color_buffer, 0..instances as u32)
     };
 
-    let (match_buffer, match_instances) = {
+    let (match_buffer, match_color_buffer, match_instances) = {
         let input = &app.paf_input;
         let instance_count = input.total_matches();
 
         let mut lines: Vec<LineVertex> = Vec::with_capacity(instance_count);
+        let mut colors: Vec<u32> = Vec::with_capacity(instance_count);
 
         // let color = 0x00000000;
 
         for line in &input.processed_lines {
-            for &[from, to] in line.match_edges.iter() {
+            // for &[from, to] in line.match_edges.iter() {
+            for (&[from, to], &is_match) in std::iter::zip(&line.match_edges, &line.match_is_match)
+            {
                 lines.push(LineVertex {
                     p0: [from.x as f32, from.y as f32].into(),
                     p1: [to.x as f32, to.y as f32].into(),
                 });
+
+                let col_match = 0xFF000000;
+                // let col_mismatch = 0xFFFFFFFF;
+                let col_mismatch = 0xFF0000FF;
+                // let col_mismatch = 0xFFFFFFFF;
+
+                if is_match {
+                    colors.push(col_match);
+                } else {
+                    colors.push(col_mismatch);
+                }
             }
         }
 
@@ -704,7 +731,13 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
-        (buffer, 0..instance_count as u32)
+        let color_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&colors),
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        });
+
+        (buffer, color_buffer, 0..instance_count as u32)
     };
 
     let mut app_view = View {
@@ -724,10 +757,11 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
         config.format,
         sample_count,
         match_buffer,
+        match_color_buffer,
         match_instances,
     );
 
-    paf_renderer.set_grid(Some((grid_buffer, grid_instances)));
+    paf_renderer.set_grid(Some((grid_buffer, grid_color_buffer, grid_instances)));
 
     let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
 

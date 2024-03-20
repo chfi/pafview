@@ -222,6 +222,8 @@ impl AnnotationGuiHandler {
                     rect.set_width(1.0);
                 }
 
+                // TODO draw label
+
                 painter.rect_filled(rect, 0.0, color);
             }
 
