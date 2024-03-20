@@ -109,6 +109,10 @@ impl AnnotationStore {
 
         Ok(())
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.annotation_lists.is_empty()
+    }
 }
 
 pub struct RecordList {

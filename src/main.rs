@@ -947,8 +947,10 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
                                 //     ctx,
                                 //     &app_view,
                                 // );
-                                annot_gui_handler.show_annotation_list(ctx, &app);
-                                annot_gui_handler.draw_annotations(ctx, &app, &mut app_view);
+                                if !app.annotations.is_empty() {
+                                    annot_gui_handler.show_annotation_list(ctx, &app);
+                                    annot_gui_handler.draw_annotations(ctx, &app, &mut app_view);
+                                }
                                 gui::draw_cursor_position_rulers(&app.paf_input, ctx, &app_view);
                             },
                         );
