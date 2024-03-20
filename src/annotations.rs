@@ -203,20 +203,24 @@ impl AnnotationGuiHandler {
 
             let color = egui::Rgba::from(record.color).multiply(0.5);
 
+            let extra = 0.1 * app.paf_input.target_len as f64;
+
             if state.draw_target_region {
                 let x0 = *state.seq_region.start();
                 let x1 = *state.seq_region.end();
-                let s0 = view.map_world_to_screen(screen_size, DVec2::new(x0, 0.0));
+                let s0 = view.map_world_to_screen(screen_size, DVec2::new(x0, -extra));
                 let s1 = view.map_world_to_screen(
                     screen_size,
-                    DVec2::new(x1, app.paf_input.target_len as f64),
+                    DVec2::new(x1, extra + app.paf_input.target_len as f64),
                 );
 
-                let mut rect = egui::Rect::from_x_y_ranges(s0.x..=s1.x, s0.y..=s1.y);
+                let y0 = s0.y.min(s1.y);
+                let y1 = s0.y.max(s1.y);
+                let mut rect = egui::Rect::from_x_y_ranges(s0.x..=s1.x, y0..=y1);
+
                 if rect.width() < 0.5 {
                     rect.set_width(1.0);
                 }
-                log::info!("drawing target region: {rect:?}\tcolor: {color:?}");
 
                 painter.rect_filled(rect, 0.0, color);
             }
@@ -224,23 +228,23 @@ impl AnnotationGuiHandler {
             if state.draw_query_region {
                 let y0 = *state.seq_region.start();
                 let y1 = *state.seq_region.end();
-                let s0 = view.map_world_to_screen(screen_size, DVec2::new(0.0, y0));
+                let s0 = view.map_world_to_screen(screen_size, DVec2::new(-extra, y0));
                 let s1 = view.map_world_to_screen(
                     screen_size,
-                    DVec2::new(app.paf_input.target_len as f64, y1),
+                    DVec2::new(extra + app.paf_input.target_len as f64, y1),
                 );
 
-                let mut rect = egui::Rect::from_x_y_ranges(s0.x..=s1.x, s0.y..=s1.y);
+                let y0 = s0.y.min(s1.y);
+                let y1 = s0.y.max(s1.y);
+                let mut rect = egui::Rect::from_x_y_ranges(s0.x..=s1.x, y0..=y1);
 
                 if rect.height() < 0.5 {
                     rect.set_height(1.0);
                 }
 
-                log::info!("drawing query region: {rect:?}\tcolor: {color:?}");
                 painter.rect_filled(rect, 0.0, color);
             }
         }
-        //
     }
 
     fn get_region_state(
