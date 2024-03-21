@@ -2,7 +2,7 @@ use egui::{util::IdTypeMap, Color32, DragValue, FontId, Ui};
 use rustc_hash::FxHashMap;
 use ultraviolet::{Mat4, Vec2};
 
-use crate::{view::View, AlignedSeq, PafInput};
+use crate::{annotations::AnnotationStore, view::View, AlignedSeq, PafInput, PafViewerApp};
 
 pub fn goto_range_controls(
     seq_names: &FxHashMap<String, usize>,
@@ -97,12 +97,14 @@ pub fn goto_range_controls(
 }
 
 pub fn view_controls(
+    ctx: &egui::Context,
     seq_names: &FxHashMap<String, usize>,
     input: &PafInput,
     view: &mut View,
-    ctx: &egui::Context,
+    window_states: &mut AppWindowStates,
 ) {
     egui::Window::new("View")
+        .open(&mut window_states.goto_region_open)
         // .resizable(true)
         // .vscroll(true)
         // .default_open(false)
@@ -280,6 +282,48 @@ pub fn draw_cursor_position_rulers_impl(
             let offset_in_qry = query.offset - qry_offset;
             let label = format!("{}:{offset_in_qry}", query.name);
             draw_ruler_h(painter, window_dims, pos.y, &label);
+        }
+    }
+}
+
+pub struct MenuBar;
+
+impl MenuBar {
+    pub fn show(
+        &self,
+        ctx: &egui::Context,
+        app: &PafViewerApp,
+        window_states: &mut AppWindowStates,
+    ) {
+        egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
+            // show/hide goto range window
+            if ui.button("Go to range").clicked() {
+                window_states.goto_region_open = !window_states.goto_region_open;
+            }
+
+            // show/hide annotations list window
+            if let Some(open) = window_states.annotation_list_open.as_mut() {
+                if ui.button("Annotations").clicked() {
+                    *open = !*open;
+                }
+            }
+        });
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AppWindowStates {
+    pub annotation_list_open: Option<bool>,
+    pub goto_region_open: bool,
+}
+
+impl AppWindowStates {
+    pub fn new(annotations: &AnnotationStore) -> Self {
+        let annotation_list_open = annotations.is_empty().then_some(false);
+
+        AppWindowStates {
+            annotation_list_open,
+            goto_region_open: false,
         }
     }
 }

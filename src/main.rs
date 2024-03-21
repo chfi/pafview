@@ -28,7 +28,7 @@ mod view;
 use render::*;
 use view::View;
 
-use crate::annotations::AnnotationStore;
+use crate::{annotations::AnnotationStore, gui::AppWindowStates};
 
 struct PafInput {
     queries: Vec<AlignedSeq>,
@@ -380,6 +380,7 @@ pub fn main() -> anyhow::Result<()> {
         paf_input,
         seq_names,
         annotations,
+        // window_states,
     };
 
     start_window(app);
@@ -763,6 +764,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
 
     paf_renderer.set_grid(Some((grid_buffer, grid_color_buffer, grid_instances)));
 
+    let mut window_states = AppWindowStates::new(&app.annotations);
+
     let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
 
     let mut annot_gui_handler = AnnotationGuiHandler::default();
@@ -950,10 +953,14 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
                                 //     ctx,
                                 //     &app_view,
                                 // );
-                                if !app.annotations.is_empty() {
-                                    annot_gui_handler.show_annotation_list(ctx, &app);
-                                    annot_gui_handler.draw_annotations(ctx, &app, &mut app_view);
-                                }
+
+                                annot_gui_handler.show_annotation_list(
+                                    ctx,
+                                    &app,
+                                    &mut window_states,
+                                );
+                                annot_gui_handler.draw_annotations(ctx, &app, &mut app_view);
+
                                 gui::draw_cursor_position_rulers(&app.paf_input, ctx, &app_view);
                             },
                         );
@@ -1110,4 +1117,6 @@ struct PafViewerApp {
     seq_names: bimap::BiMap<String, usize>,
 
     annotations: AnnotationStore,
+
+    window_states: AppWindowStates,
 }

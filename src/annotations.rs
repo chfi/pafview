@@ -11,7 +11,7 @@ use egui::Galley;
 use rustc_hash::FxHashMap;
 use ultraviolet::{DVec2, Vec2};
 
-use crate::{PafInput, PafViewerApp};
+use crate::{gui::AppWindowStates, PafInput, PafViewerApp};
 
 #[derive(Default)]
 pub struct AnnotationStore {
@@ -145,48 +145,57 @@ struct AnnotationState {
 }
 
 impl AnnotationGuiHandler {
-    pub fn show_annotation_list(&mut self, ctx: &egui::Context, app: &PafViewerApp) {
-        egui::Window::new("Annotations").show(&ctx, |ui| {
-            // TODO scrollable & filterable list of annotation records
+    pub fn show_annotation_list(
+        &mut self,
+        ctx: &egui::Context,
+        app: &PafViewerApp,
+        window_state: &mut AppWindowStates,
+    ) {
+        let Some(annot_list_open) = window_state.annotation_list_open.as_mut();
 
-            // if ui.button("Show annotations").clicked() {
-            for (_file_path, &list_id) in app.annotations.annotation_sources.iter() {
-                let list = &app.annotations.annotation_lists[list_id];
+        egui::Window::new("Annotations")
+            .open(annot_list_open)
+            .show(&ctx, |ui| {
+                // TODO scrollable & filterable list of annotation records
 
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for (record_id, record) in list.records.iter().enumerate() {
-                        ui.horizontal(|ui| {
-                            ui.label(format!("{}", record.label));
+                // if ui.button("Show annotations").clicked() {
+                for (_file_path, &list_id) in app.annotations.annotation_sources.iter() {
+                    let list = &app.annotations.annotation_lists[list_id];
 
-                            let target_btn = ui.button("Target");
-                            let query_btn = ui.button("Query");
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        for (record_id, record) in list.records.iter().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.label(format!("{}", record.label));
 
-                            let state = self.get_region_state(app, list_id, record_id);
+                                let target_btn = ui.button("Target");
+                                let query_btn = ui.button("Query");
 
-                            if target_btn.clicked() {
-                                state.draw_target_region = !state.draw_target_region;
-                                log::info!(
-                                    "drawing {} target region: {}\t(region {:?})",
-                                    record.label,
-                                    state.draw_target_region,
-                                    state.seq_region
-                                );
-                            }
+                                let state = self.get_region_state(app, list_id, record_id);
 
-                            if query_btn.clicked() {
-                                state.draw_query_region = !state.draw_query_region;
-                                log::info!(
-                                    "drawing {} query region: {}\t(region {:?})",
-                                    record.label,
-                                    state.draw_query_region,
-                                    state.seq_region
-                                );
-                            }
-                        });
-                    }
-                });
-            }
-        });
+                                if target_btn.clicked() {
+                                    state.draw_target_region = !state.draw_target_region;
+                                    log::info!(
+                                        "drawing {} target region: {}\t(region {:?})",
+                                        record.label,
+                                        state.draw_target_region,
+                                        state.seq_region
+                                    );
+                                }
+
+                                if query_btn.clicked() {
+                                    state.draw_query_region = !state.draw_query_region;
+                                    log::info!(
+                                        "drawing {} query region: {}\t(region {:?})",
+                                        record.label,
+                                        state.draw_query_region,
+                                        state.seq_region
+                                    );
+                                }
+                            });
+                        }
+                    });
+                }
+            });
     }
 
     pub fn draw_annotations(
