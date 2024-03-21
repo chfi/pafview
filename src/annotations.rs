@@ -151,7 +151,9 @@ impl AnnotationGuiHandler {
         app: &PafViewerApp,
         window_state: &mut AppWindowStates,
     ) {
-        let Some(annot_list_open) = window_state.annotation_list_open.as_mut();
+        let Some(annot_list_open) = window_state.annotation_list_open.as_mut() else {
+            return;
+        };
 
         egui::Window::new("Annotations")
             .open(annot_list_open)
@@ -253,7 +255,7 @@ impl AnnotationGuiHandler {
                 painter.rect_filled(rect, 0.0, color);
 
                 let mut label_pos = rect.left_top();
-                label_pos.y = label_pos.y.max(5.0);
+                label_pos.y = label_pos.y.max(25.0);
 
                 if let Some(galley) = state.galley.as_ref() {
                     painter.galley(label_pos, galley.clone(), egui::Color32::BLACK);

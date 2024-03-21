@@ -1,3 +1,4 @@
+use bimap::BiMap;
 use egui::{util::IdTypeMap, Color32, DragValue, FontId, Ui};
 use rustc_hash::FxHashMap;
 use ultraviolet::{Mat4, Vec2};
@@ -5,7 +6,7 @@ use ultraviolet::{Mat4, Vec2};
 use crate::{annotations::AnnotationStore, view::View, AlignedSeq, PafInput, PafViewerApp};
 
 pub fn goto_range_controls(
-    seq_names: &FxHashMap<String, usize>,
+    seq_names: &BiMap<String, usize>,
     input: &PafInput,
     view: &mut View,
     ui: &mut Ui,
@@ -21,13 +22,13 @@ pub fn goto_range_controls(
         })
         .unwrap_or_default();
 
-    let parse_range = |names: &FxHashMap<String, usize>,
+    let parse_range = |names: &BiMap<String, usize>,
                        seqs: &[AlignedSeq],
                        txt: &str|
      -> Option<std::ops::Range<u64>> {
         let mut split = txt.split(':');
         let name = split.next()?;
-        let id = *names.get(name)?;
+        let id = *names.get_by_left(name)?;
 
         let offset = seqs[id].offset;
 
@@ -56,6 +57,7 @@ pub fn goto_range_controls(
     let mut goto = goto_btn.clicked();
 
     ui.horizontal(|ui| {
+        ui.label("Target");
         let target_text = ui.text_edit_singleline(&mut target_buf);
         goto |= target_text.lost_focus() && pressed_enter;
     });
@@ -63,6 +65,7 @@ pub fn goto_range_controls(
     // Query/Y
 
     ui.horizontal(|ui| {
+        ui.label("Query");
         let query_text = ui.text_edit_singleline(&mut query_buf);
         goto |= query_text.lost_focus() && pressed_enter;
     });
@@ -98,7 +101,7 @@ pub fn goto_range_controls(
 
 pub fn view_controls(
     ctx: &egui::Context,
-    seq_names: &FxHashMap<String, usize>,
+    seq_names: &BiMap<String, usize>,
     input: &PafInput,
     view: &mut View,
     window_states: &mut AppWindowStates,
@@ -222,12 +225,12 @@ pub fn draw_ruler_v(painter: &egui::Painter, window_dims: [f32; 2], screen_x: f3
 
     if screen_x + galley.size().x > w as f32 {
         painter.galley(
-            egui::pos2(screen_x - 8.0 - galley.size().x, 16.0),
+            egui::pos2(screen_x - 8.0 - galley.size().x, 32.0),
             galley,
             Color32::BLACK,
         );
     } else {
-        painter.galley(egui::pos2(screen_x + 8.0, 16.0), galley, Color32::BLACK);
+        painter.galley(egui::pos2(screen_x + 8.0, 32.0), galley, Color32::BLACK);
     }
 }
 
@@ -290,23 +293,25 @@ pub struct MenuBar;
 
 impl MenuBar {
     pub fn show(
-        &self,
+        // &self,
         ctx: &egui::Context,
         app: &PafViewerApp,
         window_states: &mut AppWindowStates,
     ) {
         egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
             // show/hide goto range window
-            if ui.button("Go to range").clicked() {
-                window_states.goto_region_open = !window_states.goto_region_open;
-            }
-
-            // show/hide annotations list window
-            if let Some(open) = window_states.annotation_list_open.as_mut() {
-                if ui.button("Annotations").clicked() {
-                    *open = !*open;
+            ui.horizontal(|ui| {
+                if ui.button("Go to range").clicked() {
+                    window_states.goto_region_open = !window_states.goto_region_open;
                 }
-            }
+
+                // show/hide annotations list window
+                if let Some(open) = window_states.annotation_list_open.as_mut() {
+                    if ui.button("Annotations").clicked() {
+                        *open = !*open;
+                    }
+                }
+            })
         });
     }
 }
@@ -319,7 +324,7 @@ pub struct AppWindowStates {
 
 impl AppWindowStates {
     pub fn new(annotations: &AnnotationStore) -> Self {
-        let annotation_list_open = annotations.is_empty().then_some(false);
+        let annotation_list_open = (!annotations.is_empty()).then_some(false);
 
         AppWindowStates {
             annotation_list_open,

@@ -954,6 +954,16 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
                                 //     &app_view,
                                 // );
 
+                                gui::MenuBar::show(ctx, &app, &mut window_states);
+
+                                gui::view_controls(
+                                    ctx,
+                                    &app.seq_names,
+                                    &app.paf_input,
+                                    &mut app_view,
+                                    &mut window_states,
+                                );
+
                                 annot_gui_handler.show_annotation_list(
                                     ctx,
                                     &app,
@@ -1117,6 +1127,4 @@ struct PafViewerApp {
     seq_names: bimap::BiMap<String, usize>,
 
     annotations: AnnotationStore,
-
-    window_states: AppWindowStates,
 }
