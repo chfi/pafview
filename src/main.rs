@@ -970,6 +970,7 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
 
                                 gui::view_controls(
                                     ctx,
+                                    &app.alignment_grid,
                                     &app.seq_names,
                                     &app.paf_input,
                                     &mut app_view,

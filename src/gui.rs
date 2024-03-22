@@ -6,6 +6,7 @@ use ultraviolet::{Mat4, Vec2};
 use crate::{annotations::AnnotationStore, view::View, AlignedSeq, PafInput, PafViewerApp};
 
 pub fn goto_range_controls(
+    alignment_grid: &crate::grid::AlignmentGrid,
     seq_names: &BiMap<String, usize>,
     input: &PafInput,
     view: &mut View,
@@ -23,14 +24,15 @@ pub fn goto_range_controls(
         .unwrap_or_default();
 
     let parse_range = |names: &BiMap<String, usize>,
-                       seqs: &[AlignedSeq],
+                       axis: &crate::grid::GridAxis,
                        txt: &str|
      -> Option<std::ops::Range<u64>> {
         let mut split = txt.split(':');
         let name = split.next()?;
         let id = *names.get_by_left(name)?;
 
-        let offset = seqs[id].offset;
+        let offset = axis.sequence_offset(id)?;
+        // let offset = seqs[id].offset;
 
         let mut range = split
             .next()?
@@ -70,8 +72,8 @@ pub fn goto_range_controls(
         goto |= query_text.lost_focus() && pressed_enter;
     });
 
-    let x_range = parse_range(&seq_names, &input.targets, &target_buf);
-    let y_range = parse_range(&seq_names, &input.queries, &query_buf);
+    let x_range = parse_range(&seq_names, &alignment_grid.x_axis, &target_buf);
+    let y_range = parse_range(&seq_names, &alignment_grid.y_axis, &query_buf);
 
     let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("region-painter"));
     let painter = ui.ctx().layer_painter(layer);
@@ -101,6 +103,7 @@ pub fn goto_range_controls(
 
 pub fn view_controls(
     ctx: &egui::Context,
+    alignment_grid: &crate::grid::AlignmentGrid,
     seq_names: &BiMap<String, usize>,
     input: &PafInput,
     view: &mut View,
@@ -112,7 +115,7 @@ pub fn view_controls(
         // .vscroll(true)
         // .default_open(false)
         .show(&ctx, |ui| {
-            goto_range_controls(seq_names, input, view, ui);
+            goto_range_controls(alignment_grid, seq_names, input, view, ui);
 
             // let x_min =
             //     DragValue::new(&mut view.x_min).clamp_range(0f64..=(v.x_max - 1.0).max(0.0));

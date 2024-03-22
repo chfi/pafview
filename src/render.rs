@@ -733,14 +733,6 @@ impl PafDrawParams {
             && self.target_range == view.x_range()
             && self.query_range == view.y_range()
     }
-
-    fn difference_into_matrix(&self, new: &Self) -> Mat4 {
-        // first project the old view rectangle into the new one
-
-        //
-
-        todo!();
-    }
 }
 
 struct PafUniforms {
