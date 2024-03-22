@@ -235,7 +235,9 @@ pub fn draw_ruler_v(painter: &egui::Painter, window_dims: [f32; 2], screen_x: f3
 }
 
 pub fn draw_cursor_position_rulers(
-    input: &PafInput,
+    grid: &crate::grid::AlignmentGrid,
+    seq_names: &bimap::BiMap<String, usize>,
+    // input: &PafInput,
     ctx: &egui::Context,
     view: &crate::view::View,
 ) {
@@ -248,11 +250,13 @@ pub fn draw_cursor_position_rulers(
 
     let screen_size = ctx.screen_rect().size();
 
-    draw_cursor_position_rulers_impl(input, &painter, screen_size, view, cursor_pos)
+    draw_cursor_position_rulers_impl(grid, seq_names, &painter, screen_size, view, cursor_pos)
 }
 
 pub fn draw_cursor_position_rulers_impl(
-    input: &PafInput,
+    grid: &crate::grid::AlignmentGrid,
+    seq_names: &bimap::BiMap<String, usize>,
+    // input: &PafInput,
     painter: &egui::Painter,
     window_dims: impl Into<[f32; 2]>,
     view: &crate::view::View,
@@ -264,28 +268,16 @@ pub fn draw_cursor_position_rulers_impl(
 
     let world_pt = view.map_screen_to_world(window_dims, pos);
 
-    // get target sequence by doing a binary search on the targets' offsets
-    if world_pt.x > 0.0 && world_pt.x < input.target_len as f64 {
-        let tgt_offset = world_pt.x as u64;
-
-        let tgt_ix = input.targets.partition_point(|seq| seq.offset < tgt_offset);
-        if let Some(target) = input.targets.get(tgt_ix) {
-            let offset_in_tgt = target.offset - tgt_offset;
-            let label = format!("{}:{offset_in_tgt}", target.name);
-            draw_ruler_v(painter, window_dims, pos.x, &label);
-        }
+    if let Some((tgt_id, loc_offset)) = grid.x_axis.global_to_axis_exact(world_pt.x as u64) {
+        let name = seq_names.get_by_right(&tgt_id).unwrap();
+        let label = format!("{}:{loc_offset}", name);
+        draw_ruler_v(painter, window_dims, pos.x, &label);
     }
 
-    // & the same for query and the Y coordinate
-    if world_pt.y > 0.0 && world_pt.y < input.query_len as f64 {
-        let qry_offset = world_pt.y as u64;
-
-        let qry_ix = input.queries.partition_point(|seq| seq.offset < qry_offset);
-        if let Some(query) = input.queries.get(qry_ix) {
-            let offset_in_qry = query.offset - qry_offset;
-            let label = format!("{}:{offset_in_qry}", query.name);
-            draw_ruler_h(painter, window_dims, pos.y, &label);
-        }
+    if let Some((qry_id, loc_offset)) = grid.y_axis.global_to_axis_exact(world_pt.y as u64) {
+        let name = seq_names.get_by_right(&qry_id).unwrap();
+        let label = format!("{}:{loc_offset}", name);
+        draw_ruler_h(painter, window_dims, pos.y, &label);
     }
 }
 

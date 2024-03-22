@@ -1,4 +1,5 @@
 use bimap::BiMap;
+use rustc_hash::FxHashMap;
 
 use crate::PafInput;
 
@@ -11,11 +12,14 @@ pub struct AlignmentGrid {
 
 #[derive(Debug, Clone)]
 pub struct GridAxis {
+    /// Maps global sequence indices to the indices in `seq_order`,
+    seq_index_map: FxHashMap<usize, usize>,
+
     /// The IDs of the sequences in the axis
     seq_order: Vec<usize>,
     seq_offsets: Vec<u64>,
     seq_lens: Vec<u64>,
-    total_len: u64,
+    pub total_len: u64,
 }
 
 impl GridAxis {
@@ -32,6 +36,8 @@ impl GridAxis {
     }
 
     pub fn from_index_and_lengths(items: impl IntoIterator<Item = (usize, u64)>) -> Self {
+        let mut seq_indices = FxHashMap::default();
+
         let mut seq_order = Vec::new();
         let mut seq_offsets = Vec::new();
         let mut seq_lens = Vec::new();
@@ -39,6 +45,8 @@ impl GridAxis {
         let mut offset = 0u64;
 
         for (seq_id, seq_len) in items {
+            seq_indices.insert(seq_id, seq_order.len());
+
             seq_order.push(seq_id);
             seq_offsets.push(offset);
             seq_lens.push(seq_len);
@@ -47,11 +55,21 @@ impl GridAxis {
         }
 
         Self {
+            seq_index_map: seq_indices,
             seq_order,
             seq_offsets,
             seq_lens,
             total_len: offset,
         }
+    }
+
+    pub fn offsets(&self) -> impl Iterator<Item = u64> + '_ {
+        self.seq_offsets.iter().copied().chain([self.total_len])
+    }
+
+    pub fn sequence_offset(&self, seq_id: usize) -> Option<u64> {
+        let ix = self.seq_index_map.get(&seq_id)?;
+        self.seq_offsets.get(*ix).copied()
     }
 
     /// Maps a point in `0 <= t <= self.total_len` to a sequence ID and
@@ -61,6 +79,8 @@ impl GridAxis {
             return None;
         }
 
+        // let (seq_id, pos) = self.global_to_axis_exact(t as u64)?;
+
         let i = self
             .seq_offsets
             .partition_point(|&v| (v as f64) <= t)
@@ -68,10 +88,31 @@ impl GridAxis {
             .unwrap();
         let offset = self.seq_offsets[i] as f64;
 
-        let len = self.seq_lens[i];
         let v = (t - offset) / self.seq_lens[i] as f64;
 
-        Some((i, v))
+        let seq_id = self.seq_order[i];
+
+        Some((seq_id, v))
+    }
+
+    pub fn global_to_axis_exact(&self, t: u64) -> Option<(usize, u64)> {
+        if t > self.total_len {
+            return None;
+        }
+
+        let i = self
+            .seq_offsets
+            .partition_point(|&v| v <= t)
+            .checked_sub(1)
+            .unwrap();
+        let offset = self.seq_offsets[i];
+        let len = self.seq_lens[i];
+
+        let seq_id = self.seq_order[i];
+
+        let v = t.checked_sub(offset).unwrap();
+
+        Some((seq_id, v))
     }
 
     /// Maps a point in [0, 1] inside a grid "row" to a point in the global grid offset
@@ -79,9 +120,10 @@ impl GridAxis {
         if t < 0.0 || t > 1.0 {
             return None;
         }
+        let ix = *self.seq_index_map.get(&seq_id)?;
 
-        let offset = self.seq_offsets[seq_id] as f64;
-        let v = self.seq_lens[seq_id] as f64 * t;
+        let offset = self.seq_offsets[ix] as f64;
+        let v = self.seq_lens[ix] as f64 * t;
         Some(offset + v)
     }
 }

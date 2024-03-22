@@ -310,6 +310,9 @@ pub fn main() -> anyhow::Result<()> {
 
     let seq_names = target_names.into_iter().collect::<bimap::BiMap<_, _>>();
 
+    let x_axis = grid::GridAxis::from_sequences(&seq_names, &targets);
+    let y_axis = x_axis.clone();
+
     // process matches
     let mut processed_lines = Vec::new();
 
@@ -329,8 +332,10 @@ pub fn main() -> anyhow::Result<()> {
         };
 
         let origin = {
-            let x0 = &targets[*target_i].offset;
-            let y0 = &queries[*query_i].offset;
+            let x0 = x_axis.sequence_offset(*target_i).unwrap();
+            let y0 = y_axis.sequence_offset(*query_i).unwrap();
+            // let x0 = &targets[*target_i].offset;
+            // let y0 = &queries[*query_i].offset;
 
             let x = x0 + paf_line.tgt_seq_start;
             let y = if paf_line.strand_rev {
@@ -376,9 +381,6 @@ pub fn main() -> anyhow::Result<()> {
         .map(|l| l.match_edges.len())
         .sum();
     println!("drawing {} matches", total_matches);
-
-    let x_axis = grid::GridAxis::from_sequences(&seq_names, &paf_input.targets);
-    let y_axis = x_axis.clone();
 
     let alignment_grid = AlignmentGrid { x_axis, y_axis };
 
@@ -653,12 +655,15 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
         targets_sort.sort_by_key(|(_, l)| *l);
         queries_sort.sort_by_key(|(_, l)| *l);
 
-        let x_max = input.target_len as f32;
-        let y_max = input.query_len as f32;
+        let x_axis = &app.alignment_grid.x_axis;
+        let y_axis = &app.alignment_grid.y_axis;
+
+        let x_max = x_axis.total_len as f32;
+        let y_max = y_axis.total_len as f32;
 
         // X
-        for t in input.targets.iter() {
-            let x = t.offset as f32;
+        for x_u in x_axis.offsets() {
+            let x = x_u as f32;
             lines.push(LineVertex {
                 p0: [x, 0f32],
                 p1: [x, y_max],
@@ -671,13 +676,14 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
         });
 
         // Y
-        for q in input.queries.iter() {
-            let y = q.offset as f32;
+        for y_u in y_axis.offsets() {
+            let y = y_u as f32;
             lines.push(LineVertex {
                 p0: [0f32, y],
                 p1: [x_max, y],
             });
         }
+
         lines.push(LineVertex {
             p0: [0f32, y_max],
             p1: [x_max, y_max],
@@ -977,7 +983,12 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
                                 );
                                 annot_gui_handler.draw_annotations(ctx, &app, &mut app_view);
 
-                                gui::draw_cursor_position_rulers(&app.paf_input, ctx, &app_view);
+                                gui::draw_cursor_position_rulers(
+                                    &app.alignment_grid,
+                                    &app.seq_names,
+                                    ctx,
+                                    &app_view,
+                                );
                             },
                         );
 

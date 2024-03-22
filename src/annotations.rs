@@ -299,13 +299,15 @@ impl AnnotationGuiHandler {
     ) -> &mut AnnotationState {
         let key = (annotation_list_id, record_id);
 
+        let axis = &app.alignment_grid.x_axis;
+
         if !self.record_states.contains_key(&key) {
             let record = &app.annotations.annotation_lists[annotation_list_id].records[record_id];
 
-            let seq = &app.paf_input.targets[record.seq_id];
+            let seq_offset = axis.sequence_offset(record.seq_id).unwrap();
 
-            let start_w = (seq.offset + record.seq_range.start) as f64;
-            let end_w = (seq.offset + record.seq_range.end) as f64;
+            let start_w = (seq_offset + record.seq_range.start) as f64;
+            let end_w = (seq_offset + record.seq_range.end) as f64;
 
             self.record_states.insert(
                 key,
