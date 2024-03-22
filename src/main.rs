@@ -19,6 +19,7 @@ use std::io::prelude::*;
 use anyhow::anyhow;
 
 mod annotations;
+mod grid;
 mod gui;
 mod regions;
 mod render;
@@ -192,8 +193,6 @@ struct AlignedSeq {
     name: String,
     // its length
     len: u64,
-    // its rank among other seqs in the query or target set
-    rank: usize,
     // its start offset in the global all-to-all alignment matrix
     offset: u64,
 }
