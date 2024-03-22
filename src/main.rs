@@ -2,6 +2,7 @@ use annotations::AnnotationGuiHandler;
 use bimap::BiMap;
 use bytemuck::{Pod, Zeroable};
 use egui_wgpu::ScreenDescriptor;
+use grid::AlignmentGrid;
 use regions::SelectionHandler;
 use rustc_hash::FxHashMap;
 use std::borrow::Cow;
@@ -194,6 +195,7 @@ struct AlignedSeq {
     // its length
     len: u64,
     // its start offset in the global all-to-all alignment matrix
+    #[deprecated]
     offset: u64,
 }
 
@@ -375,11 +377,16 @@ pub fn main() -> anyhow::Result<()> {
         .sum();
     println!("drawing {} matches", total_matches);
 
+    let x_axis = grid::GridAxis::from_sequences(&seq_names, &paf_input.targets);
+    let y_axis = x_axis.clone();
+
+    let alignment_grid = AlignmentGrid { x_axis, y_axis };
+
     let app = PafViewerApp {
+        alignment_grid,
         paf_input,
         seq_names,
         annotations,
-        // window_states,
     };
 
     start_window(app);
@@ -1121,6 +1128,8 @@ pub fn write_png(
 }
 
 struct PafViewerApp {
+    alignment_grid: AlignmentGrid,
+
     paf_input: PafInput,
 
     seq_names: bimap::BiMap<String, usize>,
