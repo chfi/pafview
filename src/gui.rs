@@ -296,8 +296,13 @@ impl MenuBar {
         window_states: &mut AppWindowStates,
     ) {
         egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
-            // show/hide goto range window
             ui.horizontal(|ui| {
+                if ui.button("Regions of Interest").clicked() {
+                    window_states.regions_of_interest_open =
+                        !window_states.regions_of_interest_open;
+                }
+
+                // show/hide goto range window
                 if ui.button("Go to range").clicked() {
                     window_states.goto_region_open = !window_states.goto_region_open;
                 }

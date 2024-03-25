@@ -10,7 +10,7 @@ use ultraviolet::{DVec2, Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
     event::{ElementState, Event, MouseButton, WindowEvent},
-    event_loop::EventLoop,
+    event_loop::{EventLoop, EventLoopBuilder},
     keyboard::{KeyCode, PhysicalKey},
     window::Window,
 };
@@ -367,7 +367,6 @@ pub fn main() -> anyhow::Result<()> {
         match annotations.load_bed_file(&seq_names, &bed_path) {
             Ok(_) => {
                 log::info!("Loaded BED file `{bed_path}`");
-                //
             }
             Err(err) => log::error!("Error loading BED file at path `{bed_path}`: {err:?}"),
         }
@@ -596,7 +595,12 @@ struct LineVertex {
     // color: u32,
 }
 
-async fn run(event_loop: EventLoop<()>, window: Window, mut app: PafViewerApp) {
+#[derive(Clone, PartialEq, PartialOrd)]
+pub enum AppEvent {
+    LoadAnnotationFile { path: std::path::PathBuf },
+}
+
+async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewerApp) {
     let mut size = window.inner_size();
     size.width = size.width.max(1);
     size.height = size.height.max(1);
@@ -804,6 +808,22 @@ async fn run(event_loop: EventLoop<()>, window: Window, mut app: PafViewerApp) {
             // `event_loop.run` never returns, therefore we must do this to ensure
             // the resources are properly cleaned up.
             let _ = (&instance, &adapter);
+
+            if let Event::UserEvent(event) = &event {
+                match event {
+                    AppEvent::LoadAnnotationFile { path } => {
+                        // TODO check file extension maybe, other logic
+                        match app.annotations.load_bed_file(&app.seq_names, &path) {
+                            Ok(_) => {
+                                log::info!("Loaded BED file `{path:?}`");
+                            }
+                            Err(err) => {
+                                log::error!("Error loading BED file at path `{path:?}`: {err:?}")
+                            }
+                        }
+                    }
+                }
+            }
 
             if let Event::AboutToWait = event {
                 let result = device.poll(wgpu::Maintain::Poll);
@@ -1017,7 +1037,10 @@ async fn run(event_loop: EventLoop<()>, window: Window, mut app: PafViewerApp) {
 }
 
 fn start_window(app: PafViewerApp) {
-    let event_loop = EventLoop::new().unwrap();
+    let event_loop = EventLoopBuilder::<AppEvent>::with_user_event()
+        .build()
+        .unwrap();
+    // let event_loop = EventLoop::<AppEvent>::new().unwrap();
     #[allow(unused_mut)]
     let mut builder = winit::window::WindowBuilder::new();
     #[cfg(target_arch = "wasm32")]
