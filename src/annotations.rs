@@ -353,370 +353,20 @@ impl AnnotationGuiHandler {
         state
     }
 
-    fn enable_annotation_region(
-        &mut self,
-        app: &PafViewerApp,
-        annotation_list_id: usize,
-        record_id: usize,
-        draw_target_region: Option<bool>,
-        draw_query_region: Option<bool>,
-    ) {
-        let state = self.get_region_state(app, annotation_list_id, record_id);
+    // fn enable_annotation_region(
+    //     &mut self,
+    //     app: &PafViewerApp,
+    //     annotation_list_id: usize,
+    //     record_id: usize,
+    //     draw_target_region: Option<bool>,
+    //     draw_query_region: Option<bool>,
+    // ) {
+    //     let state = self.get_region_state(app, annotation_list_id, record_id);
 
-        state.draw_target_region = draw_target_region.unwrap_or(state.draw_target_region);
-        state.draw_query_region = draw_query_region.unwrap_or(state.draw_query_region);
-    }
+    //     state.draw_target_region = draw_target_region.unwrap_or(state.draw_target_region);
+    //     state.draw_query_region = draw_query_region.unwrap_or(state.draw_query_region);
+    // }
 }
-
-/*
-struct SeqPairAnnotations {
-    target_id: usize,
-    query_id: usize,
-
-    anchor_start: DVec2,
-    anchor_end: DVec2,
-    // in order from start to end on the line between the anchors
-    labels: Vec<(String, (f64, f64))>,
-}
-
-struct LayoutConfig {
-    max_rows: usize,
-}
-
-impl std::default::Default for LayoutConfig {
-    fn default() -> Self {
-        Self { max_rows: 3 }
-    }
-}
-
-fn draw_annotation_labels(
-    ctx: &egui::Context,
-    annots: &SeqPairAnnotations,
-    galleys: &mut FxHashMap<String, Arc<Galley>>,
-    // cfg: LayoutConfig,
-    view: &crate::view::View,
-) {
-    let id_str = "annotation-painter";
-    let id = egui::Id::new(id_str);
-
-    let screen_size = ctx.screen_rect().size();
-
-    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, id));
-
-    // let mut remaining = VecDeque::new();
-    let mut remaining = Vec::new();
-
-    for (ix, (text, (from, to))) in annots.labels.iter().enumerate() {
-        if !galleys.contains_key(text) {
-            let mut job = egui::text::LayoutJob::default();
-            job.append(
-                text,
-                0.0,
-                egui::text::TextFormat {
-                    font_id: egui::FontId::monospace(12.0),
-                    color: egui::Color32::PLACEHOLDER,
-                    ..Default::default()
-                },
-            );
-            galleys.insert(text.to_string(), painter.layout_job(job));
-        }
-
-        let Some(galley) = galleys.get(text) else {
-            unreachable!();
-        };
-
-        let range = *from..=*to;
-
-        remaining.push((ix, range, galley.clone()));
-    }
-
-    // remaining.sort_by_key(|(_, range, _)| *range.start());
-    remaining.sort_by(|(_, r0, _), (_, r1, _)| r0.start().partial_cmp(r1.start()).unwrap());
-
-    let mut remaining = remaining.into_iter().collect::<VecDeque<_>>();
-
-    // labels to draw; index into `annots.labels` plus offset along
-    // the line `annots.anchor_min` to `annots.anchor_max`, in screenspace
-    // let mut current_row: Vec<(usize, f32)> = Vec::new();
-
-    let s0 = view.map_world_to_screen(screen_size, annots.anchor_start);
-    let s1 = view.map_world_to_screen(screen_size, annots.anchor_end);
-
-    let d = s1 - s0;
-    let main_angle = d.y.atan2(d.x) as f32;
-
-    let mut overflow: Vec<(usize, f32)> = Vec::new();
-
-    // let mut last_added: Option<std::ops::RangeInclusive<f64>> = None;
-    let mut last_added: Option<std::ops::RangeInclusive<f32>> = None;
-
-    loop {
-        let Some((ix, anchor_range, galley)) = remaining.pop_front() else {
-            break;
-        };
-
-        let text_width = galley.size().x;
-
-        let t = *anchor_range.start();
-        let center = annots.anchor_start + (annots.anchor_end - annots.anchor_start) * t;
-
-        let p: [f32; 2] = view.map_world_to_screen(screen_size, center).into();
-
-        let t_s = t / (annots.anchor_end - annots.anchor_start).mag();
-
-        let r_start = t_s as f32;
-        let r_end = r_start + text_width;
-
-        // this is definitely wrong
-
-        let last_covers = last_added
-            .as_ref()
-            .is_some_and(|last_range| *last_range.end() > r_end);
-
-        // log::warn!("
-
-        if !last_covers {
-            last_added = Some(r_start..=r_end);
-
-            let mut text_shape =
-                egui::epaint::TextShape::new(p.into(), galley.clone(), egui::Color32::BLACK);
-            text_shape.angle = main_angle;
-
-            painter.add(text_shape);
-        }
-    }
-}
-
-impl SeqPairAnnotations {
-    fn blocks_from_processed_line(
-        // fn from_processed_line(
-        // seq_names: &BiMap<String, usize>,
-        input: &PafInput,
-        records: &[Record],
-    ) -> Option<FxHashMap<(usize, usize), Self>> {
-        // go through the records, partitioning them by sequence (target) name
-
-        // (target_id, list of relevant records)
-        let mut columns: FxHashMap<usize, Vec<&Record>> = FxHashMap::default();
-
-        for (record_id, record) in records.iter().enumerate() {
-            // let Some(seq_name) = seq_names.get_by_right(&record.seq_id) else {
-            //     continue;
-            // };
-
-            let column_records = columns.entry(record.seq_id).or_default();
-            column_records.push(record);
-        }
-
-        for (_tgt_id, records) in columns.iter_mut() {
-            records.sort_by_key(|&r| (r.seq_range.start, r.seq_range.end));
-        }
-
-        let mut pairs: FxHashMap<(usize, usize), SeqPairAnnotations> = FxHashMap::default();
-
-        // this should probably all be turned inside out or something like that
-        for (target_id, records) in columns {
-            let cigars = input
-                .processed_lines
-                .iter()
-                .filter(|c| c.target_id == target_id);
-
-            for cigar in cigars {
-                let query_id = cigar.query_id;
-                let key = (target_id, query_id);
-
-                if !pairs.contains_key(&key) {
-                    let [anchor_start, _] = cigar.match_edges[0];
-                    let [_, anchor_end] = cigar.match_edges[cigar.match_edges.len() - 1];
-
-                    pairs.insert(
-                        key,
-                        SeqPairAnnotations {
-                            target_id,
-                            query_id,
-                            anchor_start,
-                            anchor_end,
-                            labels: Vec::new(),
-                        },
-                    );
-                }
-
-                let Some(pair) = pairs.get_mut(&key) else {
-                    unreachable!();
-                };
-
-                for record in &records {
-                    let total_len = cigar.target_len as f64;
-                    let t0 = record.seq_range.start as f64 / total_len;
-                    let t1 = record.seq_range.end as f64 / total_len;
-
-                    pair.labels.push((record.label.to_string(), (t0, t1)));
-                }
-            }
-        }
-
-        Some(pairs)
-    }
-}
-
-impl AnnotationGuiHandler {
-    pub fn show_annotation_list(&mut self, ctx: &egui::Context, app: &PafViewerApp) {
-        egui::Window::new("Annotations").show(&ctx, |ui| {
-            // TODO scrollable & filterable list of annotation records
-
-            if ui.button("Show annotations").clicked() {
-                if self.seq_pair_annots.is_empty() {
-                    for (file_path, &list_id) in app.annotations.annotation_sources.iter() {
-                        let list = &app.annotations.annotation_lists[list_id];
-                        log::info!("Processing {file_path:?}");
-
-                        let blocks = SeqPairAnnotations::blocks_from_processed_line(
-                            &app.paf_input,
-                            &list.records,
-                        );
-
-                        if let Some(blocks) = blocks {
-                            self.seq_pair_annots = blocks;
-                        }
-                        /*
-                        for (record_id, record) in list.records.iter().enumerate() {
-                            // let seq_id = app.seq_names.get_by_right(&record.seq_id);
-
-                            let matches = find_matches_for_target_range(
-                                &app.seq_names,
-                                &app.paf_input,
-                                record.seq_id,
-                                record.seq_range.clone(),
-                            )
-                            .into_iter()
-                            .map(|(_, v)| v)
-                            .collect::<Vec<_>>();
-
-                            let key = (list_id, record_id);
-                            self.prepared_records
-                                .insert(key, (record.label.clone(), matches));
-                        }
-                            */
-                    }
-                }
-
-/*
-if self.prepared_records.is_empty() {
-    for (file_path, &list_id) in app.annotations.annotation_sources.iter() {
-        let list = &app.annotations.annotation_lists[list_id];
-        log::info!("Processing {file_path:?}");
-
-        for (record_id, record) in list.records.iter().enumerate() {
-            // let seq_id = app.seq_names.get_by_right(&record.seq_id);
-
-            let matches = find_matches_for_target_range(
-                &app.seq_names,
-                &app.paf_input,
-                record.seq_id,
-                record.seq_range.clone(),
-            )
-            .into_iter()
-            .map(|(_, v)| v)
-            .collect::<Vec<_>>();
-
-            let key = (list_id, record_id);
-            self.prepared_records
-                .insert(key, (record.label.clone(), matches));
-        }
-    }
-}
-*/
-            }
-        });
-    }
-
-    pub fn draw_annotations(
-        &mut self,
-        ctx: &egui::Context,
-        app: &PafViewerApp,
-        view: &crate::view::View,
-    ) {
-        let id_str = "annotation-painter";
-        let id = egui::Id::new(id_str);
-
-        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, id));
-
-        let dims = ctx.screen_rect().size();
-
-        for seq_pair_annots in self.seq_pair_annots.values() {
-            draw_annotation_labels(ctx, seq_pair_annots, &mut self.prepared_galleys, view);
-        }
-
-/*
-for ((list_id, record_id), (label, match_sets)) in self.prepared_records.iter() {
-    // TODO
-
-    if !self.prepared_galleys.contains_key(label) {
-        // TODO this technically has to be redone if points-per-pixel changes
-        let mut job = egui::text::LayoutJob::default();
-        job.append(
-            label,
-            0.0,
-            egui::text::TextFormat {
-                font_id: egui::FontId::monospace(12.0),
-                color: egui::Color32::PLACEHOLDER,
-                ..Default::default()
-            },
-        );
-
-        let galley = painter.layout_job(job);
-        self.prepared_galleys.insert(label.to_string(), galley);
-    }
-
-    let Some(galley) = self.prepared_galleys.get(label) else {
-        unreachable!();
-    };
-
-    let color = app.annotations.annotation_lists[*list_id].records[*record_id].color;
-
-    let stroke = egui::Stroke { width: 4.0, color };
-
-    /*
-    for matches in match_sets {
-        if matches.is_empty() {
-            continue;
-        }
-
-        for &[from, to] in matches {
-            let s0 = view.map_world_to_screen(dims, from);
-            let s1 = view.map_world_to_screen(dims, to);
-
-            let d = s1 - s0;
-            let angle = d.y.atan2(d.x) as f32;
-
-            let p0: [f32; 2] = s0.into();
-            let p1: [f32; 2] = s1.into();
-            painter.line_segment([p0.into(), p1.into()], stroke);
-        }
-
-        let [start, _] = matches[0];
-        let [_, end] = matches[matches.len() - 1];
-
-        let s0 = view.map_world_to_screen(dims, start);
-        let s1 = view.map_world_to_screen(dims, end);
-
-        let d = s1 - s0;
-        let angle = d.y.atan2(d.x) as f32;
-
-        let p: [f32; 2] = (s0 + (s1 - s0) * 0.5).into();
-
-        let mut text_shape =
-            egui::epaint::TextShape::new(p.into(), galley.clone(), egui::Color32::BLACK);
-        text_shape.angle = angle;
-
-        painter.add(text_shape);
-    }
-    */
-}
-*/
-    }
-}
-*/
 
 pub fn hashed_rgb(name: &str) -> [u8; 3] {
     // use sha2::Digest;
@@ -949,4 +599,169 @@ pub fn draw_annotation_test_window(
         d.insert_temp(id, (range_text, label_text));
         d.insert_temp(id, annot_state);
     });
+}
+
+#[derive(Default)]
+pub struct AnnotationPainter {
+    galley_cache: FxHashMap<(String, egui::TextFormat), Arc<Galley>>,
+    annotations: FxHashMap<usize, Box<dyn DrawAnnotation>>,
+}
+
+pub trait DrawAnnotation {
+    fn draw(
+        &self,
+        // galley_cache: &mut FxHashMap<(String, egui::TextFormat), Arc<Galley>>,
+        galley_cache: &mut FxHashMap<String, Arc<Galley>>,
+        painter: &egui::Painter,
+        view: &crate::view::View,
+        screen_size: egui::Vec2,
+    );
+}
+
+pub struct AnnotationDrawCollection {
+    draw: Vec<Box<dyn DrawAnnotation>>,
+}
+
+impl DrawAnnotation for AnnotationDrawCollection {
+    fn draw(
+        &self,
+        // galley_cache: &mut FxHashMap<(String, egui::TextFormat), Arc<Galley>>,
+        galley_cache: &mut FxHashMap<String, Arc<Galley>>,
+        painter: &egui::Painter,
+        view: &crate::view::View,
+        screen_size: egui::Vec2,
+    ) {
+        for item in self.draw.iter() {
+            item.draw(galley_cache, painter, view, screen_size);
+        }
+    }
+}
+
+pub struct AnnotationLabel {
+    pub world_x_range: Option<std::ops::RangeInclusive<f64>>,
+    pub world_y_range: Option<std::ops::RangeInclusive<f64>>,
+    pub align: egui::Align,
+
+    pub text: String,
+    // can't use TextFormat as key bc not Eq; hash manually and key w/ u64, later
+    // pub format: egui::TextFormat,
+}
+
+impl DrawAnnotation for AnnotationLabel {
+    fn draw(
+        &self,
+        galley_cache: &mut FxHashMap<String, Arc<Galley>>,
+        painter: &egui::Painter,
+        view: &crate::view::View,
+        screen_size: egui::Vec2,
+    ) {
+        if !galley_cache.contains_key(&self.text) {
+            let mut job = egui::text::LayoutJob::default();
+            job.append(
+                &self.text,
+                0.0,
+                egui::text::TextFormat {
+                    font_id: egui::FontId::monospace(12.0),
+                    color: egui::Color32::PLACEHOLDER,
+                    ..Default::default()
+                },
+            );
+            let galley = painter.layout_job(job);
+            galley_cache.insert(self.text.clone(), galley);
+        }
+
+        let Some(galley) = galley_cache.get(&self.text).cloned() else {
+            unreachable!();
+        };
+
+        let view_min = DVec2::new(view.x_min, view.y_min);
+        let view_max = DVec2::new(view.x_max, view.y_max);
+
+        let [p0, p1] = match (&self.world_x_range, &self.world_y_range) {
+            (Some(xs), Some(ys)) => {
+                // draw in top left of screen rect, for now
+                let p0 = DVec2::new(*xs.start(), *ys.start());
+                let p1 = DVec2::new(*xs.end(), *ys.end());
+                [p0, p1]
+            }
+            (Some(xs), None) => {
+                // draw at top of screen of vertical region
+                let p0 = DVec2::new(*xs.start(), view_min.y);
+                let p1 = DVec2::new(*xs.end(), view_max.y);
+                [p0, p1]
+            }
+            (None, Some(ys)) => {
+                // draw at left of screen of horizontal region
+                let p0 = DVec2::new(view_min.x, *ys.start());
+                let p1 = DVec2::new(view_min.x, *ys.end());
+                [p0, p1]
+            }
+            _ => {
+                return;
+            }
+        };
+
+        let min = p0.min_by_component(view_min);
+        let max = p1.max_by_component(view_max);
+        // let min = p0.min_by_component(DVec2::new(view.x_min, view.y_min));
+        // let max = p1.max_by_component(DVec2::new(view.x_max, view.y_max));
+        // let x_min = p0.x.min(view.x_min);
+        // let y_min = p0.y.min(view.y_min);
+        // let x_max = p1.x.max(view.x_max);
+        // let y_max = p1.y.max(view.y_max);
+
+        let q0: [f32; 2] = view.map_world_to_screen(screen_size, min).into();
+        let q1: [f32; 2] = view.map_world_to_screen(screen_size, max).into();
+
+        let rect = egui::Rect::from_two_pos(q0.into(), q1.into());
+        painter.galley(rect.left_top(), galley, egui::Color32::BLACK);
+    }
+}
+
+pub struct AnnotationWorldRegion {
+    pub world_x_range: Option<std::ops::RangeInclusive<f64>>,
+    pub world_y_range: Option<std::ops::RangeInclusive<f64>>,
+    pub color: egui::Color32,
+}
+
+impl DrawAnnotation for AnnotationWorldRegion {
+    fn draw(
+        &self,
+        // galley_cache: &mut FxHashMap<(String, egui::TextFormat), Arc<Galley>>,
+        _galley_cache: &mut FxHashMap<String, Arc<Galley>>,
+        painter: &egui::Painter,
+        view: &crate::view::View,
+        screen_size: egui::Vec2,
+    ) {
+        let view_min = DVec2::new(view.x_min, view.y_min);
+        let view_max = DVec2::new(view.x_max, view.y_max);
+
+        let [p0, p1] = match (&self.world_x_range, &self.world_y_range) {
+            (Some(xs), Some(ys)) => {
+                let p0 = DVec2::new(*xs.start(), *ys.start());
+                let p1 = DVec2::new(*xs.end(), *ys.end());
+                [p0, p1]
+            }
+            (Some(xs), None) => {
+                let p0 = DVec2::new(*xs.start(), view_min.y);
+                let p1 = DVec2::new(*xs.end(), view_max.y);
+                [p0, p1]
+            }
+            (None, Some(ys)) => {
+                let p0 = DVec2::new(view_min.x, *ys.start());
+                let p1 = DVec2::new(view_min.x, *ys.end());
+                [p0, p1]
+            }
+            _ => {
+                return;
+            }
+        };
+
+        let q0: [f32; 2] = view.map_world_to_screen(screen_size, p0).into();
+        let q1: [f32; 2] = view.map_world_to_screen(screen_size, p1).into();
+
+        let rect = egui::Rect::from_two_pos(q0.into(), q1.into());
+        painter.rect_filled(rect, 0.0, self.color);
+        // painter.galley(rect.left_top(), galley, egui::Color32::BLACK);
+    }
 }
