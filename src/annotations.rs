@@ -15,12 +15,32 @@ use crate::{gui::AppWindowStates, PafInput, PafViewerApp};
 
 #[derive(Default)]
 pub struct AnnotationStore {
-    annotation_sources: FxHashMap<PathBuf, usize>,
+    annotation_sources: BiMap<String, usize>,
     annotation_lists: Vec<RecordList>,
     // annotation_sources: FxHashMap<PathBuf, RecordList>,
 }
 
 impl AnnotationStore {
+    pub fn source_names_iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a str)> {
+        (0..self.annotation_lists.len()).filter_map(|i| {
+            Some((
+                i,
+                self.annotation_sources
+                    .get_by_right(&i)
+                    .map(|s| s.as_str())?,
+            ))
+        })
+    }
+
+    pub fn list_by_id(&self, id: usize) -> Option<&RecordList> {
+        self.annotation_lists.get(id)
+    }
+
+    pub fn list_by_name(&self, name: &str) -> Option<&RecordList> {
+        let id = self.annotation_sources.get_by_left(name)?;
+        self.annotation_lists.get(*id)
+    }
+
     pub fn load_bed_file(
         &mut self,
         seq_names: &BiMap<String, usize>,
@@ -101,8 +121,14 @@ impl AnnotationStore {
         }
         let source = bed_path.as_ref().to_owned();
 
+        let source_str = source
+            .as_os_str()
+            .to_str()
+            .map(String::from)
+            .unwrap_or_else(|| "<Error>".to_string());
+
         self.annotation_sources
-            .insert(source, self.annotation_lists.len());
+            .insert(source_str, self.annotation_lists.len());
         self.annotation_lists.push(RecordList {
             records: record_list,
         });
@@ -116,15 +142,15 @@ impl AnnotationStore {
 }
 
 pub struct RecordList {
-    records: Vec<Record>,
+    pub records: Vec<Record>,
 }
 
 pub struct Record {
-    seq_id: usize,
-    seq_range: std::ops::Range<u64>,
+    pub seq_id: usize,
+    pub seq_range: std::ops::Range<u64>,
 
-    color: egui::Color32,
-    label: String,
+    pub color: egui::Color32,
+    pub label: String,
 }
 
 #[derive(Default)]
