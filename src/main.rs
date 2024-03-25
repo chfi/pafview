@@ -596,7 +596,7 @@ struct LineVertex {
     // color: u32,
 }
 
-async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
+async fn run(event_loop: EventLoop<()>, window: Window, mut app: PafViewerApp) {
     let mut size = window.inner_size();
     size.width = size.width.max(1);
     size.height = size.height.max(1);
@@ -781,6 +781,8 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
     let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
 
     let mut annot_gui_handler = AnnotationGuiHandler::default();
+
+    let mut roi_gui = gui::regions::RegionsOfInterestGui::default();
 
     // TODO build this on a separate thread
     // let rstar_match = spatial::RStarMatches::from_paf(&input);
@@ -967,6 +969,16 @@ async fn run(event_loop: EventLoop<()>, window: Window, app: PafViewerApp) {
                                 // );
 
                                 gui::MenuBar::show(ctx, &app, &mut window_states);
+
+                                roi_gui.show_window(
+                                    ctx,
+                                    &mut app.annotations,
+                                    &app.alignment_grid,
+                                    &app.seq_names,
+                                    &app.paf_input,
+                                    &mut app_view,
+                                    &mut window_states,
+                                );
 
                                 gui::view_controls(
                                     ctx,

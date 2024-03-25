@@ -5,6 +5,8 @@ use ultraviolet::{Mat4, Vec2};
 
 use crate::{annotations::AnnotationStore, view::View, AlignedSeq, PafInput, PafViewerApp};
 
+pub mod regions;
+
 pub fn goto_range_controls(
     alignment_grid: &crate::grid::AlignmentGrid,
     seq_names: &BiMap<String, usize>,
@@ -315,6 +317,8 @@ impl MenuBar {
 pub struct AppWindowStates {
     pub annotation_list_open: Option<bool>,
     pub goto_region_open: bool,
+
+    pub regions_of_interest_open: bool,
 }
 
 impl AppWindowStates {
@@ -324,6 +328,7 @@ impl AppWindowStates {
         AppWindowStates {
             annotation_list_open,
             goto_region_open: false,
+            regions_of_interest_open: false,
         }
     }
 }
