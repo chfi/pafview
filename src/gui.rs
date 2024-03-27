@@ -5,6 +5,7 @@ use ultraviolet::{Mat4, Vec2};
 
 use crate::{annotations::AnnotationStore, view::View, AlignedSeq, PafInput, PafViewerApp};
 
+pub mod debug;
 pub mod regions;
 
 pub fn goto_range_controls(

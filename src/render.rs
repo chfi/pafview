@@ -382,6 +382,8 @@ pub struct PafRenderer {
     line_pipeline: LinePipeline,
     msaa_samples: u32,
 
+    pub line_width: f32,
+
     match_vertices: wgpu::Buffer,
     match_colors: wgpu::Buffer,
     match_instances: std::ops::Range<u32>,
@@ -423,6 +425,9 @@ impl PafRenderer {
         Self {
             line_pipeline,
             msaa_samples,
+
+            line_width: 5.0,
+
             match_vertices,
             match_colors,
             match_instances,
@@ -549,7 +554,7 @@ impl PafRenderer {
             }
 
             let params = PafDrawParams::from_view_and_dims(view, window_dims);
-            self.draw_states[1].update_uniforms(queue, view, window_dims);
+            self.draw_states[1].update_uniforms(queue, view, window_dims, self.line_width);
 
             let Some(draw_set) = self.draw_states[1].draw_set.as_mut() else {
                 unreachable!();
@@ -823,6 +828,7 @@ impl PafDrawState {
         queue: &wgpu::Queue,
         view: &crate::view::View,
         window_dims: [u32; 2],
+        line_width: f32,
     ) {
         let proj = view.to_mat4();
         queue.write_buffer(
@@ -835,19 +841,19 @@ impl PafDrawState {
         // px / window width
         // let line_width: f32 = 5.0 / 1000.0;
         // let line_width: f32 = 15.0 / 1000.0;
-        let line_width: f32 = 5.0 / window_dims[0] as f32;
+        let match_line_width: f32 = line_width / window_dims[0] as f32;
         queue.write_buffer(
             &self.uniforms.conf_uniform,
             0,
-            bytemuck::cast_slice(&[line_width, line_brightness, 0.0, 0.0]),
+            bytemuck::cast_slice(&[match_line_width, line_brightness, 0.0, 0.0]),
         );
 
-        let line_width: f32 = 1.0 / window_dims[0] as f32;
+        let grid_line_width: f32 = 1.0 / window_dims[0] as f32;
         let line_brightness = 0.0;
         queue.write_buffer(
             &self.uniforms.grid_conf_uniform,
             0,
-            bytemuck::cast_slice(&[line_width, line_brightness, 0.0, 0.0]),
+            bytemuck::cast_slice(&[grid_line_width, line_brightness, 0.0, 0.0]),
         );
     }
 }

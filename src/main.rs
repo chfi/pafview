@@ -988,6 +988,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 //     &app_view,
                                 // );
 
+                                // gui::debug::line_width_control(ctx, &mut paf_renderer);
+
                                 gui::MenuBar::show(ctx, &app, &mut window_states);
 
                                 roi_gui.show_window(
