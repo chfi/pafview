@@ -14,6 +14,7 @@ use wgpu::{CommandEncoder, Device, Queue, TextureFormat, TextureView};
 use winit::{event::WindowEvent, window::Window};
 
 pub mod batch;
+pub mod exact;
 
 pub struct LinePipeline {
     pub bind_group_layout_0: wgpu::BindGroupLayout,
