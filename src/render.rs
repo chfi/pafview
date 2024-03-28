@@ -13,7 +13,7 @@ use wgpu::Texture;
 use wgpu::{CommandEncoder, Device, Queue, TextureFormat, TextureView};
 use winit::{event::WindowEvent, window::Window};
 
-mod batch;
+pub mod batch;
 
 pub struct LinePipeline {
     pub bind_group_layout_0: wgpu::BindGroupLayout,
@@ -400,7 +400,7 @@ pub fn create_multisampled_framebuffer(
 }
 
 pub struct PafRenderer {
-    line_pipeline: LinePipeline,
+    pub line_pipeline: LinePipeline,
     msaa_samples: u32,
 
     pub line_width: f32,
@@ -500,6 +500,7 @@ impl PafRenderer {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        match_data: &batch::MatchDrawBatchData,
         view: &crate::view::View,
         window_dims: [u32; 2],
         swapchain_view: &TextureView,
@@ -508,9 +509,10 @@ impl PafRenderer {
         self.submit_draw_matches(
             device,
             queue,
+            match_data,
             view,
             window_dims,
-            self.match_instances.clone(),
+            // self.match_instances.clone(),
         );
 
         self.draw_front_image(device, queue, view, window_dims, swapchain_view, encoder);
@@ -547,9 +549,10 @@ impl PafRenderer {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        match_data: &batch::MatchDrawBatchData,
         view: &crate::view::View,
         window_dims: [u32; 2],
-        instances: std::ops::Range<u32>,
+        // instances: std::ops::Range<u32>,
         // swapchain_view: &TextureView,
     ) {
         // if there's an active task and it has completed, swap it to the front
@@ -615,17 +618,27 @@ impl PafRenderer {
                 label: Some("PafRenderer Lines"),
             });
 
-            Self::draw_frame(
+            Self::draw_frame_tiled(
+                match_data,
                 &self.line_pipeline,
                 draw_set,
                 uniforms,
                 &self.identity_bind_group,
                 &self.grid_data,
-                &self.match_vertices,
-                &self.match_colors,
-                instances,
                 &mut encoder,
             );
+
+            // Self::draw_frame(
+            //     &self.line_pipeline,
+            //     draw_set,
+            //     uniforms,
+            //     &self.identity_bind_group,
+            //     &self.grid_data,
+            //     &self.match_vertices,
+            //     &self.match_colors,
+            //     instances,
+            //     &mut encoder,
+            // );
 
             let task = PafDrawTask::new();
             self.active_task = Some(task.clone());

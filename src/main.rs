@@ -782,6 +782,13 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
         match_instances,
     );
 
+    let match_draw_data = render::batch::MatchDrawBatchData::from_paf_input(
+        &device,
+        &paf_renderer.line_pipeline.bind_group_layout_1,
+        &app.alignment_grid,
+        &app.paf_input,
+    );
+
     paf_renderer.set_grid(Some((grid_buffer, grid_color_buffer, grid_instances)));
 
     let mut window_states = AppWindowStates::new(&app.annotations);
@@ -966,6 +973,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                         paf_renderer.draw(
                             &device,
                             &queue,
+                            &match_draw_data,
                             &app_view,
                             win_size,
                             &frame_view,
