@@ -244,7 +244,8 @@ impl AnnotationGuiHandler {
 
             let color = egui::Rgba::from(record.color).multiply(0.5);
 
-            let extra = 0.03 * app.paf_input.target_len as f64;
+            let axis_len = app.alignment_grid.x_axis.total_len as f64;
+            let extra = 0.03 * axis_len;
 
             if state.galley.is_none() && (state.draw_target_region || state.draw_query_region) {
                 let mut job = egui::text::LayoutJob::default();
@@ -265,10 +266,7 @@ impl AnnotationGuiHandler {
                 let x0 = *state.seq_region.start();
                 let x1 = *state.seq_region.end();
                 let s0 = view.map_world_to_screen(screen_size, DVec2::new(x0, -extra));
-                let s1 = view.map_world_to_screen(
-                    screen_size,
-                    DVec2::new(x1, extra + app.paf_input.target_len as f64),
-                );
+                let s1 = view.map_world_to_screen(screen_size, DVec2::new(x1, extra + axis_len));
 
                 let y0 = s0.y.min(s1.y);
                 let y1 = s0.y.max(s1.y);
@@ -292,10 +290,7 @@ impl AnnotationGuiHandler {
                 let y0 = *state.seq_region.start();
                 let y1 = *state.seq_region.end();
                 let s0 = view.map_world_to_screen(screen_size, DVec2::new(-extra, y0));
-                let s1 = view.map_world_to_screen(
-                    screen_size,
-                    DVec2::new(extra + app.paf_input.target_len as f64, y1),
-                );
+                let s1 = view.map_world_to_screen(screen_size, DVec2::new(extra + axis_len, y1));
 
                 let y0 = s0.y.min(s1.y);
                 let y1 = s0.y.max(s1.y);

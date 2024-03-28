@@ -35,8 +35,6 @@ use crate::{annotations::AnnotationStore, gui::AppWindowStates};
 struct PafInput {
     queries: Vec<AlignedSeq>,
     targets: Vec<AlignedSeq>,
-    target_len: u64,
-    query_len: u64,
 
     // match_edges: Vec<[DVec2; 2]>,
     processed_lines: Vec<ProcessedCigar>,
@@ -69,6 +67,13 @@ struct ProcessedCigar {
 }
 
 impl ProcessedCigar {
+    fn from_line_local(
+        seq_names: &BiMap<String, usize>,
+        paf_line: &PafLine<&str>,
+    ) -> anyhow::Result<Self> {
+        Self::from_line(seq_names, paf_line, [0, 0])
+    }
+
     fn from_line(
         seq_names: &BiMap<String, usize>,
         paf_line: &PafLine<&str>,
@@ -331,22 +336,23 @@ pub fn main() -> anyhow::Result<()> {
             continue;
         };
 
-        let origin = {
-            let x0 = x_axis.sequence_offset(*target_i).unwrap();
-            let y0 = y_axis.sequence_offset(*query_i).unwrap();
-            // let x0 = &targets[*target_i].offset;
-            // let y0 = &queries[*query_i].offset;
+        // let origin = {
+        //     let x0 = x_axis.sequence_offset(*target_i).unwrap();
+        //     let y0 = y_axis.sequence_offset(*query_i).unwrap();
+        //     // let x0 = &targets[*target_i].offset;
+        //     // let y0 = &queries[*query_i].offset;
 
-            let x = x0 + paf_line.tgt_seq_start;
-            let y = if paf_line.strand_rev {
-                y0 + paf_line.query_seq_end
-            } else {
-                y0 + paf_line.query_seq_start
-            };
-            [x as u64, y as u64]
-        };
+        //     let x = x0 + paf_line.tgt_seq_start;
+        //     let y = if paf_line.strand_rev {
+        //         y0 + paf_line.query_seq_end
+        //     } else {
+        //         y0 + paf_line.query_seq_start
+        //     };
+        //     [x as u64, y as u64]
+        // };
 
-        processed_lines.push(ProcessedCigar::from_line(&seq_names, &paf_line, origin)?);
+        processed_lines.push(ProcessedCigar::from_line_local(&seq_names, &paf_line)?);
+        // processed_lines.push(ProcessedCigar::from_line(&seq_names, &paf_line, origin)?);
 
         // process_cigar(&paf_line, origin, &mut match_edges)?;
         // process_cigar_compress(&paf_line, origin, target_len, query_len, &mut match_edges)?;
@@ -355,8 +361,6 @@ pub fn main() -> anyhow::Result<()> {
     let paf_input = PafInput {
         queries,
         targets,
-        target_len,
-        query_len,
         processed_lines,
     };
 
@@ -759,9 +763,9 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
     let mut app_view = View {
         x_min: 0.0,
-        x_max: app.paf_input.target_len as f64,
+        x_max: app.alignment_grid.x_axis.total_len as f64,
         y_min: 0.0,
-        y_max: app.paf_input.query_len as f64,
+        y_max: app.alignment_grid.y_axis.total_len as f64,
     };
 
     let mut config = surface
