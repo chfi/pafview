@@ -16,7 +16,8 @@ use winit::{event::WindowEvent, window::Window};
 mod batch;
 
 pub struct LinePipeline {
-    pub bind_group_layout: wgpu::BindGroupLayout,
+    pub bind_group_layout_0: wgpu::BindGroupLayout,
+    pub bind_group_layout_1: wgpu::BindGroupLayout,
     pub pipeline_layout: wgpu::PipelineLayout,
     pub pipeline: wgpu::RenderPipeline,
 }
@@ -44,16 +45,33 @@ impl LinePipeline {
             count: None,
         };
         let conf = wgpu::BindGroupLayoutEntry { binding: 1, ..proj };
-        let layout_desc = wgpu::BindGroupLayoutDescriptor {
+        let layout_0_desc = wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[proj, conf],
         };
 
-        let bind_group_layout = device.create_bind_group_layout(&layout_desc);
+        let bind_group_layout_0 = device.create_bind_group_layout(&layout_0_desc);
+
+        let model = wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        };
+        let layout_1_desc = wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[model],
+        };
+
+        let bind_group_layout_1 = device.create_bind_group_layout(&layout_1_desc);
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&bind_group_layout],
+            bind_group_layouts: &[&bind_group_layout_0, &bind_group_layout_1],
             push_constant_ranges: &[],
         });
 
@@ -112,7 +130,8 @@ impl LinePipeline {
         });
 
         Self {
-            bind_group_layout,
+            bind_group_layout_0,
+            bind_group_layout_1,
             pipeline_layout,
             pipeline,
         }
@@ -397,6 +416,10 @@ pub struct PafRenderer {
 
     image_renderer: ImageRenderer,
     image_bind_groups: [ImageRendererBindGroups; 2],
+
+    // temporary (may be used for grid later still)
+    identity_uniform: wgpu::Buffer,
+    identity_bind_group: wgpu::BindGroup,
 }
 
 impl PafRenderer {
@@ -413,7 +436,7 @@ impl PafRenderer {
         log::warn!("initializing PafRenderer");
         let line_pipeline = LinePipeline::new(&device, Self::COLOR_FORMAT, msaa_samples);
 
-        let init_state = || PafDrawState::init(device, &line_pipeline.bind_group_layout);
+        let init_state = || PafDrawState::init(device, &line_pipeline.bind_group_layout_0);
 
         let draw_states = [init_state(), init_state()];
 
@@ -423,6 +446,25 @@ impl PafRenderer {
             ImageRendererBindGroups::new(device, &image_renderer.bind_group_layout_0),
             ImageRendererBindGroups::new(device, &image_renderer.bind_group_layout_0),
         ];
+
+        // let identity_uniform = device.create_buffer_init(&BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&[mat], usage: () });
+
+        let identity_mat = Mat4::identity();
+
+        let identity_uniform = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&[identity_mat]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let identity_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &line_pipeline.bind_group_layout_1,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: identity_uniform.as_entire_binding(),
+            }],
+        });
 
         Self {
             line_pipeline,
@@ -441,6 +483,9 @@ impl PafRenderer {
 
             image_renderer,
             image_bind_groups,
+
+            identity_uniform,
+            identity_bind_group,
         }
     }
 
@@ -534,7 +579,7 @@ impl PafRenderer {
                     log::warn!("recreating framebuffers");
                     set.recreate_framebuffers(
                         device,
-                        &self.line_pipeline.bind_group_layout,
+                        &self.line_pipeline.bind_group_layout_0,
                         Self::COLOR_FORMAT,
                         self.msaa_samples,
                         window_dims,
@@ -548,7 +593,7 @@ impl PafRenderer {
                 log::warn!("initializing PafDrawSet");
                 self.draw_states[1].draw_set = Some(PafDrawSet::new(
                     device,
-                    &self.line_pipeline.bind_group_layout,
+                    &self.line_pipeline.bind_group_layout_0,
                     Self::COLOR_FORMAT,
                     self.msaa_samples,
                     window_dims,
@@ -574,6 +619,7 @@ impl PafRenderer {
                 &self.line_pipeline,
                 draw_set,
                 uniforms,
+                &self.identity_bind_group,
                 &self.grid_data,
                 &self.match_vertices,
                 &self.match_colors,
@@ -597,6 +643,7 @@ impl PafRenderer {
         line_pipeline: &LinePipeline,
         params: &PafDrawSet,
         uniforms: &PafUniforms,
+        identity_uniform: &wgpu::BindGroup,
         grid_data: &Option<(wgpu::Buffer, wgpu::Buffer, std::ops::Range<u32>)>,
         match_vertices: &wgpu::Buffer,
         match_colors: &wgpu::Buffer,
@@ -635,12 +682,14 @@ impl PafRenderer {
 
         if let Some((grid_vertices, grid_colors, grid_instances)) = grid_data {
             rpass.set_bind_group(0, &uniforms.grid_bind_group, &[]);
+            rpass.set_bind_group(1, identity_uniform, &[]);
             rpass.set_vertex_buffer(0, grid_vertices.slice(..));
             rpass.set_vertex_buffer(1, grid_colors.slice(..));
             rpass.draw(0..6, grid_instances.clone());
         }
 
         rpass.set_bind_group(0, &uniforms.line_bind_group, &[]);
+        rpass.set_bind_group(1, identity_uniform, &[]);
         rpass.set_vertex_buffer(0, match_vertices.slice(..));
         rpass.set_vertex_buffer(1, match_colors.slice(..));
         rpass.draw(0..6, match_instances);
