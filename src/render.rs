@@ -16,7 +16,8 @@ use winit::{event::WindowEvent, window::Window};
 mod batch;
 
 pub struct LinePipeline {
-    pub bind_group_layout: wgpu::BindGroupLayout,
+    pub bind_group_layout_0: wgpu::BindGroupLayout,
+    pub bind_group_layout_1: wgpu::BindGroupLayout,
     pub pipeline_layout: wgpu::PipelineLayout,
     pub pipeline: wgpu::RenderPipeline,
 }
@@ -44,16 +45,33 @@ impl LinePipeline {
             count: None,
         };
         let conf = wgpu::BindGroupLayoutEntry { binding: 1, ..proj };
-        let layout_desc = wgpu::BindGroupLayoutDescriptor {
+        let layout_0_desc = wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[proj, conf],
         };
 
-        let bind_group_layout = device.create_bind_group_layout(&layout_desc);
+        let bind_group_layout_0 = device.create_bind_group_layout(&layout_0_desc);
+
+        let model = wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        };
+        let layout_1_desc = wgpu::BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[model],
+        };
+
+        let bind_group_layout_1 = device.create_bind_group_layout(&layout_1_desc);
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&bind_group_layout],
+            bind_group_layouts: &[&bind_group_layout_0, &bind_group_layout_1],
             push_constant_ranges: &[],
         });
 
@@ -112,7 +130,8 @@ impl LinePipeline {
         });
 
         Self {
-            bind_group_layout,
+            bind_group_layout_0,
+            bind_group_layout_1,
             pipeline_layout,
             pipeline,
         }
@@ -534,7 +553,7 @@ impl PafRenderer {
                     log::warn!("recreating framebuffers");
                     set.recreate_framebuffers(
                         device,
-                        &self.line_pipeline.bind_group_layout,
+                        &self.line_pipeline.bind_group_layout_0,
                         Self::COLOR_FORMAT,
                         self.msaa_samples,
                         window_dims,
@@ -548,7 +567,7 @@ impl PafRenderer {
                 log::warn!("initializing PafDrawSet");
                 self.draw_states[1].draw_set = Some(PafDrawSet::new(
                     device,
-                    &self.line_pipeline.bind_group_layout,
+                    &self.line_pipeline.bind_group_layout_0,
                     Self::COLOR_FORMAT,
                     self.msaa_samples,
                     window_dims,

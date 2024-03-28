@@ -17,12 +17,36 @@ struct LineVertex {
     p1: Vec2,
 }
 
+impl super::PafRenderer {
+    fn submit_batch_draw_matches(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        view: &crate::view::View,
+        window_dims: [u32; 2],
+    ) {
+        todo!();
+    }
+}
+
 impl MatchDrawBatchData {
+    fn draw_matches(
+        &self,
+        line_pipeline: &super::LinePipeline,
+        params: &super::PafDrawSet,
+        uniforms: &super::PafUniforms,
+        rpass: &mut wgpu::RenderPass,
+    ) {
+        rpass.set_pipeline(&line_pipeline.pipeline);
+
+        todo!();
+        //
+    }
+
     fn from_paf_input(
         device: &wgpu::Device,
         bind_group_layout: &wgpu::BindGroupLayout,
         alignment_grid: &crate::AlignmentGrid,
-        seq_names: &BiMap<String, usize>,
         input: &crate::PafInput,
     ) -> Self {
         let mut buffers = DrawBatchBuffers::default();
