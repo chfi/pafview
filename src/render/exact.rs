@@ -58,7 +58,8 @@ struct MatchOpIter<'a> {
 
     index: usize,
     // current_match: Option<(usize, [u64; 2], bool)>,
-    current_match: Option<(std::ops::Range<u64>, [u64; 2], bool, bool)>,
+    current_match: Option<(CigarOp, std::ops::Range<u64>, [u64; 2])>,
+    // current_match: Option<(std::ops::Range<u64>, [u64; 2], bool, bool)>,
 }
 
 impl<'a> MatchOpIter<'a> {
@@ -90,18 +91,6 @@ impl<'a> Iterator for MatchOpIter<'a> {
     type Item = ([u64; 2], bool);
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!();
-    }
-}
-
-/*
-impl<'a> Iterator for MatchOpIter<'a> {
-    // outputs each individual match/mismatch op's position along the
-    // target and query
-    type Item = ([u64; 2], bool);
-
-    // doesn't take strand into account yet
-    fn next(&mut self) -> Option<Self::Item> {
         if self.target_range.is_empty() {
             return None;
         }
@@ -110,55 +99,29 @@ impl<'a> Iterator for MatchOpIter<'a> {
             let ix = self.index;
             self.index += 1;
 
+            let cg_ix = self.match_cg_ix[ix];
+            let (op, count) = self.cigar[cg_ix];
+            let range = 0..count;
             let origin = self.match_offsets[ix];
-            let len = self.match_lens[ix];
-
-            let bp_range = 0..len;
-            let is_match = self.match_is_match[ix];
-            let is_rev = self.match_is_rev[ix];
-
-            self.current_match = Some((bp_range, origin, is_match, is_rev));
+            self.current_match = Some((op, range, origin));
         }
 
-        let mut current_done = false;
-
-        // if let Some((bp_range, origin, is_match, is_rev)) = self.current_match.as_mut() {
-        if let Some((mut bp_range, origin @ [tgt, qry], is_match, is_rev)) =
-            self.current_match.take()
-        {
-            let next_offset = bp_range.next()?;
-
-            // let tgt = tgt as isize;
-
-            // let [tgt, qry] = origin;
-            // let output = [tgt + next_offset, qry + next_offset]
-
-            if !bp_range.is_empty() {
-                self.current_match = Some((bp_range, origin, is_match, is_rev));
-            }
-        }
-
-        /*
-        if self.current_match.is_none() {
-            self.index += 1;
-            let is_match = self.match_is_match[self.index];
-            let offsets = self.match_offsets[self.index];
-            self.current_match = Some((self.index, offsets, is_match));
-        }
-
-        if let Some((ix, [t_off, q_off], is_match)) = self.current_match.as_mut() {
-            let out_offsets = [*t_off, *q_off];
-            *t_off += 1;
-            *q_off += 1;
+        if let Some((op, mut range, origin @ [tgt, qry])) = self.current_match.take() {
+            let next_offset = range.next()?;
             let _ = self.target_range.next();
-            return Some((out_offsets, *is_match));
-        } else {
-            return None;
+            if !range.is_empty() {
+                self.current_match = Some((op, range, origin));
+            }
+
+            let pos = [tgt + next_offset, qry + next_offset];
+            let out = (pos, op.is_match());
+
+            return Some(out);
         }
-        */
+
+        None
     }
 }
-*/
 
 #[cfg(test)]
 mod tests {
@@ -167,6 +130,27 @@ mod tests {
 
     use super::*;
     use crate::ProcessedCigar;
+
+    fn test_cigar() -> Vec<(CigarOp, u64)> {
+        todo!();
+    }
+
+    fn cigar_offsets(cg: &[(CigarOp, u64)]) -> (Vec<[u64; 2]>, Vec<usize>) {
+        let mut offsets = Vec::new();
+        let mut indices = Vec::new();
+
+        let mut origin = [0u64, 0];
+
+        for (cg_ix, &(op, count)) in cg.iter().enumerate() {
+            if op.is_match_or_mismatch() {
+                offsets.push(origin);
+                indices.push(cg_ix);
+            }
+            origin = op.apply_to_offsets(count, origin);
+        }
+
+        (offsets, indices)
+    }
 
     #[test]
     fn test_match_op_iter() {

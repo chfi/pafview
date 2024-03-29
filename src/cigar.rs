@@ -44,6 +44,17 @@ pub enum CigarOp {
 }
 
 impl CigarOp {
+    pub fn apply_to_offsets(&self, count: u64, offsets: [u64; 2]) -> [u64; 2] {
+        use CigarOp as Cg;
+        let [tgt, qry] = offsets;
+        match self {
+            Cg::M | Cg::X | Cg::Eq => [tgt + count, qry + count],
+            Cg::D | Cg::N => [tgt + count, qry],
+            Cg::I => [tgt, qry + count],
+            Cg::S | Cg::H => offsets,
+        }
+    }
+
     pub fn is_match(&self) -> bool {
         match self {
             CigarOp::M | CigarOp::Eq => true,
