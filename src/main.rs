@@ -20,6 +20,7 @@ use std::io::prelude::*;
 use anyhow::anyhow;
 
 mod annotations;
+pub mod cigar;
 mod grid;
 mod gui;
 mod regions;
@@ -27,6 +28,7 @@ mod render;
 mod spatial;
 mod view;
 
+pub use cigar::*;
 use render::*;
 use view::View;
 
@@ -46,136 +48,6 @@ impl PafInput {
             .iter()
             .map(|l| l.match_edges.len())
             .sum()
-    }
-}
-
-struct ProcessedCigar {
-    target_id: usize,
-    #[deprecated]
-    target_offset: u64,
-    target_len: u64,
-
-    query_id: usize,
-    #[deprecated]
-    query_offset: u64,
-    query_len: u64,
-
-    match_edges: Vec<[DVec2; 2]>,
-    match_is_match: Vec<bool>,
-    match_offsets: Vec<[u64; 2]>,
-
-    aabb_min: DVec2,
-    aabb_max: DVec2,
-}
-
-impl ProcessedCigar {
-    fn from_line_local(
-        seq_names: &BiMap<String, usize>,
-        paf_line: &PafLine<&str>,
-    ) -> anyhow::Result<Self> {
-        Self::from_line(seq_names, paf_line, [0, 0])
-    }
-
-    fn from_line(
-        seq_names: &BiMap<String, usize>,
-        paf_line: &PafLine<&str>,
-        origin: [u64; 2],
-    ) -> anyhow::Result<Self> {
-        let ops = paf_line
-            .cigar
-            .split_inclusive(['M', 'X', '=', 'D', 'I', 'S', 'H', 'N'])
-            .filter_map(|opstr| {
-                let count = opstr[..opstr.len() - 1].parse::<u64>().ok()?;
-                let op = opstr.as_bytes()[opstr.len() - 1] as char;
-                Some((op, count))
-            });
-
-        let [mut target_pos, mut query_pos] = origin;
-
-        let target_id = *seq_names
-            .get_by_left(paf_line.tgt_name)
-            .ok_or_else(|| anyhow!("Target sequence `{}` not found", paf_line.tgt_name))?;
-        let query_id = *seq_names
-            .get_by_left(paf_line.query_name)
-            .ok_or_else(|| anyhow!("Query sequence `{}` not found", paf_line.query_name))?;
-
-        let mut match_edges = Vec::new();
-        let mut match_offsets = Vec::new();
-        let mut match_is_match = Vec::new();
-
-        let mut aabb_min = DVec2::broadcast(std::f64::MAX);
-        let mut aabb_max = DVec2::broadcast(std::f64::MIN);
-
-        for (op, count) in ops {
-            match op {
-                'M' | '=' | 'X' => {
-                    let x = target_pos;
-                    let y = query_pos;
-
-                    {
-                        let x0 = x as f64;
-                        let y0 = y as f64;
-
-                        let x_end = if paf_line.strand_rev {
-                            x.checked_sub(count).unwrap_or_default()
-                        } else {
-                            x + count
-                        };
-                        let x1 = x_end as f64;
-                        let y1 = (y + count) as f64;
-
-                        let p0 = DVec2::new(x0, y0);
-                        let p1 = DVec2::new(x1, y1);
-
-                        aabb_min = aabb_min.min_by_component(p0).min_by_component(p1);
-                        aabb_max = aabb_max.max_by_component(p0).max_by_component(p1);
-
-                        match_edges.push([p0, p1]);
-                        match_offsets.push([target_pos, query_pos]);
-
-                        match_is_match.push(op == 'M' || op == '=');
-                    }
-
-                    target_pos += count;
-                    if paf_line.strand_rev {
-                        query_pos = query_pos.checked_sub(count).unwrap_or_default()
-                    } else {
-                        query_pos += count;
-                    }
-                }
-                'D' => {
-                    target_pos += count;
-                }
-                'I' => {
-                    if paf_line.strand_rev {
-                        query_pos = query_pos.checked_sub(count).unwrap_or_default()
-                    } else {
-                        query_pos += count;
-                    }
-                }
-                _ => (),
-            }
-        }
-
-        let target_len = target_pos - origin[0];
-        let query_len = query_pos - origin[1];
-
-        Ok(Self {
-            target_id,
-            target_offset: origin[0],
-            target_len,
-
-            query_id,
-            query_offset: origin[1],
-            query_len,
-
-            match_edges,
-            match_offsets,
-            match_is_match,
-
-            aabb_min,
-            aabb_max,
-        })
     }
 }
 
