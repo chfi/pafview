@@ -51,10 +51,12 @@ impl PafInput {
 
 struct ProcessedCigar {
     target_id: usize,
+    #[deprecated]
     target_offset: u64,
     target_len: u64,
 
     query_id: usize,
+    #[deprecated]
     query_offset: u64,
     query_len: u64,
 

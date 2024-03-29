@@ -48,37 +48,73 @@ pub fn draw_subsection(
 }
 
 struct MatchOpIter<'a> {
-    data: &'a crate::ProcessedCigar,
-    index: usize,
-
+    // data: &'a crate::ProcessedCigar,
+    match_offsets: &'a [[u64; 2]],
+    match_is_match: &'a [bool],
+    // index_range: std::ops::Range<usize>,
     target_range: std::ops::Range<u64>,
+
+    index: usize,
+    current_match: Option<(usize, [u64; 2], bool)>,
 }
 
 impl<'a> MatchOpIter<'a> {
     fn from_range(
-        match_data: &'a crate::ProcessedCigar,
+        match_offsets: &'a [[u64; 2]],
+        match_is_match: &'a [bool],
         target_range: std::ops::Range<u64>,
-        query_range: std::ops::Range<u64>,
     ) -> Self {
-        //
-        todo!();
+        let t_start = match_offsets.partition_point(|[t, _]| *t <= target_range.start);
+
+        Self {
+            // data: match_data,
+            match_offsets,
+            match_is_match,
+
+            target_range,
+
+            index: t_start,
+            current_match: None,
+        }
     }
 }
 
 impl<'a> Iterator for MatchOpIter<'a> {
     // outputs each individual match/mismatch op's position along the
     // target and query
-    type Item = [u64; 2];
+    type Item = ([u64; 2], bool);
 
+    // doesn't take strand into account yet
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        if self.target_range.is_empty() {
+            return None;
+        }
+        if self.current_match.is_none() {
+            self.index += 1;
+            let is_match = self.match_is_match[self.index];
+            let offsets = self.match_offsets[self.index];
+            self.current_match = Some((self.index, offsets, is_match));
+        }
+
+        if let Some((ix, [t_off, q_off], is_match)) = self.current_match.as_mut() {
+            let out_offsets = [*t_off, *q_off];
+            *t_off += 1;
+            *q_off += 1;
+            let _ = self.target_range.next();
+            return Some((out_offsets, *is_match));
+        } else {
+            return None;
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
 
+    use ultraviolet::DVec2;
+
     use super::*;
+    use crate::ProcessedCigar;
 
     #[test]
     fn test_match_op_iter() {
