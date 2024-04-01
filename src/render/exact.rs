@@ -15,38 +15,42 @@ pub fn draw_subsection(
     canvas_data.clear();
     canvas_data.resize(size, egui::Color32::TRANSPARENT);
 
-    // indices of matches covered by the target range
-    let match_subrange = {
-        let t_start = match_data
-            .match_offsets
-            .partition_point(|[t, _]| *t <= target_range.start);
-        let t_end =
-            match_data.match_offsets[t_start..].partition_point(|[t, _]| *t <= target_range.end);
-        // let q_start = match_data
-        //     .match_offsets
-        //     .partition_point(|[_, q]| *q <= query_range.start);
+    // TODO doesn't take strand into account yet
+    let match_iter = MatchOpIter::from_range(
+        &match_data.match_offsets,
+        &match_data.match_cigar_index,
+        &match_data.cigar,
+        target_range.clone(),
+    );
 
-        // let q_end =
-        //     match_data.match_offsets[q_start..].partition_point(|[t, _]| *t <= query_range.end);
+    let tgt_len = target_range.end - target_range.start;
+    let bp_width = canvas_size.x as f64 / tgt_len as f64;
 
-        t_start..t_end
-    };
+    let qry_len = query_range.end - query_range.start;
+    let bp_height = canvas_size.y as f64 / qry_len as f64;
 
-    for x in 0..canvas_size.x {
-        // for x == 0, we want to look at target_range.start;
-        // when x == canvas_size.x - 1, at target_range.end;
+    for ([target_pos, query_pos], is_match) in match_iter {
+        // want to map target_pos to an x_range, query_pos to a y_range
 
-        // -- really what we want is to find the correct matches (via
-        // binary search on the offsets buffer) & then step through or
-        // sample from that
+        let color = if is_match {
+            egui::Color32::BLACK
+        } else {
+            egui::Color32::RED
+        };
 
-        // let
+        let x0 = target_pos as f64 * bp_width;
+        let x1 = (1 + target_pos) as f64 * bp_width;
 
-        // for y in 0..canvas_size.y {
-        // }
+        let y0 = query_pos as f64 * bp_height;
+        let y1 = (1 + query_pos) as f64 * bp_height;
+
+        for x in (x0.floor() as usize)..(x1.floor() as usize) {
+            for y in (y0.floor() as usize)..(y1.floor() as usize) {
+                let ix = x + y * canvas_size.x as usize;
+                canvas_data[ix] = color;
+            }
+        }
     }
-
-    todo!();
 }
 
 struct MatchOpIter<'a> {
@@ -70,6 +74,8 @@ impl<'a> MatchOpIter<'a> {
         target_range: std::ops::Range<u64>,
     ) -> Self {
         let t_start = match_offsets.partition_point(|[t, _]| *t <= target_range.start);
+
+        let t_start = t_start.checked_sub(1).unwrap_or_default();
 
         Self {
             // data: match_data,
@@ -96,9 +102,11 @@ impl<'a> Iterator for MatchOpIter<'a> {
         }
 
         if self.current_match.is_none() {
+            if self.index >= self.match_offsets.len() {
+                return None;
+            }
             let ix = self.index;
             self.index += 1;
-
             let cg_ix = self.match_cg_ix[ix];
             let (op, count) = self.cigar[cg_ix];
             let range = 0..count;
@@ -132,7 +140,23 @@ mod tests {
     use crate::ProcessedCigar;
 
     fn test_cigar() -> Vec<(CigarOp, u64)> {
-        todo!();
+        use crate::CigarOp as C;
+
+        vec![
+            (C::M, 10),
+            (C::X, 1),
+            (C::M, 13),
+            (C::D, 7),
+            (C::M, 13),
+            (C::X, 1),
+            (C::M, 21),
+            (C::I, 13),
+            (C::M, 18),
+            (C::X, 5),
+            (C::M, 39),
+            (C::X, 1),
+            (C::M, 3),
+        ]
     }
 
     fn cigar_offsets(cg: &[(CigarOp, u64)]) -> (Vec<[u64; 2]>, Vec<usize>) {
@@ -154,6 +178,15 @@ mod tests {
 
     #[test]
     fn test_match_op_iter() {
-        todo!();
+        let cigar = test_cigar();
+        let (offsets, cg_ix) = cigar_offsets(&cigar);
+
+        let len = cigar.iter().map(|(_, c)| *c).sum::<u64>();
+
+        let iter = MatchOpIter::from_range(&offsets, &cg_ix, &cigar, 0..len);
+
+        for ([tgt, qry], is_match) in iter {
+            println!("[{tgt:3}, {qry:3}] - {is_match}");
+        }
     }
 }
