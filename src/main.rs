@@ -38,6 +38,8 @@ struct PafInput {
     queries: Vec<AlignedSeq>,
     targets: Vec<AlignedSeq>,
 
+    pair_line_ix: FxHashMap<(usize, usize), usize>,
+
     // match_edges: Vec<[DVec2; 2]>,
     processed_lines: Vec<ProcessedCigar>,
 }
@@ -197,6 +199,8 @@ pub fn main() -> anyhow::Result<()> {
 
     let reader = std::fs::File::open(&paf_path).map(std::io::BufReader::new)?;
 
+    let mut pair_line_ix = FxHashMap::default();
+
     for line in reader.lines() {
         let line = line?;
         let Some(paf_line) = parse_paf_line(line.split('\t')) else {
@@ -225,6 +229,7 @@ pub fn main() -> anyhow::Result<()> {
         //     [x as u64, y as u64]
         // };
 
+        pair_line_ix.insert((*target_i, *query_i), processed_lines.len());
         processed_lines.push(ProcessedCigar::from_line_local(&seq_names, &paf_line)?);
         // processed_lines.push(ProcessedCigar::from_line(&seq_names, &paf_line, origin)?);
 
@@ -235,6 +240,7 @@ pub fn main() -> anyhow::Result<()> {
     let paf_input = PafInput {
         queries,
         targets,
+        pair_line_ix,
         processed_lines,
     };
 

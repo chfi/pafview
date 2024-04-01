@@ -1,8 +1,127 @@
+use egui::{load::SizedTexture, ColorImage, ImageData, TextureOptions};
 use ultraviolet::UVec2;
 
 use crate::cigar::{CigarOp, ProcessedCigar};
 
 /// pixel/bp-perfect CPU rasterization
+
+pub struct ExactRenderDebug {
+    last_params: Option<RenderParams>,
+    last_texture: Option<SizedTexture>,
+}
+
+impl ExactRenderDebug {
+    pub fn show(
+        &mut self,
+        app: &crate::PafViewerApp,
+        // seq_names: &bimap::BiMap<String, usize>,
+        // paf_input: &crate::PafInput,
+        ctx: &egui::Context,
+    ) {
+        let parse_range =
+            |axis: &crate::grid::GridAxis, txt: &str| -> Option<(usize, std::ops::Range<u64>)> {
+                let mut split = txt.split(':');
+                let name = split.next()?;
+                let id = *app.seq_names.get_by_left(name)?;
+
+                let offset = axis.sequence_offset(id)?;
+                // let offset = seqs[id].offset;
+
+                let mut range = split
+                    .next()?
+                    .split('-')
+                    .filter_map(|s| s.parse::<u64>().ok());
+                let start = range.next()? + offset;
+                let end = range.next()? + offset;
+
+                Some((id, start..end))
+            };
+
+        egui::Window::new("exact render test").show(ctx, |ui| {
+            //
+            let target_id = ui.id().with("target-range");
+            let query_id = ui.id().with("query-range");
+
+            let (mut target_buf, mut query_buf) = ui
+                .data(|data| {
+                    let t = data.get_temp::<String>(target_id)?;
+                    let q = data.get_temp::<String>(query_id)?;
+                    Some((t, q))
+                })
+                .unwrap_or_default();
+
+            egui::Grid::new("exact-debug-renderer-grid")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Target");
+                            ui.text_edit_singleline(&mut target_buf);
+                        });
+
+                        ui.horizontal(|ui| {
+                            ui.label("Query");
+                            ui.text_edit_singleline(&mut query_buf);
+                        });
+                    });
+
+                    if let Some(texture) = self.last_texture {
+                        ui.image(egui::ImageSource::Texture(texture));
+                    }
+                });
+
+            let x_axis = &app.alignment_grid.x_axis;
+            let y_axis = &app.alignment_grid.y_axis;
+
+            if ui.button("Render").clicked() {
+                // let (tgt_id, tgt_range) = parse_range(x_axis, &target_buf);
+                // let (qry_id, qry_range) = parse_range(y_axis, &query_buf);
+                let target = parse_range(x_axis, &target_buf);
+                let query = parse_range(y_axis, &query_buf);
+
+                if let (Some((tgt_id, tgt_range)), Some((qry_id, qry_range))) = (target, query) {
+                    let line = *app.paf_input.pair_line_ix.get(&(tgt_id, qry_id)).unwrap();
+                    let match_data = &app.paf_input.processed_lines[line];
+
+                    let mut pixels = Vec::new();
+                    draw_subsection(
+                        match_data,
+                        tgt_range,
+                        qry_range,
+                        [500, 500].into(),
+                        &mut pixels,
+                    );
+
+                    let tex_mgr = ctx.tex_manager();
+                    let mut tex_mgr = tex_mgr.write();
+                    tex_mgr.alloc(
+                        "ExactRenderTexture".into(),
+                        ImageData::Color(
+                            ColorImage {
+                                size: [500, 500],
+                                pixels,
+                            }
+                            .into(),
+                        ),
+                        TextureOptions::LINEAR,
+                    );
+                }
+            }
+
+            ui.data_mut(|data| {
+                data.insert_temp(target_id, target_buf);
+                data.insert_temp(query_id, query_buf);
+            });
+        });
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
+struct RenderParams {
+    target_range: std::ops::Range<u64>,
+    query_range: std::ops::Range<u64>,
+    canvas_size: UVec2,
+}
 
 pub fn draw_subsection(
     match_data: &crate::ProcessedCigar,
@@ -47,7 +166,9 @@ pub fn draw_subsection(
         for x in (x0.floor() as usize)..(x1.floor() as usize) {
             for y in (y0.floor() as usize)..(y1.floor() as usize) {
                 let ix = x + y * canvas_size.x as usize;
-                canvas_data[ix] = color;
+                if ix < size {
+                    canvas_data.get_mut(ix).map(|px| *px = color);
+                }
             }
         }
     }
