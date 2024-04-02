@@ -110,6 +110,19 @@ impl GridAxis {
         self.seq_offsets.get(*ix).copied()
     }
 
+    pub fn sequence_axis_range(&self, seq_id: usize) -> Option<std::ops::Range<u64>> {
+        let ix = *self.seq_index_map.get(&seq_id)?;
+        let start = *self.seq_offsets.get(ix)?;
+
+        let end = if ix == self.seq_offsets.len() {
+            *self.seq_offsets.get(ix + 1)?
+        } else {
+            self.total_len
+        };
+
+        Some(start..end)
+    }
+
     /// Maps a point in `0 <= t <= self.total_len` to a sequence ID and
     /// point in the sequence, normalized to [0, 1)
     pub fn global_to_axis_local(&self, t: f64) -> Option<(usize, f64)> {

@@ -2,7 +2,10 @@ use egui::{load::SizedTexture, ColorImage, ImageData, TextureOptions};
 use rustc_hash::FxHashMap;
 use ultraviolet::UVec2;
 
-use crate::cigar::{CigarOp, ProcessedCigar};
+use crate::{
+    cigar::{CigarOp, ProcessedCigar},
+    grid::GridAxis,
+};
 
 pub fn draw_exact_to_cpu_buffer(
     app: &crate::PafViewerApp,
@@ -21,17 +24,26 @@ pub fn draw_exact_to_cpu_buffer(
     // scale threshold this will probably never be more than 4 but no
     // reason not to do it properly
 
-    let x_tiles = app
-        .alignment_grid
-        .x_axis
-        .tiles_covered_by_range(view.x_range())?;
-    let y_tiles = app
-        .alignment_grid
-        .y_axis
+    let x_axis = &app.alignment_grid.x_axis;
+    let y_axis = &app.alignment_grid.y_axis;
+
+    let clamped_range = |axis: &GridAxis,
+                         seq_id: usize,
+                         // range: std::ops::Range<u64>,
+                         view_range: std::ops::RangeInclusive<f64>| {
+        let range = axis.sequence_axis_range(seq_id)?;
+        let start = range.start.max(*view_range.start() as u64);
+        let end = range.end.min(*view_range.end() as u64);
+        Some(start..end)
+    };
+
+    let x_tiles = x_axis.tiles_covered_by_range(view.x_range())?;
+    let y_tiles = y_axis
         .tiles_covered_by_range(view.y_range())?
         .collect::<Vec<_>>();
 
-    let mut tile_bufs: FxHashMap<(usize, usize), Vec<egui::Color32>> = FxHashMap::default();
+    let mut tile_bufs: FxHashMap<(usize, usize), (Vec<egui::Color32>, egui::Rect)> =
+        FxHashMap::default();
 
     for target_id in x_tiles {
         for &query_id in &y_tiles {
@@ -41,14 +53,29 @@ pub fn draw_exact_to_cpu_buffer(
             };
 
             // get the "local range" for the tile, intersecting with the view
-            let target_range = todo!();
-            let query_range = todo!();
+            let target_range = clamped_range(&x_axis, target_id, view.x_range()).unwrap();
+            let query_range = clamped_range(&y_axis, target_id, view.y_range()).unwrap();
 
             // compute from canvas_size & the proportions of target/query range
             // vs the view
-            let subcanvas_size = todo!();
+            let bp_width = target_range.end - target_range.start;
+            let bp_height = query_range.end - query_range.start;
+
+            let px_width = (bp_width as f64 / view.width()) * canvas_size.x as f64;
+            let px_height = (bp_height as f64 / view.height()) * canvas_size.y as f64;
+
+            let subcanvas_size = UVec2::new(px_width as u32, px_height as u32);
 
             let mut buf = Vec::new();
+
+            let top_left = [target_range.start as f64, query_range.start as f64];
+            let btm_right = [target_range.end as f64, query_range.end as f64];
+
+            let size = ultraviolet::Vec2::new(canvas_size.x as f32, canvas_size.y as f32);
+            let p0: [f32; 2] = view.map_world_to_screen(size, top_left).into();
+            let p1: [f32; 2] = view.map_world_to_screen(size, btm_right).into();
+
+            let screen_rect = egui::Rect::from_two_pos(p0.into(), p1.into());
 
             draw_subsection(
                 &app.paf_input.processed_lines[*line_id],
@@ -58,15 +85,32 @@ pub fn draw_exact_to_cpu_buffer(
                 &mut buf,
             );
 
-            tile_bufs.insert(key, buf);
+            tile_bufs.insert(key, (buf, screen_rect));
         }
     }
 
     // then draw each tile to its own buffer
-    let mut pixel_buf = Vec::new();
+    let img_size = (canvas_size.x * canvas_size.y) as usize;
+    let mut pixel_buf = vec![egui::Color32::TRANSPARENT; img_size];
 
-    for ((tgt_id, qry_id), pixels) in tile_bufs {
-        //
+    for ((_tgt_id, _qry_id), (tile_pixels, tile_rect)) in tile_bufs {
+        // find the rows & columns in `pixel_buf` that corresponds
+        // to the current pair
+
+        let src_width = tile_rect.width() as usize;
+
+        let left = tile_rect.left() as usize;
+        let right = tile_rect.right() as usize;
+        let top = tile_rect.top() as usize;
+        let bottom = tile_rect.bottom() as usize;
+
+        for y in top..bottom {
+            let i = y * canvas_size.x as usize;
+            let range = (i + left)..(i + right);
+            let src_i = y * src_width;
+            let src_range = src_i..(src_i + src_width);
+            pixel_buf[range].clone_from_slice(&tile_pixels[src_range])
+        }
     }
 
     Some(pixel_buf)
