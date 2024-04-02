@@ -1,22 +1,97 @@
 use egui::{load::SizedTexture, ColorImage, ImageData, TextureOptions};
+use rustc_hash::FxHashMap;
 use ultraviolet::UVec2;
 
 use crate::cigar::{CigarOp, ProcessedCigar};
 
+pub fn draw_exact_to_cpu_buffer(
+    app: &crate::PafViewerApp,
+    canvas_size: impl Into<UVec2>,
+    view: &crate::view::View,
+) -> Option<Vec<egui::Color32>> {
+    let canvas_size = canvas_size.into();
+
+    let bp_per_pixel = view.width() / canvas_size.x as f64;
+
+    if bp_per_pixel < 1.0 {
+        return None;
+    }
+
+    // find the "tiles" that are covered by the view; given the view
+    // scale threshold this will probably never be more than 4 but no
+    // reason not to do it properly
+
+    let x_tiles = app
+        .alignment_grid
+        .x_axis
+        .tiles_covered_by_range(view.x_range())?;
+    let y_tiles = app
+        .alignment_grid
+        .y_axis
+        .tiles_covered_by_range(view.y_range())?
+        .collect::<Vec<_>>();
+
+    let mut tile_bufs: FxHashMap<(usize, usize), Vec<egui::Color32>> = FxHashMap::default();
+
+    for target_id in x_tiles {
+        for &query_id in &y_tiles {
+            let key = (target_id, query_id);
+            let Some(line_id) = app.paf_input.pair_line_ix.get(&key) else {
+                continue;
+            };
+
+            // get the "local range" for the tile, intersecting with the view
+            let target_range = todo!();
+            let query_range = todo!();
+
+            // compute from canvas_size & the proportions of target/query range
+            // vs the view
+            let subcanvas_size = todo!();
+
+            let mut buf = Vec::new();
+
+            draw_subsection(
+                &app.paf_input.processed_lines[*line_id],
+                target_range,
+                query_range,
+                subcanvas_size,
+                &mut buf,
+            );
+
+            tile_bufs.insert(key, buf);
+        }
+    }
+
+    // then draw each tile to its own buffer
+    let mut pixel_buf = Vec::new();
+
+    for ((tgt_id, qry_id), pixels) in tile_bufs {
+        //
+    }
+
+    Some(pixel_buf)
+}
+
 /// pixel/bp-perfect CPU rasterization
 
+#[derive(Default)]
 pub struct ExactRenderDebug {
-    last_params: Option<RenderParams>,
+    // last_params: Option<RenderParams>,
     last_texture: Option<SizedTexture>,
+    // egui_id_target: egui::Id,
+    // egui_id_query: egui::Id,
 }
 
 impl ExactRenderDebug {
+    pub const TARGET_DATA_ID: &'static str = "exact-render-test-target";
+    pub const QUERY_DATA_ID: &'static str = "exact-render-test-query";
+
     pub fn show(
         &mut self,
+        ctx: &egui::Context,
         app: &crate::PafViewerApp,
         // seq_names: &bimap::BiMap<String, usize>,
         // paf_input: &crate::PafInput,
-        ctx: &egui::Context,
     ) {
         let parse_range =
             |axis: &crate::grid::GridAxis, txt: &str| -> Option<(usize, std::ops::Range<u64>)> {
@@ -38,9 +113,10 @@ impl ExactRenderDebug {
             };
 
         egui::Window::new("exact render test").show(ctx, |ui| {
-            //
-            let target_id = ui.id().with("target-range");
-            let query_id = ui.id().with("query-range");
+            let target_id = egui::Id::new(Self::TARGET_DATA_ID);
+            let query_id = egui::Id::new(Self::QUERY_DATA_ID);
+            // let target_id = ui.id().with("target-range");
+            // let query_id = ui.id().with("query-range");
 
             let (mut target_buf, mut query_buf) = ui
                 .data(|data| {
@@ -49,6 +125,8 @@ impl ExactRenderDebug {
                     Some((t, q))
                 })
                 .unwrap_or_default();
+
+            let mut clicked = false;
 
             egui::Grid::new("exact-debug-renderer-grid")
                 .num_columns(2)
@@ -63,6 +141,10 @@ impl ExactRenderDebug {
                             ui.label("Query");
                             ui.text_edit_singleline(&mut query_buf);
                         });
+
+                        if ui.button("Render").clicked() {
+                            clicked = true;
+                        }
                     });
 
                     if let Some(texture) = self.last_texture {
@@ -73,7 +155,7 @@ impl ExactRenderDebug {
             let x_axis = &app.alignment_grid.x_axis;
             let y_axis = &app.alignment_grid.y_axis;
 
-            if ui.button("Render").clicked() {
+            if clicked {
                 // let (tgt_id, tgt_range) = parse_range(x_axis, &target_buf);
                 // let (qry_id, qry_range) = parse_range(y_axis, &query_buf);
                 let target = parse_range(x_axis, &target_buf);
@@ -94,7 +176,7 @@ impl ExactRenderDebug {
 
                     let tex_mgr = ctx.tex_manager();
                     let mut tex_mgr = tex_mgr.write();
-                    tex_mgr.alloc(
+                    let tex_id = tex_mgr.alloc(
                         "ExactRenderTexture".into(),
                         ImageData::Color(
                             ColorImage {
@@ -105,6 +187,8 @@ impl ExactRenderDebug {
                         ),
                         TextureOptions::LINEAR,
                     );
+
+                    self.last_texture = Some(SizedTexture::new(tex_id, [500.0, 500.0]));
                 }
             }
 
@@ -194,7 +278,7 @@ impl<'a> MatchOpIter<'a> {
         cigar: &'a [(CigarOp, u64)],
         target_range: std::ops::Range<u64>,
     ) -> Self {
-        let t_start = match_offsets.partition_point(|[t, _]| *t <= target_range.start);
+        let t_start = match_offsets.partition_point(|[t, _]| *t < target_range.start);
 
         let t_start = t_start.checked_sub(1).unwrap_or_default();
 

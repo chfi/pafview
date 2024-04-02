@@ -10,6 +10,27 @@ pub struct AlignmentGrid {
     pub y_axis: GridAxis,
 }
 
+impl AlignmentGrid {
+    /*
+    pub fn tiles_covered_by_view(
+        &self,
+        view: &crate::view::View,
+    ) -> (std::ops::Range<usize>, std::ops::Range<usize>) {
+        // let mut out = Vec::new();
+
+        // let x_min = view.x_min.floor() as u64;
+        // let tgt_ix_min = self.x_axis.seq_offsets.partition_point(|&p| p < x_min);
+        // let y_min = view.y_min.floor() as u64;
+        // let qry_ix_min = self.y_axis.seq_offsets.partition_point(|&p| p < y_min);
+
+        // let x_max = view.x_max.ceil() as u64;
+        // let y_max = view.y_max.ceil() as u64;
+
+        out
+    }
+    */
+}
+
 #[derive(Debug, Clone)]
 pub struct GridAxis {
     /// Maps global sequence indices to the indices in `seq_order`,
@@ -23,6 +44,23 @@ pub struct GridAxis {
 }
 
 impl GridAxis {
+    pub fn tiles_covered_by_range(
+        &self,
+        range: std::ops::RangeInclusive<f64>,
+    ) -> Option<impl Iterator<Item = usize> + '_> {
+        let start = range.start().floor() as u64;
+        let end = range.end().ceil() as u64;
+        let start_i = self.seq_offsets.partition_point(|&p| p < start);
+        let end_i = self.seq_offsets.partition_point(|&p| p < end);
+
+        // if start_i == self.seq_offsets.len() || end_i == self.seq_offsets.len() {
+        if start_i == self.seq_offsets.len() {
+            return None;
+        }
+
+        Some(self.seq_order[start_i..end_i].iter().copied())
+    }
+
     pub fn from_sequences<'a>(
         sequence_names: &BiMap<String, usize>,
         sequences: impl IntoIterator<Item = &'a crate::AlignedSeq>,
