@@ -11,7 +11,7 @@ pub fn draw_exact_to_cpu_buffer(
     app: &crate::PafViewerApp,
     canvas_size: impl Into<UVec2>,
     view: &crate::view::View,
-) -> Option<Vec<egui::Color32>> {
+) -> Option<(Vec<egui::Color32>, egui::Rect)> {
     let canvas_size = canvas_size.into();
 
     let bp_per_pixel = view.width() / canvas_size.x as f64;
@@ -104,6 +104,11 @@ pub fn draw_exact_to_cpu_buffer(
         }
     }
 
+    log::info!("using 1 out of {} tiles", tile_bufs.len());
+
+    return tile_bufs.into_iter().next().map(|(_, a)| a);
+
+    /*
     // then draw each tile to its own buffer
     let img_size = (canvas_size.x * canvas_size.y) as usize;
     let mut pixel_buf = vec![egui::Color32::TRANSPARENT; img_size];
@@ -143,19 +148,18 @@ pub fn draw_exact_to_cpu_buffer(
     }
 
     Some(pixel_buf)
+    */
 }
 
 /// pixel/bp-perfect CPU rasterization
 
 #[derive(Default)]
-pub struct ExactRenderDebug {
-    // last_params: Option<RenderParams>,
+pub struct ExactRenderViewDebug {
+    textures: FxHashMap<[usize; 2], (egui::TextureId, UVec2)>,
     last_texture: Option<SizedTexture>,
-    // egui_id_target: egui::Id,
-    // egui_id_query: egui::Id,
 }
 
-impl ExactRenderDebug {
+impl ExactRenderViewDebug {
     pub fn show(
         &mut self,
         ctx: &egui::Context,
@@ -163,7 +167,7 @@ impl ExactRenderDebug {
         window_dims: impl Into<UVec2>,
         view: &crate::view::View,
     ) {
-        egui::Window::new("exact render test").show(ctx, |ui| {
+        egui::Window::new("exact render view test").show(ctx, |ui| {
             let mut clicked = false;
 
             egui::Grid::new("exact-debug-renderer-grid")
@@ -185,14 +189,15 @@ impl ExactRenderDebug {
             let window_dims = window_dims.into();
 
             if clicked {
-                if let Some(pixels) = draw_exact_to_cpu_buffer(app, window_dims, view) {
+                if let Some((pixels, rect)) = draw_exact_to_cpu_buffer(app, window_dims, view) {
                     let tex_mgr = ctx.tex_manager();
                     let mut tex_mgr = tex_mgr.write();
                     let tex_id = tex_mgr.alloc(
                         "ExactRenderTexture".into(),
                         ImageData::Color(
                             ColorImage {
-                                size: [window_dims.x as usize, window_dims.y as usize],
+                                // size: [window_dims.x as usize, window_dims.y as usize],
+                                size: [rect.width() as usize, rect.height() as usize],
                                 pixels,
                             }
                             .into(),
@@ -201,14 +206,28 @@ impl ExactRenderDebug {
                     );
                     let size = window_dims / 2;
 
-                    self.last_texture =
-                        Some(SizedTexture::new(tex_id, [size.x as f32, size.y as f32]));
+                    self.last_texture = Some(SizedTexture::new(tex_id, rect.size()));
+                    // Some(SizedTexture::new(tex_id, [size.x as f32, size.y as f32]));
                 }
             }
         });
     }
+}
 
+#[derive(Default)]
+pub struct ExactRenderDebug {
+    // last_params: Option<RenderParams>,
+    last_texture: Option<SizedTexture>,
+
+    textures: FxHashMap<[usize; 2], (egui::TextureId, UVec2)>,
+    // egui_id_target: egui::Id,
+    // egui_id_query: egui::Id,
+}
+
+impl ExactRenderDebug {
     /*
+     */
+
     pub const TARGET_DATA_ID: &'static str = "exact-render-test-target";
     pub const QUERY_DATA_ID: &'static str = "exact-render-test-query";
 
@@ -324,7 +343,6 @@ impl ExactRenderDebug {
             });
         });
     }
-    */
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]

@@ -493,6 +493,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
     let mut selection_handler = SelectionHandler::default();
 
     let mut exact_render_dbg = exact::ExactRenderDebug::default();
+    let mut exact_render_view_dbg = exact::ExactRenderViewDebug::default();
 
     let mut mouse_down = false;
     let mut last_pos = None;
@@ -694,7 +695,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
                                 gui::MenuBar::show(ctx, &app, &mut window_states);
 
-                                exact_render_dbg.show(ctx, &app, win_size, &app_view);
+                                exact_render_view_dbg.show(ctx, &app, win_size, &app_view);
+                                exact_render_dbg.show(ctx, &app);
 
                                 roi_gui.show_window(
                                     ctx,
