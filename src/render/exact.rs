@@ -16,7 +16,9 @@ pub fn draw_exact_to_cpu_buffer(
 
     let bp_per_pixel = view.width() / canvas_size.x as f64;
 
-    if bp_per_pixel < 1.0 {
+    log::info!("bp_per_pixel: {bp_per_pixel}");
+
+    if bp_per_pixel > 1.0 {
         return None;
     }
 
@@ -37,10 +39,15 @@ pub fn draw_exact_to_cpu_buffer(
         Some(start..end)
     };
 
-    let x_tiles = x_axis.tiles_covered_by_range(view.x_range())?;
+    let x_tiles = x_axis
+        .tiles_covered_by_range(view.x_range())?
+        .collect::<Vec<_>>();
     let y_tiles = y_axis
         .tiles_covered_by_range(view.y_range())?
         .collect::<Vec<_>>();
+
+    log::info!("x_tiles covered by {:?}: {}", view.x_range(), x_tiles.len());
+    log::info!("y_tiles covered by {:?}: {}", view.y_range(), y_tiles.len());
 
     let mut tile_bufs: FxHashMap<(usize, usize), (Vec<egui::Color32>, egui::Rect)> =
         FxHashMap::default();
@@ -52,9 +59,17 @@ pub fn draw_exact_to_cpu_buffer(
                 continue;
             };
 
+            let tgt_name = app.seq_names.get_by_right(&target_id).unwrap();
+            let qry_name = app.seq_names.get_by_right(&query_id).unwrap();
+
+            log::info!("drawing [{tgt_name}, {qry_name}]");
+
             // get the "local range" for the tile, intersecting with the view
             let target_range = clamped_range(&x_axis, target_id, view.x_range()).unwrap();
             let query_range = clamped_range(&y_axis, target_id, view.y_range()).unwrap();
+
+            log::info!("  > target_range: {target_range:?}");
+            log::info!("  > query_range: {query_range:?}");
 
             // compute from canvas_size & the proportions of target/query range
             // vs the view
@@ -92,10 +107,12 @@ pub fn draw_exact_to_cpu_buffer(
     // then draw each tile to its own buffer
     let img_size = (canvas_size.x * canvas_size.y) as usize;
     let mut pixel_buf = vec![egui::Color32::TRANSPARENT; img_size];
+    log::info!("canvas size: {canvas_size:?}");
 
     for ((_tgt_id, _qry_id), (tile_pixels, tile_rect)) in tile_bufs {
         // find the rows & columns in `pixel_buf` that corresponds
         // to the current pair
+        // log::info!("tile_rect: {tile_rect:?}");
 
         let src_width = tile_rect.width() as usize;
 
@@ -106,10 +123,22 @@ pub fn draw_exact_to_cpu_buffer(
 
         for y in top..bottom {
             let i = y * canvas_size.x as usize;
-            let range = (i + left)..(i + right);
-            let src_i = y * src_width;
-            let src_range = src_i..(src_i + src_width);
-            pixel_buf[range].clone_from_slice(&tile_pixels[src_range])
+            let range = (i + left)..(i + right - 1);
+            let src_y_offset = y - top;
+            let src_i = src_y_offset * src_width;
+            let mut src_range = src_i..(src_i + src_width);
+
+            if src_range.len() > range.len() {
+                src_range.end = src_range.start + range.len();
+            }
+
+            // dbg!(&src_range);
+            // dbg!(&range);
+
+            let src_slice = &tile_pixels[src_range];
+            let dst_slice = &mut pixel_buf[range];
+            dst_slice.clone_from_slice(src_slice);
+            // pixel_buf[range].clone_from_slice(src_slice);
         }
     }
 
@@ -127,6 +156,59 @@ pub struct ExactRenderDebug {
 }
 
 impl ExactRenderDebug {
+    pub fn show(
+        &mut self,
+        ctx: &egui::Context,
+        app: &crate::PafViewerApp,
+        window_dims: impl Into<UVec2>,
+        view: &crate::view::View,
+    ) {
+        egui::Window::new("exact render test").show(ctx, |ui| {
+            let mut clicked = false;
+
+            egui::Grid::new("exact-debug-renderer-grid")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    if ui.button("Render").clicked() {
+                        clicked = true;
+                    }
+                    // });
+
+                    if let Some(texture) = self.last_texture {
+                        ui.image(egui::ImageSource::Texture(texture));
+                    }
+                });
+
+            // let x_axis = &app.alignment_grid.x_axis;
+            // let y_axis = &app.alignment_grid.y_axis;
+
+            let window_dims = window_dims.into();
+
+            if clicked {
+                if let Some(pixels) = draw_exact_to_cpu_buffer(app, window_dims, view) {
+                    let tex_mgr = ctx.tex_manager();
+                    let mut tex_mgr = tex_mgr.write();
+                    let tex_id = tex_mgr.alloc(
+                        "ExactRenderTexture".into(),
+                        ImageData::Color(
+                            ColorImage {
+                                size: [window_dims.x as usize, window_dims.y as usize],
+                                pixels,
+                            }
+                            .into(),
+                        ),
+                        TextureOptions::LINEAR,
+                    );
+                    let size = window_dims / 2;
+
+                    self.last_texture =
+                        Some(SizedTexture::new(tex_id, [size.x as f32, size.y as f32]));
+                }
+            }
+        });
+    }
+
+    /*
     pub const TARGET_DATA_ID: &'static str = "exact-render-test-target";
     pub const QUERY_DATA_ID: &'static str = "exact-render-test-query";
 
@@ -242,6 +324,7 @@ impl ExactRenderDebug {
             });
         });
     }
+    */
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]

@@ -559,7 +559,6 @@ impl PafRenderer {
         // if there's an active task and it has completed, swap it to the front
         let task_complete = self.active_task.as_ref().is_some_and(|t| t.is_complete());
         if task_complete {
-            log::info!("task complete, swapping");
             self.active_task = None;
             self.draw_states.swap(0, 1);
             self.image_bind_groups.swap(0, 1);
@@ -646,7 +645,6 @@ impl PafRenderer {
 
             queue.submit([encoder.finish()]);
             queue.on_submitted_work_done(move || {
-                log::info!("Task Complete");
                 task.complete
                     .store(true, std::sync::atomic::Ordering::SeqCst);
             });
