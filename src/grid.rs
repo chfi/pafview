@@ -48,14 +48,22 @@ impl GridAxis {
         &self,
         range: std::ops::RangeInclusive<f64>,
     ) -> Option<impl Iterator<Item = usize> + '_> {
+        if *range.start() > self.total_len as f64 || *range.end() < 0.0 {
+            return None;
+        }
+
         let start = range.start().floor() as u64;
         let end = range.end().ceil() as u64;
-        let start_i = self.seq_offsets.partition_point(|&p| p < start);
+
+        let mut start_i = self.seq_offsets.partition_point(|&p| p < start);
         let end_i = self.seq_offsets.partition_point(|&p| p < end);
 
-        // if start_i == self.seq_offsets.len() || end_i == self.seq_offsets.len() {
         if start_i == self.seq_offsets.len() {
             return None;
+        }
+
+        if self.seq_offsets[start_i] > start {
+            start_i -= 1;
         }
 
         Some(self.seq_order[start_i..end_i].iter().copied())
@@ -91,6 +99,8 @@ impl GridAxis {
 
             offset += seq_len;
         }
+        // push the last "marker" offset for later convenience
+        seq_offsets.push(offset);
 
         Self {
             seq_index_map: seq_indices,
@@ -186,6 +196,10 @@ mod tests {
     use float_cmp::approx_eq;
     use proptest::prelude::*;
 
+    fn test_axis_short() -> GridAxis {
+        GridAxis::from_index_and_lengths((0..4).map(|i| (i, 1000)))
+    }
+
     fn test_axis() -> GridAxis {
         GridAxis::from_index_and_lengths((0usize..10).map(|i| (i, (1 + i as u64) * 1000)))
     }
@@ -224,5 +238,40 @@ mod tests {
             let eps = std::f32::EPSILON as f64;
             prop_assert!(approx_eq!(f64, t, t_, epsilon = eps));
         });
+    }
+
+    #[test]
+    fn grid_axis_get_tiles_covered_by_range() {
+        let axis = test_axis_short();
+
+        let get_tiles = |range| {
+            axis.tiles_covered_by_range(range)
+                .map(|t| t.collect::<Vec<_>>())
+        };
+
+        let cov_all = get_tiles(0f64..=axis.total_len as f64);
+        assert_eq!(cov_all, Some(vec![0, 1, 2, 3]));
+
+        let cov_0 = get_tiles(0f64..=999.0);
+        let cov_1 = get_tiles(1000f64..=1999.0);
+        assert_eq!(cov_0, Some(vec![0]));
+        assert_eq!(cov_1, Some(vec![1]));
+
+        let cov_01 = get_tiles(0f64..=1999.0);
+        let cov_01_half = get_tiles(500f64..=1499.0);
+        assert_eq!(cov_01, Some(vec![0, 1]));
+        assert_eq!(cov_01_half, Some(vec![0, 1]));
+
+        let cov_part_0 = get_tiles(200f64..=500.0);
+        assert_eq!(cov_part_0, Some(vec![0]));
+
+        let cov_part_last = get_tiles(3300f64..=3700f64);
+        assert_eq!(cov_part_last, Some(vec![3]));
+
+        let cov_23_half = get_tiles(2500f64..=3499.0);
+        assert_eq!(cov_23_half, Some(vec![2, 3]));
+
+        let cov_123_half = get_tiles(1500f64..=3499.0);
+        assert_eq!(cov_123_half, Some(vec![1, 2, 3]));
     }
 }
