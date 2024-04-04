@@ -35,7 +35,11 @@ pub fn draw_exact_to_cpu_buffer(
                          view_range: std::ops::RangeInclusive<f64>| {
         let range = axis.sequence_axis_range(seq_id)?;
         let start = range.start.max(*view_range.start() as u64);
-        let end = range.end.min(*view_range.end() as u64);
+        let end = range.end.min(*view_range.end() as u64).max(start);
+
+        log::warn!("start: {start}, end: {end}, range: {range:?}, view_range: {view_range:?}");
+        let start = start - range.start;
+        let end = end - range.start;
         Some(start..end)
     };
 
@@ -67,6 +71,10 @@ pub fn draw_exact_to_cpu_buffer(
             // get the "local range" for the tile, intersecting with the view
             let target_range = clamped_range(&x_axis, target_id, view.x_range()).unwrap();
             let query_range = clamped_range(&y_axis, target_id, view.y_range()).unwrap();
+
+            if query_range.is_empty() || target_range.is_empty() {
+                continue;
+            }
 
             log::info!("  > target_range: {target_range:?}");
             log::info!("  > query_range: {query_range:?}");
@@ -386,11 +394,26 @@ pub fn draw_subsection(
             egui::Color32::RED
         };
 
-        let x0 = target_pos as f64 * bp_width;
-        let x1 = (1 + target_pos) as f64 * bp_width;
+        let target_offset = target_pos;
+        // let target_offset = target_pos
+        //     .checked_sub(target_range.start)
+        //     .unwrap_or_default();
+        let query_offset = query_pos;
+        // let query_offset = query_pos.checked_sub(query_range.start).unwrap_or_default();
 
-        let y0 = query_pos as f64 * bp_height;
-        let y1 = (1 + query_pos) as f64 * bp_height;
+        let x0 = target_offset as f64 * bp_width;
+        let x1 = (1 + target_offset) as f64 * bp_width;
+
+        let y0 = query_offset as f64 * bp_height;
+        let y1 = (1 + query_offset) as f64 * bp_height;
+
+        let x = 0.5 * (x0 + x1);
+        let y = 0.5 * (y0 + y1);
+
+        log::info!("[{target_pos}, {query_pos}] -> [{x:.2}, {y:.2}]");
+
+        // let y0 = y0 - query_range.start as f64;
+        // let y1 = y1 - query_range.start as f64;
 
         for x in (x0.floor() as usize)..(x1.floor() as usize) {
             for y in (y0.floor() as usize)..(y1.floor() as usize) {
