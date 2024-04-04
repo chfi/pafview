@@ -11,7 +11,7 @@ pub fn draw_exact_to_cpu_buffer(
     app: &crate::PafViewerApp,
     canvas_size: impl Into<UVec2>,
     view: &crate::view::View,
-) -> Option<(Vec<egui::Color32>, egui::Rect)> {
+) -> Option<(Vec<egui::Color32>, UVec2, egui::Rect)> {
     let canvas_size = canvas_size.into();
 
     let bp_per_pixel = view.width() / canvas_size.x as f64;
@@ -53,7 +53,7 @@ pub fn draw_exact_to_cpu_buffer(
     log::info!("x_tiles covered by {:?}: {}", view.x_range(), x_tiles.len());
     log::info!("y_tiles covered by {:?}: {}", view.y_range(), y_tiles.len());
 
-    let mut tile_bufs: FxHashMap<(usize, usize), (Vec<egui::Color32>, egui::Rect)> =
+    let mut tile_bufs: FxHashMap<(usize, usize), (Vec<egui::Color32>, UVec2, egui::Rect)> =
         FxHashMap::default();
 
     for target_id in x_tiles {
@@ -70,7 +70,7 @@ pub fn draw_exact_to_cpu_buffer(
 
             // get the "local range" for the tile, intersecting with the view
             let target_range = clamped_range(&x_axis, target_id, view.x_range()).unwrap();
-            let query_range = clamped_range(&y_axis, target_id, view.y_range()).unwrap();
+            let query_range = clamped_range(&y_axis, query_id, view.y_range()).unwrap();
 
             if query_range.is_empty() || target_range.is_empty() {
                 continue;
@@ -108,7 +108,7 @@ pub fn draw_exact_to_cpu_buffer(
                 &mut buf,
             );
 
-            tile_bufs.insert(key, (buf, screen_rect));
+            tile_bufs.insert(key, (buf, subcanvas_size, screen_rect));
         }
     }
 
@@ -197,7 +197,8 @@ impl ExactRenderViewDebug {
             let window_dims = window_dims.into();
 
             if clicked {
-                if let Some((pixels, rect)) = draw_exact_to_cpu_buffer(app, window_dims, view) {
+                if let Some((pixels, size, rect)) = draw_exact_to_cpu_buffer(app, window_dims, view)
+                {
                     let tex_mgr = ctx.tex_manager();
                     let mut tex_mgr = tex_mgr.write();
                     let tex_id = tex_mgr.alloc(
@@ -205,7 +206,8 @@ impl ExactRenderViewDebug {
                         ImageData::Color(
                             ColorImage {
                                 // size: [window_dims.x as usize, window_dims.y as usize],
-                                size: [rect.width() as usize, rect.height() as usize],
+                                // size: [rect.width() as usize, rect.height() as usize],
+                                size: [size.x as usize, size.y as usize],
                                 pixels,
                             }
                             .into(),
@@ -214,7 +216,8 @@ impl ExactRenderViewDebug {
                     );
                     let size = window_dims / 2;
 
-                    self.last_texture = Some(SizedTexture::new(tex_id, rect.size()));
+                    self.last_texture =
+                        Some(SizedTexture::new(tex_id, [size.x as f32, size.y as f32]));
                     // Some(SizedTexture::new(tex_id, [size.x as f32, size.y as f32]));
                 }
             }
@@ -394,12 +397,14 @@ pub fn draw_subsection(
             egui::Color32::RED
         };
 
-        let target_offset = target_pos;
-        // let target_offset = target_pos
-        //     .checked_sub(target_range.start)
-        //     .unwrap_or_default();
-        let query_offset = query_pos;
-        // let query_offset = query_pos.checked_sub(query_range.start).unwrap_or_default();
+        // let target_offset = target_pos;
+        // let query_offset = query_pos;
+        let Some(target_offset) = target_pos.checked_sub(target_range.start) else {
+            continue;
+        };
+        let Some(query_offset) = query_pos.checked_sub(query_range.start) else {
+            continue;
+        };
 
         let x0 = target_offset as f64 * bp_width;
         let x1 = (1 + target_offset) as f64 * bp_width;
@@ -417,8 +422,11 @@ pub fn draw_subsection(
 
         for x in (x0.floor() as usize)..(x1.floor() as usize) {
             for y in (y0.floor() as usize)..(y1.floor() as usize) {
+                let y = (canvas_size.y as usize)
+                    .checked_sub(y + 1)
+                    .unwrap_or_default();
                 let ix = x + y * canvas_size.x as usize;
-                if ix < size {
+                if x < canvas_size.x as usize && y < canvas_size.y as usize {
                     canvas_data.get_mut(ix).map(|px| *px = color);
                 }
             }
