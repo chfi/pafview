@@ -388,8 +388,12 @@ pub fn draw_subsection(
     let qry_len = query_range.end - query_range.start;
     let bp_height = canvas_size.y as f64 / qry_len as f64;
 
-    for ([target_pos, query_pos], is_match) in match_iter {
+    // for ([target_pos, query_pos], is_match) in match_iter {
+    for ([target_pos, query_pos], cg_ix) in match_iter {
         // want to map target_pos to an x_range, query_pos to a y_range
+
+        let cg_op = match_data.cigar[cg_ix].0;
+        let is_match = cg_op.is_match();
 
         let color = if is_match {
             egui::Color32::BLACK
@@ -415,11 +419,6 @@ pub fn draw_subsection(
         let x = 0.5 * (x0 + x1);
         let y = 0.5 * (y0 + y1);
 
-        log::info!("[{target_pos}, {query_pos}] -> [{x:.2}, {y:.2}]");
-
-        // let y0 = y0 - query_range.start as f64;
-        // let y1 = y1 - query_range.start as f64;
-
         for x in (x0.floor() as usize)..(x1.floor() as usize) {
             for y in (y0.floor() as usize)..(y1.floor() as usize) {
                 let y = (canvas_size.y as usize)
@@ -443,8 +442,9 @@ struct MatchOpIter<'a> {
 
     index: usize,
     // current_match: Option<(usize, [u64; 2], bool)>,
-    current_match: Option<(CigarOp, std::ops::Range<u64>, [u64; 2])>,
+    current_match: Option<(CigarOp, usize, std::ops::Range<u64>, [u64; 2])>,
     // current_match: Option<(std::ops::Range<u64>, [u64; 2], bool, bool)>,
+    done: bool,
 }
 
 impl<'a> MatchOpIter<'a> {
@@ -468,6 +468,8 @@ impl<'a> MatchOpIter<'a> {
 
             index: t_start,
             current_match: None,
+
+            done: false,
         }
     }
 }
@@ -475,10 +477,10 @@ impl<'a> MatchOpIter<'a> {
 impl<'a> Iterator for MatchOpIter<'a> {
     // outputs each individual match/mismatch op's position along the
     // target and query
-    type Item = ([u64; 2], bool);
+    type Item = ([u64; 2], usize);
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.target_range.is_empty() {
+        if self.done {
             return None;
         }
 
@@ -492,18 +494,22 @@ impl<'a> Iterator for MatchOpIter<'a> {
             let (op, count) = self.cigar[cg_ix];
             let range = 0..count;
             let origin = self.match_offsets[ix];
-            self.current_match = Some((op, range, origin));
+            self.current_match = Some((op, cg_ix, range, origin));
         }
 
-        if let Some((op, mut range, origin @ [tgt, qry])) = self.current_match.take() {
+        if let Some((op, cg_ix, mut range, origin @ [tgt, qry])) = self.current_match.take() {
             let next_offset = range.next()?;
-            let _ = self.target_range.next();
+
+            if tgt + next_offset > self.target_range.end {
+                self.done = true;
+            }
+
             if !range.is_empty() {
-                self.current_match = Some((op, range, origin));
+                self.current_match = Some((op, cg_ix, range, origin));
             }
 
             let pos = [tgt + next_offset, qry + next_offset];
-            let out = (pos, op.is_match());
+            let out = (pos, cg_ix);
 
             return Some(out);
         }
@@ -565,6 +571,14 @@ mod tests {
         let len = cigar.iter().map(|(_, c)| *c).sum::<u64>();
 
         let iter = MatchOpIter::from_range(&offsets, &cg_ix, &cigar, 0..len);
+
+        for ([tgt, qry], is_match) in iter {
+            println!("[{tgt:3}, {qry:3}] - {is_match}");
+        }
+
+        println!();
+
+        let iter = MatchOpIter::from_range(&offsets, &cg_ix, &cigar, 15..40);
 
         for ([tgt, qry], is_match) in iter {
             println!("[{tgt:3}, {qry:3}] - {is_match}");
