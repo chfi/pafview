@@ -479,6 +479,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
     paf_renderer.set_grid(Some((grid_buffer, grid_color_buffer, grid_instances)));
 
+    let mut cpu_rasterizer = exact::CpuViewRasterizerEgui::default();
+
     let mut window_states = AppWindowStates::new(&app.annotations);
 
     let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
@@ -492,8 +494,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
     let mut selection_handler = SelectionHandler::default();
 
-    let mut exact_render_dbg = exact::ExactRenderDebug::default();
-    let mut exact_render_view_dbg = exact::ExactRenderViewDebug::default();
+    // let mut exact_render_dbg = exact::ExactRenderDebug::default();
+    // let mut exact_render_view_dbg = exact::ExactRenderViewDebug::default();
 
     let mut mouse_down = false;
     let mut last_pos = None;
@@ -682,6 +684,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 pixels_per_point: window.scale_factor() as f32,
                             },
                             |ctx| {
+                                cpu_rasterizer.draw_and_display_view_layer(ctx, &app, &app_view);
+
                                 selection_handler.run(ctx, &mut app_view);
                                 // regions::paf_line_debug_aabbs(&input, ctx, &app_view);
                                 // annotations::draw_annotation_test_window(
@@ -695,8 +699,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
                                 gui::MenuBar::show(ctx, &app, &mut window_states);
 
-                                exact_render_view_dbg.show(ctx, &app, win_size, &app_view);
-                                exact_render_dbg.show(ctx, &app);
+                                // exact_render_view_dbg.show(ctx, &app, win_size, &app_view);
+                                // exact_render_dbg.show(ctx, &app);
 
                                 roi_gui.show_window(
                                     ctx,

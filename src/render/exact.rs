@@ -7,6 +7,66 @@ use crate::{
     grid::GridAxis,
 };
 
+#[derive(Default)]
+pub struct CpuViewRasterizerEgui {
+    last_texture: Option<(SizedTexture, egui::Rect)>,
+    last_view: Option<crate::view::View>,
+}
+
+impl CpuViewRasterizerEgui {
+    pub fn draw_and_display_view_layer(
+        &mut self,
+        ctx: &egui::Context,
+        app: &crate::PafViewerApp,
+        view: &crate::view::View,
+    ) {
+        if self.last_view.as_ref() != Some(view) {
+            let size = ctx.screen_rect().size();
+
+            if let Some((pixels, px_size, rect)) =
+                draw_exact_to_cpu_buffer(app, [size.x as u32, size.y as u32], view)
+            {
+                //
+                let tex_mgr = ctx.tex_manager();
+                let mut tex_mgr = tex_mgr.write();
+                let tex_id = tex_mgr.alloc(
+                    "ExactRenderTexture".into(),
+                    ImageData::Color(
+                        ColorImage {
+                            size: [px_size.x as usize, px_size.y as usize],
+                            pixels,
+                        }
+                        .into(),
+                    ),
+                    TextureOptions::LINEAR,
+                );
+                self.last_texture = Some((
+                    SizedTexture::new(tex_id, [px_size.x as f32, px_size.y as f32]),
+                    rect,
+                ));
+                self.last_view = Some(view.clone());
+            } else {
+                self.last_texture = None;
+                self.last_view = None;
+            }
+        }
+
+        if let Some((texture, _rect)) = &self.last_texture {
+            let painter = ctx.layer_painter(egui::LayerId::new(
+                egui::Order::Background,
+                "cpu-rasterizer-layer".into(),
+            ));
+
+            let uv = egui::Rect::from_min_max([0.0, 0.0].into(), [1.0, 1.0].into());
+            // painter.image(texture.id, *rect, uv, egui::Color32::WHITE);
+            let tint = egui::Color32::WHITE;
+            // let tint = tint.linear_multiply(0.5);
+            let rect = ctx.screen_rect();
+            painter.image(texture.id, rect, uv, tint);
+        }
+    }
+}
+
 pub fn draw_exact_to_cpu_buffer(
     app: &crate::PafViewerApp,
     canvas_size: impl Into<UVec2>,
@@ -37,7 +97,6 @@ pub fn draw_exact_to_cpu_buffer(
         let start = range.start.max(*view_range.start() as u64);
         let end = range.end.min(*view_range.end() as u64).max(start);
 
-        log::warn!("start: {start}, end: {end}, range: {range:?}, view_range: {view_range:?}");
         let start = start - range.start;
         let end = end - range.start;
         Some(start..end)
@@ -50,8 +109,8 @@ pub fn draw_exact_to_cpu_buffer(
         .tiles_covered_by_range(view.y_range())?
         .collect::<Vec<_>>();
 
-    log::info!("x_tiles covered by {:?}: {}", view.x_range(), x_tiles.len());
-    log::info!("y_tiles covered by {:?}: {}", view.y_range(), y_tiles.len());
+    // log::info!("x_tiles covered by {:?}: {}", view.x_range(), x_tiles.len());
+    // log::info!("y_tiles covered by {:?}: {}", view.y_range(), y_tiles.len());
 
     let mut tile_bufs: FxHashMap<(usize, usize), (Vec<egui::Color32>, UVec2, egui::Rect)> =
         FxHashMap::default();
@@ -66,7 +125,7 @@ pub fn draw_exact_to_cpu_buffer(
             let tgt_name = app.seq_names.get_by_right(&target_id).unwrap();
             let qry_name = app.seq_names.get_by_right(&query_id).unwrap();
 
-            log::info!("drawing [{tgt_name}, {qry_name}]");
+            // log::info!("drawing [{tgt_name}, {qry_name}]");
 
             // get the "local range" for the tile, intersecting with the view
             let target_range = clamped_range(&x_axis, target_id, view.x_range()).unwrap();
@@ -76,8 +135,8 @@ pub fn draw_exact_to_cpu_buffer(
                 continue;
             }
 
-            log::info!("  > target_range: {target_range:?}");
-            log::info!("  > query_range: {query_range:?}");
+            // log::info!("  > target_range: {target_range:?}");
+            // log::info!("  > query_range: {query_range:?}");
 
             // compute from canvas_size & the proportions of target/query range
             // vs the view
@@ -112,7 +171,7 @@ pub fn draw_exact_to_cpu_buffer(
         }
     }
 
-    log::info!("using 1 out of {} tiles", tile_bufs.len());
+    // log::info!("using 1 out of {} tiles", tile_bufs.len());
 
     return tile_bufs.into_iter().next().map(|(_, a)| a);
 
