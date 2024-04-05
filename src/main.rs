@@ -757,7 +757,8 @@ fn start_window(app: PafViewerApp) {
         .unwrap();
     // let event_loop = EventLoop::<AppEvent>::new().unwrap();
     #[allow(unused_mut)]
-    let mut builder = winit::window::WindowBuilder::new();
+    let mut builder = winit::window::WindowBuilder::new().with_title("PAFView");
+
     #[cfg(target_arch = "wasm32")]
     {
         use wasm_bindgen::JsCast;
