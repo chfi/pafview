@@ -160,6 +160,8 @@ pub struct AnnotationGuiHandler {
 
     // draw_target_regions: FxHashMap<String,
     record_states: FxHashMap<(usize, usize), AnnotationState>,
+
+    filter_text: String,
 }
 
 struct AnnotationState {
@@ -171,6 +173,23 @@ struct AnnotationState {
 }
 
 impl AnnotationGuiHandler {
+    fn record_states_filtered_mut<'a: 'b, 'b>(
+        &'a mut self,
+        annotations: &'b AnnotationStore,
+    ) -> impl Iterator<Item = &'a mut AnnotationState> + 'b {
+        self.record_states
+            .iter_mut()
+            .filter_map(|(&(list_id, record_id), state)| {
+                let list = annotations.annotation_lists.get(list_id)?;
+                let record = list.records.get(record_id)?;
+                if record.label.contains(&self.filter_text) {
+                    Some(state)
+                } else {
+                    None
+                }
+            })
+    }
+
     pub fn show_annotation_list(
         &mut self,
         ctx: &egui::Context,
@@ -186,43 +205,85 @@ impl AnnotationGuiHandler {
             .show(&ctx, |ui| {
                 // TODO scrollable & filterable list of annotation records
 
-                // if ui.button("Show annotations").clicked() {
-                for (_file_path, &list_id) in app.annotations.annotation_sources.iter() {
-                    let list = &app.annotations.annotation_lists[list_id];
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Filter");
+                        ui.text_edit_singleline(&mut self.filter_text);
+                        if ui.button("Clear").clicked() {
+                            self.filter_text.clear();
+                        }
+                    });
 
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        for (record_id, record) in list.records.iter().enumerate() {
+                    ui.separator();
+
+                    for (_file_path, &list_id) in app.annotations.annotation_sources.iter() {
+                        let list = &app.annotations.annotation_lists[list_id];
+
+                        ui.vertical(|ui| {
+                            ui.label("Toggle annotation display");
                             ui.horizontal(|ui| {
-                                ui.label(format!("{}", record.label));
-
+                                ui.label("All");
                                 let target_btn = ui.button("Target");
                                 let query_btn = ui.button("Query");
 
-                                let state = self.get_region_state(app, list_id, record_id);
-
                                 if target_btn.clicked() {
-                                    state.draw_target_region = !state.draw_target_region;
-                                    log::info!(
-                                        "drawing {} target region: {}\t(region {:?})",
-                                        record.label,
-                                        state.draw_target_region,
-                                        state.seq_region
+                                    self.record_states_filtered_mut(&app.annotations).for_each(
+                                        |state| {
+                                            state.draw_target_region = !state.draw_target_region
+                                        },
                                     );
                                 }
 
                                 if query_btn.clicked() {
-                                    state.draw_query_region = !state.draw_query_region;
-                                    log::info!(
-                                        "drawing {} query region: {}\t(region {:?})",
-                                        record.label,
-                                        state.draw_query_region,
-                                        state.seq_region
+                                    self.record_states_filtered_mut(&app.annotations).for_each(
+                                        |state| {
+                                            state.draw_query_region = !state.draw_query_region;
+                                        },
                                     );
                                 }
                             });
-                        }
-                    });
-                }
+
+                            ui.separator();
+
+                            egui::ScrollArea::vertical().show(ui, |ui| {
+                                for (record_id, record) in list.records.iter().enumerate() {
+                                    if !record.label.contains(&self.filter_text) {
+                                        continue;
+                                    }
+
+                                    ui.horizontal(|ui| {
+                                        ui.label(format!("{}", record.label));
+
+                                        let target_btn = ui.button("Target");
+                                        let query_btn = ui.button("Query");
+
+                                        let state = self.get_region_state(app, list_id, record_id);
+
+                                        if target_btn.clicked() {
+                                            state.draw_target_region = !state.draw_target_region;
+                                            log::info!(
+                                                "drawing {} target region: {}\t(region {:?})",
+                                                record.label,
+                                                state.draw_target_region,
+                                                state.seq_region
+                                            );
+                                        }
+
+                                        if query_btn.clicked() {
+                                            state.draw_query_region = !state.draw_query_region;
+                                            log::info!(
+                                                "drawing {} query region: {}\t(region {:?})",
+                                                record.label,
+                                                state.draw_query_region,
+                                                state.seq_region
+                                            );
+                                        }
+                                    });
+                                }
+                            });
+                        });
+                    }
+                });
             });
     }
 

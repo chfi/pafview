@@ -13,7 +13,8 @@ use wgpu::Texture;
 use wgpu::{CommandEncoder, Device, Queue, TextureFormat, TextureView};
 use winit::{event::WindowEvent, window::Window};
 
-mod batch;
+pub mod batch;
+pub mod exact;
 
 pub struct LinePipeline {
     pub bind_group_layout_0: wgpu::BindGroupLayout,
@@ -400,7 +401,7 @@ pub fn create_multisampled_framebuffer(
 }
 
 pub struct PafRenderer {
-    line_pipeline: LinePipeline,
+    pub line_pipeline: LinePipeline,
     msaa_samples: u32,
 
     pub line_width: f32,
@@ -416,10 +417,18 @@ pub struct PafRenderer {
 
     image_renderer: ImageRenderer,
     image_bind_groups: [ImageRendererBindGroups; 2],
+
+    // temporary (may be used for grid later still)
+    identity_uniform: wgpu::Buffer,
+    identity_bind_group: wgpu::BindGroup,
 }
 
 impl PafRenderer {
     const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
+    // TODO should probably be configurable, but for now this is the easy way
+    // to make it consistent
+    const SCALE_LIMIT_BP_PER_PX: f64 = 1.0;
 
     pub fn new(
         device: &wgpu::Device,
@@ -432,7 +441,7 @@ impl PafRenderer {
         log::warn!("initializing PafRenderer");
         let line_pipeline = LinePipeline::new(&device, Self::COLOR_FORMAT, msaa_samples);
 
-        let init_state = || PafDrawState::init(device, &line_pipeline.bind_group_layout);
+        let init_state = || PafDrawState::init(device, &line_pipeline.bind_group_layout_0);
 
         let draw_states = [init_state(), init_state()];
 
@@ -442,6 +451,25 @@ impl PafRenderer {
             ImageRendererBindGroups::new(device, &image_renderer.bind_group_layout_0),
             ImageRendererBindGroups::new(device, &image_renderer.bind_group_layout_0),
         ];
+
+        // let identity_uniform = device.create_buffer_init(&BufferInitDescriptor { label: None, contents: bytemuck::cast_slice(&[mat], usage: () });
+
+        let identity_mat = Mat4::identity();
+
+        let identity_uniform = device.create_buffer_init(&BufferInitDescriptor {
+            label: None,
+            contents: bytemuck::cast_slice(&[identity_mat]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let identity_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &line_pipeline.bind_group_layout_1,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: identity_uniform.as_entire_binding(),
+            }],
+        });
 
         Self {
             line_pipeline,
@@ -460,6 +488,9 @@ impl PafRenderer {
 
             image_renderer,
             image_bind_groups,
+
+            identity_uniform,
+            identity_bind_group,
         }
     }
 
@@ -474,18 +505,22 @@ impl PafRenderer {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        match_data: &batch::MatchDrawBatchData,
         view: &crate::view::View,
         window_dims: [u32; 2],
         swapchain_view: &TextureView,
         encoder: &mut CommandEncoder,
     ) {
-        self.submit_draw_matches(
-            device,
-            queue,
-            view,
-            window_dims,
-            self.match_instances.clone(),
-        );
+        if view.bp_per_pixel(window_dims[0]) > Self::SCALE_LIMIT_BP_PER_PX {
+            self.submit_draw_matches(
+                device,
+                queue,
+                match_data,
+                view,
+                window_dims,
+                // self.match_instances.clone(),
+            );
+        }
 
         self.draw_front_image(device, queue, view, window_dims, swapchain_view, encoder);
     }
@@ -499,6 +534,13 @@ impl PafRenderer {
         swapchain_view: &TextureView,
         encoder: &mut CommandEncoder,
     ) {
+        if view.bp_per_pixel(window_dims[0]) <= Self::SCALE_LIMIT_BP_PER_PX
+            || self.draw_states[0].draw_set.is_none()
+        {
+            self.image_renderer.clear(swapchain_view, encoder);
+            return;
+        }
+
         if let Some(set) = self.draw_states[0].draw_set.as_ref() {
             self.image_renderer.create_bind_groups(
                 device,
@@ -512,8 +554,6 @@ impl PafRenderer {
 
             self.image_renderer
                 .draw(&self.image_bind_groups[0], swapchain_view, encoder);
-        } else {
-            self.image_renderer.clear(swapchain_view, encoder);
         }
     }
 
@@ -521,15 +561,15 @@ impl PafRenderer {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        match_data: &batch::MatchDrawBatchData,
         view: &crate::view::View,
         window_dims: [u32; 2],
-        instances: std::ops::Range<u32>,
+        // instances: std::ops::Range<u32>,
         // swapchain_view: &TextureView,
     ) {
         // if there's an active task and it has completed, swap it to the front
         let task_complete = self.active_task.as_ref().is_some_and(|t| t.is_complete());
         if task_complete {
-            log::info!("task complete, swapping");
             self.active_task = None;
             self.draw_states.swap(0, 1);
             self.image_bind_groups.swap(0, 1);
@@ -589,23 +629,33 @@ impl PafRenderer {
                 label: Some("PafRenderer Lines"),
             });
 
-            Self::draw_frame(
+            Self::draw_frame_tiled(
+                match_data,
                 &self.line_pipeline,
                 draw_set,
                 uniforms,
+                &self.identity_bind_group,
                 &self.grid_data,
-                &self.match_vertices,
-                &self.match_colors,
-                instances,
                 &mut encoder,
             );
+
+            // Self::draw_frame(
+            //     &self.line_pipeline,
+            //     draw_set,
+            //     uniforms,
+            //     &self.identity_bind_group,
+            //     &self.grid_data,
+            //     &self.match_vertices,
+            //     &self.match_colors,
+            //     instances,
+            //     &mut encoder,
+            // );
 
             let task = PafDrawTask::new();
             self.active_task = Some(task.clone());
 
             queue.submit([encoder.finish()]);
             queue.on_submitted_work_done(move || {
-                log::info!("Task Complete");
                 task.complete
                     .store(true, std::sync::atomic::Ordering::SeqCst);
             });
@@ -616,6 +666,7 @@ impl PafRenderer {
         line_pipeline: &LinePipeline,
         params: &PafDrawSet,
         uniforms: &PafUniforms,
+        identity_uniform: &wgpu::BindGroup,
         grid_data: &Option<(wgpu::Buffer, wgpu::Buffer, std::ops::Range<u32>)>,
         match_vertices: &wgpu::Buffer,
         match_colors: &wgpu::Buffer,
@@ -654,12 +705,14 @@ impl PafRenderer {
 
         if let Some((grid_vertices, grid_colors, grid_instances)) = grid_data {
             rpass.set_bind_group(0, &uniforms.grid_bind_group, &[]);
+            rpass.set_bind_group(1, identity_uniform, &[]);
             rpass.set_vertex_buffer(0, grid_vertices.slice(..));
             rpass.set_vertex_buffer(1, grid_colors.slice(..));
             rpass.draw(0..6, grid_instances.clone());
         }
 
         rpass.set_bind_group(0, &uniforms.line_bind_group, &[]);
+        rpass.set_bind_group(1, identity_uniform, &[]);
         rpass.set_vertex_buffer(0, match_vertices.slice(..));
         rpass.set_vertex_buffer(1, match_colors.slice(..));
         rpass.draw(0..6, match_instances);

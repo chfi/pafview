@@ -20,6 +20,7 @@ use std::io::prelude::*;
 use anyhow::anyhow;
 
 mod annotations;
+pub mod cigar;
 mod grid;
 mod gui;
 mod regions;
@@ -27,6 +28,7 @@ mod render;
 mod spatial;
 mod view;
 
+pub use cigar::*;
 use render::*;
 use view::View;
 
@@ -35,6 +37,8 @@ use crate::{annotations::AnnotationStore, gui::AppWindowStates};
 struct PafInput {
     queries: Vec<AlignedSeq>,
     targets: Vec<AlignedSeq>,
+
+    pair_line_ix: FxHashMap<(usize, usize), usize>,
 
     // match_edges: Vec<[DVec2; 2]>,
     processed_lines: Vec<ProcessedCigar>,
@@ -46,134 +50,6 @@ impl PafInput {
             .iter()
             .map(|l| l.match_edges.len())
             .sum()
-    }
-}
-
-struct ProcessedCigar {
-    target_id: usize,
-    target_offset: u64,
-    target_len: u64,
-
-    query_id: usize,
-    query_offset: u64,
-    query_len: u64,
-
-    match_edges: Vec<[DVec2; 2]>,
-    match_is_match: Vec<bool>,
-    match_offsets: Vec<[u64; 2]>,
-
-    aabb_min: DVec2,
-    aabb_max: DVec2,
-}
-
-impl ProcessedCigar {
-    fn from_line_local(
-        seq_names: &BiMap<String, usize>,
-        paf_line: &PafLine<&str>,
-    ) -> anyhow::Result<Self> {
-        Self::from_line(seq_names, paf_line, [0, 0])
-    }
-
-    fn from_line(
-        seq_names: &BiMap<String, usize>,
-        paf_line: &PafLine<&str>,
-        origin: [u64; 2],
-    ) -> anyhow::Result<Self> {
-        let ops = paf_line
-            .cigar
-            .split_inclusive(['M', 'X', '=', 'D', 'I', 'S', 'H', 'N'])
-            .filter_map(|opstr| {
-                let count = opstr[..opstr.len() - 1].parse::<u64>().ok()?;
-                let op = opstr.as_bytes()[opstr.len() - 1] as char;
-                Some((op, count))
-            });
-
-        let [mut target_pos, mut query_pos] = origin;
-
-        let target_id = *seq_names
-            .get_by_left(paf_line.tgt_name)
-            .ok_or_else(|| anyhow!("Target sequence `{}` not found", paf_line.tgt_name))?;
-        let query_id = *seq_names
-            .get_by_left(paf_line.query_name)
-            .ok_or_else(|| anyhow!("Query sequence `{}` not found", paf_line.query_name))?;
-
-        let mut match_edges = Vec::new();
-        let mut match_offsets = Vec::new();
-        let mut match_is_match = Vec::new();
-
-        let mut aabb_min = DVec2::broadcast(std::f64::MAX);
-        let mut aabb_max = DVec2::broadcast(std::f64::MIN);
-
-        for (op, count) in ops {
-            match op {
-                'M' | '=' | 'X' => {
-                    let x = target_pos;
-                    let y = query_pos;
-
-                    {
-                        let x0 = x as f64;
-                        let y0 = y as f64;
-
-                        let x_end = if paf_line.strand_rev {
-                            x.checked_sub(count).unwrap_or_default()
-                        } else {
-                            x + count
-                        };
-                        let x1 = x_end as f64;
-                        let y1 = (y + count) as f64;
-
-                        let p0 = DVec2::new(x0, y0);
-                        let p1 = DVec2::new(x1, y1);
-
-                        aabb_min = aabb_min.min_by_component(p0).min_by_component(p1);
-                        aabb_max = aabb_max.max_by_component(p0).max_by_component(p1);
-
-                        match_edges.push([p0, p1]);
-                        match_offsets.push([target_pos, query_pos]);
-
-                        match_is_match.push(op == 'M' || op == '=');
-                    }
-
-                    target_pos += count;
-                    if paf_line.strand_rev {
-                        query_pos = query_pos.checked_sub(count).unwrap_or_default()
-                    } else {
-                        query_pos += count;
-                    }
-                }
-                'D' => {
-                    target_pos += count;
-                }
-                'I' => {
-                    if paf_line.strand_rev {
-                        query_pos = query_pos.checked_sub(count).unwrap_or_default()
-                    } else {
-                        query_pos += count;
-                    }
-                }
-                _ => (),
-            }
-        }
-
-        let target_len = target_pos - origin[0];
-        let query_len = query_pos - origin[1];
-
-        Ok(Self {
-            target_id,
-            target_offset: origin[0],
-            target_len,
-
-            query_id,
-            query_offset: origin[1],
-            query_len,
-
-            match_edges,
-            match_offsets,
-            match_is_match,
-
-            aabb_min,
-            aabb_max,
-        })
     }
 }
 
@@ -323,6 +199,8 @@ pub fn main() -> anyhow::Result<()> {
 
     let reader = std::fs::File::open(&paf_path).map(std::io::BufReader::new)?;
 
+    let mut pair_line_ix = FxHashMap::default();
+
     for line in reader.lines() {
         let line = line?;
         let Some(paf_line) = parse_paf_line(line.split('\t')) else {
@@ -351,6 +229,7 @@ pub fn main() -> anyhow::Result<()> {
         //     [x as u64, y as u64]
         // };
 
+        pair_line_ix.insert((*target_i, *query_i), processed_lines.len());
         processed_lines.push(ProcessedCigar::from_line_local(&seq_names, &paf_line)?);
         // processed_lines.push(ProcessedCigar::from_line(&seq_names, &paf_line, origin)?);
 
@@ -361,6 +240,7 @@ pub fn main() -> anyhow::Result<()> {
     let paf_input = PafInput {
         queries,
         targets,
+        pair_line_ix,
         processed_lines,
     };
 
@@ -395,198 +275,6 @@ pub fn main() -> anyhow::Result<()> {
     };
 
     start_window(app);
-
-    Ok(())
-}
-
-// Cigar ops "projected" into a subset, with matches/mismatches combined
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum OpProj {
-    Match(usize),
-    Del(usize),
-    Ins(usize),
-}
-
-impl OpProj {
-    fn count(&self) -> usize {
-        match *self {
-            OpProj::Match(a) => a,
-            OpProj::Del(a) => a,
-            OpProj::Ins(a) => a,
-        }
-    }
-
-    fn with_count(&self, count: usize) -> Self {
-        use OpProj::*;
-        match *self {
-            Match(_) => Match(count),
-            Del(_) => Del(count),
-            Ins(_) => Ins(count),
-        }
-    }
-
-    fn is_same_op(&self, other: Self) -> bool {
-        use OpProj::*;
-        match (*self, other) {
-            (Match(_), Match(_)) => true,
-            (Del(_), Del(_)) => true,
-            (Ins(_), Ins(_)) => true,
-            _ => false,
-        }
-    }
-}
-
-fn process_cigar(
-    paf: &PafLine<&str>,
-    origin: [usize; 2],
-    match_edges: &mut Vec<[DVec2; 2]>,
-) -> anyhow::Result<()> {
-    let ops = paf
-        .cigar
-        .split_inclusive(['M', 'X', '=', 'D', 'I', 'S', 'H', 'N'])
-        .filter_map(|opstr| {
-            let count = opstr[..opstr.len() - 1].parse::<usize>().ok()?;
-            let op = opstr.as_bytes()[opstr.len() - 1] as char;
-            Some((op, count))
-        });
-
-    let [mut target_pos, mut query_pos] = origin;
-
-    for (op, count) in ops {
-        match op {
-            'M' | '=' | 'X' => {
-                let x = target_pos;
-                let y = query_pos;
-
-                {
-                    let x0 = x as f64;
-                    let y0 = y as f64;
-
-                    let x_end = if paf.strand_rev {
-                        x.checked_sub(count).unwrap_or_default()
-                    } else {
-                        x + count
-                    };
-                    let x1 = x_end as f64;
-                    let y1 = (y + count) as f64;
-
-                    match_edges.push([DVec2::new(x0, y0), DVec2::new(x1, y1)]);
-                }
-
-                // update query pos & target pos
-                target_pos += count;
-                if paf.strand_rev {
-                    query_pos = query_pos.checked_sub(count).unwrap_or_default()
-                } else {
-                    query_pos += count;
-                }
-            }
-            'D' => {
-                target_pos += count;
-            }
-            'I' => {
-                if paf.strand_rev {
-                    query_pos = query_pos.checked_sub(count).unwrap_or_default()
-                } else {
-                    query_pos += count;
-                }
-            }
-            _ => (),
-        }
-    }
-
-    Ok(())
-}
-
-fn process_cigar_compress(
-    paf: &PafLine<&str>,
-    origin: [usize; 2],
-    target_len: usize,
-    query_len: usize,
-    match_edges: &mut Vec<[DVec2; 2]>,
-) -> anyhow::Result<()> {
-    use OpProj::*;
-
-    let mut ops = paf
-        .cigar
-        .split_inclusive(['M', 'X', '=', 'D', 'I', 'S', 'H', 'N'])
-        .filter_map(|opstr| {
-            let count = opstr[..opstr.len() - 1].parse::<usize>().ok()?;
-            let op = opstr.as_bytes()[opstr.len() - 1] as char;
-            match op {
-                'M' | '=' | 'X' => Some(Match(count)),
-                'D' => Some(Del(count)),
-                'I' => Some(Ins(count)),
-                _ => None,
-            }
-        });
-    // .filter(|op| {
-    //     let lim = 150;
-    //     match op {
-    //         Match(_) => true,
-    //         Del(c) | Ins(c) => *c > lim,
-    //     }
-    // });
-
-    let mut compressed_ops = Vec::new();
-
-    let mut last_op = ops.next().ok_or(anyhow!("Empty CIGAR!"))?;
-
-    for op in ops {
-        if last_op.is_same_op(op) {
-            // combine
-            last_op = last_op.with_count(last_op.count() + op.count());
-        } else {
-            // emit last op
-            compressed_ops.push(last_op);
-            last_op = op;
-        }
-    }
-    compressed_ops.push(last_op);
-
-    let [mut target_pos, mut query_pos] = origin;
-
-    for op in compressed_ops {
-        match op {
-            Match(count) => {
-                let x = target_pos;
-                let y = query_pos;
-
-                {
-                    let x0 = x as f64;
-                    let y0 = y as f64;
-
-                    let x_end = if paf.strand_rev {
-                        x.checked_sub(count).unwrap_or_default()
-                    } else {
-                        x + count
-                    };
-                    let x1 = x_end as f64;
-                    let y1 = (y + count) as f64;
-
-                    match_edges.push([DVec2::new(x0, y0), DVec2::new(x1, y1)]);
-                }
-
-                // update query pos & target pos
-                target_pos += count;
-                if paf.strand_rev {
-                    query_pos = query_pos.checked_sub(count).unwrap_or_default()
-                } else {
-                    query_pos += count;
-                }
-            }
-            Del(count) => {
-                target_pos += count;
-            }
-            Ins(count) => {
-                if paf.strand_rev {
-                    query_pos = query_pos.checked_sub(count).unwrap_or_default()
-                } else {
-                    query_pos += count;
-                }
-            }
-        }
-    }
 
     Ok(())
 }
@@ -782,7 +470,16 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
         match_instances,
     );
 
+    let match_draw_data = render::batch::MatchDrawBatchData::from_paf_input(
+        &device,
+        &paf_renderer.line_pipeline.bind_group_layout_1,
+        &app.alignment_grid,
+        &app.paf_input,
+    );
+
     paf_renderer.set_grid(Some((grid_buffer, grid_color_buffer, grid_instances)));
+
+    let mut cpu_rasterizer = exact::CpuViewRasterizerEgui::default();
 
     let mut window_states = AppWindowStates::new(&app.annotations);
 
@@ -796,6 +493,9 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
     // let rstar_match = spatial::RStarMatches::from_paf(&input);
 
     let mut selection_handler = SelectionHandler::default();
+
+    // let mut exact_render_dbg = exact::ExactRenderDebug::default();
+    // let mut exact_render_view_dbg = exact::ExactRenderViewDebug::default();
 
     let mut mouse_down = false;
     let mut last_pos = None;
@@ -925,6 +625,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                     }
                     WindowEvent::RedrawRequested => {
                         let delta_t = last_frame.elapsed().as_secs_f64();
+                        // log::info!("delta_t: {} ms", last_frame.elapsed().as_millis());
 
                         let win_size: [u32; 2] = window.inner_size().into();
 
@@ -947,6 +648,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                             }
                         }
 
+                        app_view.apply_limits(win_size);
+
                         delta = DVec2::new(0.0, 0.0);
                         delta_scale = 1.0;
 
@@ -966,6 +669,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                         paf_renderer.draw(
                             &device,
                             &queue,
+                            &match_draw_data,
                             &app_view,
                             win_size,
                             &frame_view,
@@ -983,6 +687,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 pixels_per_point: window.scale_factor() as f32,
                             },
                             |ctx| {
+                                cpu_rasterizer.draw_and_display_view_layer(ctx, &app, &app_view);
+
                                 selection_handler.run(ctx, &mut app_view);
                                 // regions::paf_line_debug_aabbs(&input, ctx, &app_view);
                                 // annotations::draw_annotation_test_window(
@@ -995,6 +701,9 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 // gui::debug::line_width_control(ctx, &mut paf_renderer);
 
                                 gui::MenuBar::show(ctx, &app, &mut window_states);
+
+                                // exact_render_view_dbg.show(ctx, &app, win_size, &app_view);
+                                // exact_render_dbg.show(ctx, &app);
 
                                 roi_gui.show_window(
                                     ctx,

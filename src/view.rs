@@ -118,6 +118,14 @@ impl View {
         )
     }
 
+    pub fn bp_per_pixel(&self, canvas_width: u32) -> f64 {
+        self.width() / canvas_width as f64
+    }
+
+    pub fn pixels_per_bp(&self, canvas_width: u32) -> f64 {
+        canvas_width as f64 / self.width()
+    }
+
     pub fn to_dmat4(&self) -> DMat4 {
         let right = self.x_max;
         let left = self.x_min;
@@ -248,6 +256,27 @@ impl View {
             y_min: center.y - new_height * 0.5,
             y_max: center.y + new_height * 0.5,
         }
+    }
+
+    pub fn apply_limits(&mut self, window_size: impl Into<[u32; 2]>) {
+        let [w_width, w_height] = window_size.into();
+
+        let pixels_per_bp = w_width as f64 / self.width();
+        if pixels_per_bp < 32.0 {
+            return;
+        }
+
+        let pixels_per_bp = 32.0;
+        let bp_per_pixel = 1.0 / pixels_per_bp;
+
+        let width = bp_per_pixel * w_width as f64;
+        let height = bp_per_pixel * w_height as f64;
+        let center = self.center();
+
+        self.x_min = center.x - width * 0.5;
+        self.y_min = center.y - height * 0.5;
+        self.x_max = center.x + width * 0.5;
+        self.y_max = center.y + height * 0.5;
     }
 }
 
