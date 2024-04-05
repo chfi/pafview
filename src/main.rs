@@ -625,6 +625,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                     }
                     WindowEvent::RedrawRequested => {
                         let delta_t = last_frame.elapsed().as_secs_f64();
+                        // log::info!("delta_t: {} ms", last_frame.elapsed().as_millis());
 
                         let win_size: [u32; 2] = window.inner_size().into();
 

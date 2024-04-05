@@ -76,9 +76,9 @@ pub fn draw_exact_to_cpu_buffer(
 
     let bp_per_pixel = view.width() / canvas_size.x as f64;
 
-    log::info!("bp_per_pixel: {bp_per_pixel}");
+    // log::info!("bp_per_pixel: {bp_per_pixel}");
 
-    if bp_per_pixel > 1.0 {
+    if bp_per_pixel > super::PafRenderer::SCALE_LIMIT_BP_PER_PX {
         return None;
     }
 

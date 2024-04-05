@@ -426,6 +426,10 @@ pub struct PafRenderer {
 impl PafRenderer {
     const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
+    // TODO should probably be configurable, but for now this is the easy way
+    // to make it consistent
+    const SCALE_LIMIT_BP_PER_PX: f64 = 1.0;
+
     pub fn new(
         device: &wgpu::Device,
         swapchain_format: wgpu::TextureFormat,
@@ -507,14 +511,16 @@ impl PafRenderer {
         swapchain_view: &TextureView,
         encoder: &mut CommandEncoder,
     ) {
-        self.submit_draw_matches(
-            device,
-            queue,
-            match_data,
-            view,
-            window_dims,
-            // self.match_instances.clone(),
-        );
+        if view.bp_per_pixel(window_dims[0]) > Self::SCALE_LIMIT_BP_PER_PX {
+            self.submit_draw_matches(
+                device,
+                queue,
+                match_data,
+                view,
+                window_dims,
+                // self.match_instances.clone(),
+            );
+        }
 
         self.draw_front_image(device, queue, view, window_dims, swapchain_view, encoder);
     }
@@ -528,6 +534,13 @@ impl PafRenderer {
         swapchain_view: &TextureView,
         encoder: &mut CommandEncoder,
     ) {
+        if view.bp_per_pixel(window_dims[0]) <= Self::SCALE_LIMIT_BP_PER_PX
+            || self.draw_states[0].draw_set.is_none()
+        {
+            self.image_renderer.clear(swapchain_view, encoder);
+            return;
+        }
+
         if let Some(set) = self.draw_states[0].draw_set.as_ref() {
             self.image_renderer.create_bind_groups(
                 device,
@@ -541,8 +554,6 @@ impl PafRenderer {
 
             self.image_renderer
                 .draw(&self.image_bind_groups[0], swapchain_view, encoder);
-        } else {
-            self.image_renderer.clear(swapchain_view, encoder);
         }
     }
 

@@ -118,6 +118,14 @@ impl View {
         )
     }
 
+    pub fn bp_per_pixel(&self, canvas_width: u32) -> f64 {
+        self.width() / canvas_width as f64
+    }
+
+    pub fn pixels_per_bp(&self, canvas_width: u32) -> f64 {
+        canvas_width as f64 / self.width()
+    }
+
     pub fn to_dmat4(&self) -> DMat4 {
         let right = self.x_max;
         let left = self.x_min;
