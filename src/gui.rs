@@ -298,10 +298,10 @@ impl MenuBar {
     ) {
         egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if ui.button("Regions of Interest").clicked() {
-                    window_states.regions_of_interest_open =
-                        !window_states.regions_of_interest_open;
-                }
+                // if ui.button("Regions of Interest").clicked() {
+                //     window_states.regions_of_interest_open =
+                //         !window_states.regions_of_interest_open;
+                // }
 
                 // show/hide goto range window
                 if ui.button("Go to range").clicked() {

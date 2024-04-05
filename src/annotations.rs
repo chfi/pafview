@@ -190,37 +190,60 @@ impl AnnotationGuiHandler {
                 for (_file_path, &list_id) in app.annotations.annotation_sources.iter() {
                     let list = &app.annotations.annotation_lists[list_id];
 
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        for (record_id, record) in list.records.iter().enumerate() {
-                            ui.horizontal(|ui| {
-                                ui.label(format!("{}", record.label));
+                    ui.vertical(|ui| {
+                        ui.label("Toggle annotation display");
+                        ui.horizontal(|ui| {
+                            ui.label("All");
+                            let target_btn = ui.button("Target");
+                            let query_btn = ui.button("Query");
 
-                                let target_btn = ui.button("Target");
-                                let query_btn = ui.button("Query");
+                            if target_btn.clicked() {
+                                self.record_states.values_mut().for_each(|state| {
+                                    state.draw_target_region = !state.draw_target_region
+                                });
+                            }
 
-                                let state = self.get_region_state(app, list_id, record_id);
-
-                                if target_btn.clicked() {
-                                    state.draw_target_region = !state.draw_target_region;
-                                    log::info!(
-                                        "drawing {} target region: {}\t(region {:?})",
-                                        record.label,
-                                        state.draw_target_region,
-                                        state.seq_region
-                                    );
-                                }
-
-                                if query_btn.clicked() {
+                            if query_btn.clicked() {
+                                self.record_states.values_mut().for_each(|state| {
                                     state.draw_query_region = !state.draw_query_region;
-                                    log::info!(
-                                        "drawing {} query region: {}\t(region {:?})",
-                                        record.label,
-                                        state.draw_query_region,
-                                        state.seq_region
-                                    );
-                                }
-                            });
-                        }
+                                });
+                            }
+                        });
+
+                        ui.separator();
+
+                        egui::ScrollArea::vertical().show(ui, |ui| {
+                            for (record_id, record) in list.records.iter().enumerate() {
+                                ui.horizontal(|ui| {
+                                    ui.label(format!("{}", record.label));
+
+                                    let target_btn = ui.button("Target");
+                                    let query_btn = ui.button("Query");
+
+                                    let state = self.get_region_state(app, list_id, record_id);
+
+                                    if target_btn.clicked() {
+                                        state.draw_target_region = !state.draw_target_region;
+                                        log::info!(
+                                            "drawing {} target region: {}\t(region {:?})",
+                                            record.label,
+                                            state.draw_target_region,
+                                            state.seq_region
+                                        );
+                                    }
+
+                                    if query_btn.clicked() {
+                                        state.draw_query_region = !state.draw_query_region;
+                                        log::info!(
+                                            "drawing {} query region: {}\t(region {:?})",
+                                            record.label,
+                                            state.draw_query_region,
+                                            state.seq_region
+                                        );
+                                    }
+                                });
+                            }
+                        });
                     });
                 }
             });
