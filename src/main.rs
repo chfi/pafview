@@ -647,6 +647,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                             }
                         }
 
+                        app_view.apply_limits(win_size);
+
                         delta = DVec2::new(0.0, 0.0);
                         delta_scale = 1.0;
 
