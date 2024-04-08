@@ -165,48 +165,43 @@ impl RegionsOfInterestGui {
                     // self.bookmark_panel_ui(annotations, alignment_grid, seq_names, input, view, ui);
                 }
                 SelectedRegionSet::Annotations { list_id } => {
-                    let list = &app.annotations.list_by_id(list_id).unwrap();
-
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        for (record_id, record) in list.records.iter().enumerate() {
-                            ui.horizontal(|ui| {
-                                ui.label(format!("{}", record.label));
-
-                                // let target_btn = ui.button("Target");
-                                // let query_btn = ui.button("Query");
-
-                                /*
-                                let state = self.get_region_state(app, list_id, record_id);
-
-                                if target_btn.clicked() {
-                                    state.draw_target_region = !state.draw_target_region;
-                                    log::info!(
-                                        "drawing {} target region: {}\t(region {:?})",
-                                        record.label,
-                                        state.draw_target_region,
-                                        state.seq_region
-                                    );
-                                }
-
-                                if query_btn.clicked() {
-                                    state.draw_query_region = !state.draw_query_region;
-                                    log::info!(
-                                        "drawing {} query region: {}\t(region {:?})",
-                                        record.label,
-                                        state.draw_query_region,
-                                        state.seq_region
-                                    );
-                                }
-                                */
-                            });
-                        }
-                    });
+                    self.annotation_panel_ui(app, annotation_painter, view, ui, list_id);
                 }
             }
         });
     }
 
-    fn bookmark_entry_widget(
+    fn annotation_list_entry_widget(
+        &mut self,
+        app: &PafViewerApp,
+        annotation_painter: &mut AnnotationPainter,
+        // alignment_grid: &crate::grid::AlignmentGrid,
+        view: &mut View,
+        ui: &mut Ui,
+        list_id: usize,
+        record_id: usize,
+    ) {
+        let Some(list) = app.annotations.list_by_id(list_id) else {
+            return;
+        };
+        let record = &list.records[record_id];
+
+        let label = ui.add(egui::Label::new(&record.label).sense(egui::Sense::click()));
+
+        if label.double_clicked() {
+            // zoom to region
+        }
+
+        if ui.button("Target").clicked() {
+            // TODO toggle target region display; need to use annotationpainter first
+        }
+
+        if ui.button("Query").clicked() {
+            // TODO toggle target region display; need to use annotationpainter first
+        }
+    }
+
+    fn bookmark_list_entry_widget(
         &mut self,
         // annotations: &crate::annotations::AnnotationStore,
         annotation_painter: &mut AnnotationPainter,
@@ -379,6 +374,97 @@ impl RegionsOfInterestGui {
         ui.data_mut(|data| data.insert_temp(data_id, widget_state));
     }
 
+    fn annotation_panel_ui(
+        &mut self,
+        app: &PafViewerApp,
+        annotation_painter: &mut AnnotationPainter,
+        // annotations: &crate::annotations::AnnotationStore,
+        // alignment_grid: &crate::grid::AlignmentGrid,
+        // seq_names: &BiMap<String, usize>,
+        // input: &PafInput,
+        view: &mut View,
+        ui: &mut Ui,
+        list_id: usize,
+    ) {
+        let Some(list) = app.annotations.list_by_id(list_id) else {
+            return;
+        };
+
+        ui.vertical(|ui| {
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                egui::Grid::new(ui.id().with("annotation_list"))
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for record_id in 0..list.records.len() {
+                            self.annotation_list_entry_widget(
+                                app,
+                                annotation_painter,
+                                view,
+                                ui,
+                                list_id,
+                                record_id,
+                            );
+
+                            ui.end_row();
+                        }
+
+                        /*
+                        for ix in 0..self.bookmarks.len() {
+                            self.bookmark_entry_widget(
+                                // &app.annotations,
+                                annotation_painter,
+                                &app.alignment_grid,
+                                view,
+                                ui,
+                                ix,
+                            );
+
+                            ui.end_row();
+                        }
+                        */
+                    });
+                //
+            });
+        });
+        // let list = &app.annotations.list_by_id(list_id).unwrap();
+
+        // egui::ScrollArea::vertical().show(ui, |ui| {
+        //     for (record_id, record) in list.records.iter().enumerate() {
+        //         ui.horizontal(|ui| {
+        //             ui.label(format!("{}", record.label));
+
+        //             // let target_btn = ui.button("Target");
+        //             // let query_btn = ui.button("Query");
+
+        //             /*
+        //             let state = self.get_region_state(app, list_id, record_id);
+
+        //             if target_btn.clicked() {
+        //                 state.draw_target_region = !state.draw_target_region;
+        //                 log::info!(
+        //                     "drawing {} target region: {}\t(region {:?})",
+        //                     record.label,
+        //                     state.draw_target_region,
+        //                     state.seq_region
+        //                 );
+        //             }
+
+        //             if query_btn.clicked() {
+        //                 state.draw_query_region = !state.draw_query_region;
+        //                 log::info!(
+        //                     "drawing {} query region: {}\t(region {:?})",
+        //                     record.label,
+        //                     state.draw_query_region,
+        //                     state.seq_region
+        //                 );
+        //             }
+        //             */
+        //         });
+        //     }
+        // });
+        //
+    }
+
     fn bookmark_panel_ui(
         &mut self,
         app: &PafViewerApp,
@@ -397,7 +483,7 @@ impl RegionsOfInterestGui {
                     .striped(true)
                     .show(ui, |ui| {
                         for ix in 0..self.bookmarks.len() {
-                            self.bookmark_entry_widget(
+                            self.bookmark_list_entry_widget(
                                 // &app.annotations,
                                 annotation_painter,
                                 &app.alignment_grid,
