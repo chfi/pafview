@@ -1,4 +1,4 @@
-use annotations::AnnotationGuiHandler;
+use annotations::{draw::AnnotationPainter, AnnotationGuiHandler};
 use bimap::BiMap;
 use bytemuck::{Pod, Zeroable};
 use egui_wgpu::ScreenDescriptor;
@@ -295,6 +295,10 @@ struct LineVertex {
 #[derive(Clone, PartialEq, PartialOrd)]
 pub enum AppEvent {
     LoadAnnotationFile { path: std::path::PathBuf },
+    // AnnotationShapeDisplay {
+    //     shape_id: annotations::draw::AnnotShapeId,
+    //     enable: Option<bool>,
+    // },
 }
 
 async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewerApp) {
@@ -494,6 +498,10 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
     let mut roi_gui = gui::regions::RegionsOfInterestGui::default();
 
+    let mut annotation_painter = AnnotationPainter::default();
+
+    let event_loop_proxy = event_loop.create_proxy();
+
     // TODO build this on a separate thread
     // let rstar_match = spatial::RStarMatches::from_paf(&input);
 
@@ -518,7 +526,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
             // the resources are properly cleaned up.
             let _ = (&instance, &adapter);
 
-            if let Event::UserEvent(event) = &event {
+            if let Event::UserEvent(event) = event {
                 match event {
                     AppEvent::LoadAnnotationFile { path } => {
                         // TODO check file extension maybe, other logic
@@ -530,8 +538,17 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 log::error!("Error loading BED file at path `{path:?}`: {err:?}")
                             }
                         }
-                    }
+                    } // AppEvent::AnnotationShapeDisplay { shape_id, enable } => {
+                      //     if let Some(enable) = enable {
+                      //         annotation_painter.set_enable_shape(shape_id, enable);
+                      //     } else {
+                      //         let enabled = annotation_painter.enable_shape_mut(shape_id);
+                      //         *enabled = !*enabled;
+                      //     }
+                      // }
                 }
+
+                return;
             }
 
             if let Event::AboutToWait = event {
@@ -712,10 +729,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
                                 roi_gui.show_window(
                                     ctx,
-                                    &mut app.annotations,
-                                    &app.alignment_grid,
-                                    &app.seq_names,
-                                    &app.paf_input,
+                                    &app,
+                                    &mut annotation_painter,
                                     &mut app_view,
                                     &mut window_states,
                                 );
@@ -742,6 +757,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                     ctx,
                                     &app_view,
                                 );
+
+                                annotation_painter.draw(ctx, &app_view);
                             },
                         );
 

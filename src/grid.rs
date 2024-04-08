@@ -48,6 +48,21 @@ pub struct GridAxis {
 }
 
 impl GridAxis {
+    pub fn axis_range_into_global(
+        &self,
+        axis_range: &AxisRange,
+    ) -> Option<std::ops::RangeInclusive<f64>> {
+        match axis_range {
+            AxisRange::Global(range) => Some(range.clone()),
+            AxisRange::Seq { seq_id, range } => {
+                let offset = self.sequence_offset(*seq_id)?;
+                let start = (offset + range.start) as f64;
+                let end = (offset + range.end) as f64;
+                Some(start..=end)
+            }
+        }
+    }
+
     pub fn tiles_covered_by_range(
         &self,
         range: std::ops::RangeInclusive<f64>,

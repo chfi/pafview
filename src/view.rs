@@ -1,4 +1,4 @@
-use std::ops::Range;
+use std::ops::{Range, RangeInclusive};
 
 use ultraviolet::{DMat4, DVec2, DVec4, Mat4, Vec2, Vec3};
 
@@ -203,17 +203,26 @@ impl View {
         self.y_max = y0 + y_hlen;
     }
 
-    pub fn fit_ranges_in_view(
+    pub fn fit_ranges_in_view_f64(
+        &self,
+        x_range: Option<RangeInclusive<f64>>,
+        y_range: Option<RangeInclusive<f64>>,
+    ) -> Self {
+        let aspect_ratio = self.width() / self.height();
+        self.fit_ranges_in_view_with_aspect_f64(aspect_ratio, x_range, y_range)
+    }
+
+    pub fn fit_ranges_in_view_with_aspect_f64(
         &self,
         aspect_ratio: f64,
-        x_range: Option<Range<u64>>,
-        y_range: Option<Range<u64>>,
+        x_range: Option<RangeInclusive<f64>>,
+        y_range: Option<RangeInclusive<f64>>,
     ) -> Self {
         let (x_min, x_max) = x_range
-            .map(|r| (r.start as f64, r.end as f64))
+            .map(|r| (*r.start(), *r.end()))
             .unwrap_or_else(|| (self.x_min, self.x_max));
         let (y_min, y_max) = y_range
-            .map(|r| (r.start as f64, r.end as f64))
+            .map(|r| (*r.start(), *r.end()))
             .unwrap_or_else(|| (self.y_min, self.y_max));
 
         let size = DVec2::new(x_max - x_min, y_max - y_min);
@@ -232,6 +241,19 @@ impl View {
             y_min: min.y,
             y_max: max.y,
         }
+    }
+
+    pub fn fit_ranges_in_view_with_aspect(
+        &self,
+        aspect_ratio: f64,
+        x_range: Option<Range<u64>>,
+        y_range: Option<Range<u64>>,
+    ) -> Self {
+        let map_range = |range: Range<u64>| (range.start as f64)..=(range.end as f64);
+        let x_range = x_range.map(map_range);
+        let y_range = y_range.map(map_range);
+
+        self.fit_ranges_in_view_with_aspect_f64(aspect_ratio, x_range, y_range)
     }
 
     pub fn resize_for_window_size(
