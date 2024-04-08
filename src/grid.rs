@@ -14,6 +14,28 @@ pub struct AlignmentGrid {
     pub sequence_names: Arc<BiMap<String, usize>>,
 }
 
+pub fn parse_axis_range_into_global(
+    seq_names: &BiMap<String, usize>,
+    axis: &GridAxis,
+    text: &str,
+) -> Option<AxisRange> {
+    let mut split = text.split(':');
+    let name = split.next()?;
+    let id = *seq_names.get_by_left(name)?;
+
+    let offset = axis.sequence_offset(id)?;
+    // let offset = seqs[id].offset;
+
+    let mut range = split
+        .next()?
+        .split('-')
+        .filter_map(|s| s.parse::<u64>().ok());
+    let start = (range.next()? + offset) as f64;
+    let end = (range.next()? + offset) as f64;
+
+    Some(AxisRange::Global(start..=end))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AxisRange {
     Global(std::ops::RangeInclusive<f64>),
@@ -26,6 +48,37 @@ pub enum AxisRange {
 impl AxisRange {
     pub fn seq(seq_id: usize, range: std::ops::Range<u64>) -> Self {
         AxisRange::Seq { seq_id, range }
+    }
+
+    pub fn from_string_with_names(seq_names: &BiMap<String, usize>, text: &str) -> Option<Self> {
+        if let Some((seq_name, range)) = text.rsplit_once(':') {
+            let (from, to) = range.split_once('-')?;
+            let from = from.parse::<u64>().ok()?;
+            let to = to.parse::<u64>().ok()?;
+            let seq_id = *seq_names.get_by_left(seq_name)?;
+            Some(AxisRange::Seq {
+                seq_id,
+                range: from..to,
+            })
+        } else {
+            let (from, to) = text.split_once('-')?;
+            let from = from.parse::<f64>().ok()?;
+            let to = to.parse::<f64>().ok()?;
+            Some(AxisRange::Global(from..=to))
+        }
+    }
+
+    pub fn to_string_with_names(&self, seq_names: &BiMap<String, usize>) -> String {
+        match self {
+            AxisRange::Global(range) => format!("{:.2}-{:.2}", range.start(), range.end()),
+            AxisRange::Seq { seq_id, range } => {
+                let seq_name = seq_names
+                    .get_by_right(seq_id)
+                    .map(|s| s.as_str())
+                    .unwrap_or("<ERROR>");
+                format!("{seq_name}:{}-{}", range.start, range.end)
+            }
+        }
     }
 }
 

@@ -94,7 +94,7 @@ pub fn goto_range_controls(
     // }
 
     if goto {
-        let new_view = view.fit_ranges_in_view(aspect_ratio, x_range, y_range);
+        let new_view = view.fit_ranges_in_view_with_aspect(aspect_ratio, x_range, y_range);
         *view = new_view;
     }
 
@@ -298,10 +298,10 @@ impl MenuBar {
     ) {
         egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                // if ui.button("Regions of Interest").clicked() {
-                //     window_states.regions_of_interest_open =
-                //         !window_states.regions_of_interest_open;
-                // }
+                if ui.button("Regions of Interest").clicked() {
+                    window_states.regions_of_interest_open =
+                        !window_states.regions_of_interest_open;
+                }
 
                 // show/hide goto range window
                 if ui.button("Go to range").clicked() {

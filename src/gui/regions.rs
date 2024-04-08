@@ -5,7 +5,7 @@ use ultraviolet::{Mat4, Vec2};
 
 use crate::{
     annotations::{
-        draw::{AnnotShapeId, AnnotationPainter},
+        draw::{AnnotShapeId, AnnotationPainter, AnnotationWorldRegion},
         AnnotationStore,
     },
     grid::{AlignmentGrid, AxisRange},
@@ -19,7 +19,18 @@ use super::AppWindowStates;
 pub struct RegionsOfInterestGui {
     selected_region_set: Option<SelectedRegionSet>,
 
+    bookmark_list_selected_ix: Option<usize>,
     bookmarks: Vec<RegionOfInterest>,
+}
+
+#[derive(Default, Clone)]
+struct BookmarkDetailsWidgetState {
+    target_range: String,
+    query_range: String,
+
+    // TODO store color32, use color picker
+    color: String,
+    label: String,
 }
 
 #[derive(Clone)]
@@ -188,8 +199,18 @@ impl RegionsOfInterestGui {
         // book
     ) {
         let bookmark = &self.bookmarks[bookmark_ix];
-        let label = egui::Label::new(&bookmark.label).sense(egui::Sense::click());
+
+        let label_selected = self
+            .bookmark_list_selected_ix
+            .is_some_and(|ix| ix == bookmark_ix);
+
+        let label = egui::SelectableLabel::new(label_selected, &bookmark.label);
+
         let label = ui.add(label);
+
+        if label.clicked() {
+            self.bookmark_list_selected_ix = Some(bookmark_ix);
+        }
 
         if label.double_clicked() {
             // TODO zoom to region
@@ -211,6 +232,132 @@ impl RegionsOfInterestGui {
         if ui.button("Display").clicked() {
             *annotation_painter.enable_shape_mut(bookmark.shape_id) ^= true;
         }
+    }
+
+    fn bookmark_create_widget(
+        &mut self,
+        annotation_painter: &mut AnnotationPainter,
+        alignment_grid: &crate::grid::AlignmentGrid,
+        view: &mut View,
+        ui: &mut Ui,
+    ) {
+        if ui.button("Bookmark current view").clicked() {
+            let x_range = AxisRange::Global(view.x_range());
+            let y_range = AxisRange::Global(view.y_range());
+            let label = "New bookmark".to_string();
+            let color = egui::Color32::RED.linear_multiply(0.3);
+
+            let draw_shape = AnnotationWorldRegion {
+                world_x_range: Some(view.x_range()),
+                world_y_range: Some(view.y_range()),
+                color,
+            };
+            let shape_id = annotation_painter.add_shape(Box::new(draw_shape));
+
+            self.bookmarks.push(RegionOfInterest {
+                x_range: Some(x_range),
+                y_range: Some(y_range),
+                label,
+                color: Some(color),
+                shape_id,
+            });
+        }
+
+        if ui.button("Select region to mark").clicked() {
+            // TODO... how to handle this??
+        }
+    }
+
+    fn bookmark_details_widget(
+        &mut self,
+        annotation_painter: &mut AnnotationPainter,
+        alignment_grid: &crate::grid::AlignmentGrid,
+        view: &mut View,
+        ui: &mut Ui,
+    ) {
+        // text boxes &c for inputting ranges to *edit* selected bookmark...
+        // probably best to have an "apply" button rather than actually parse on the fly,
+        // and there should be a button to reset changes before applying
+
+        let Some(bookmark_ix) = self.bookmark_list_selected_ix else {
+            return;
+        };
+
+        let data_id = egui::Id::new("bookmark_detail_widget");
+
+        let mut widget_state = ui
+            .data(|data| data.get_temp::<BookmarkDetailsWidgetState>(data_id))
+            .unwrap_or_default();
+
+        ui.horizontal(|ui| {
+            ui.label("Target");
+            ui.text_edit_singleline(&mut widget_state.target_range);
+        });
+        ui.horizontal(|ui| {
+            ui.label("Query");
+            ui.text_edit_singleline(&mut widget_state.query_range);
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("Label");
+            ui.text_edit_singleline(&mut widget_state.label);
+        });
+        // ui.text_edit_singleline(&mut widget_state.color);
+
+        if ui.button("Reset").clicked() {
+            let bookmark = &self.bookmarks[bookmark_ix];
+            if let Some(range) = bookmark.x_range.as_ref() {
+                widget_state.target_range =
+                    range.to_string_with_names(&alignment_grid.sequence_names);
+            }
+            if let Some(range) = bookmark.y_range.as_ref() {
+                widget_state.target_range =
+                    range.to_string_with_names(&alignment_grid.sequence_names);
+            }
+
+            widget_state.label = bookmark.label.clone();
+        }
+
+        if ui.button("Apply").clicked() {
+            let bookmark = &mut self.bookmarks[bookmark_ix];
+
+            let x_range = crate::grid::parse_axis_range_into_global(
+                &alignment_grid.sequence_names,
+                &alignment_grid.x_axis,
+                &widget_state.target_range,
+            );
+            let y_range = crate::grid::parse_axis_range_into_global(
+                &alignment_grid.sequence_names,
+                &alignment_grid.y_axis,
+                &widget_state.query_range,
+            );
+
+            if !widget_state.label.is_empty() {
+                bookmark.label = widget_state.label.clone();
+            }
+
+            if let Some(range) = x_range {
+                bookmark.x_range = Some(range);
+            }
+            if let Some(range) = y_range {
+                bookmark.y_range = Some(range);
+            }
+        }
+
+        // let target_id = ui.id().with("target-range");
+        // let query_id = ui.id().with("query-range");
+
+        // let (mut target_buf, mut query_buf) = ui
+        //     .data(|data| {
+        //         let t = data.get_temp::<String>(target_id)?;
+        //         let q = data.get_temp::<String>(query_id)?;
+        //         Some((t, q))
+        //     })
+        //     .unwrap_or_default();
+
+        //
+
+        ui.data_mut(|data| data.insert_temp(data_id, widget_state));
     }
 
     fn bookmark_panel_ui(
@@ -252,10 +399,15 @@ impl RegionsOfInterestGui {
             // "select & mark region"
             // "custom mark" w/ target & query region inputs
 
+            self.bookmark_create_widget(annotation_painter, &app.alignment_grid, view, ui);
+
+            ui.separator();
+            self.bookmark_details_widget(annotation_painter, &app.alignment_grid, view, ui);
+
             //
-            ui.horizontal(|ui| {
-                //
-            });
+            // ui.horizontal(|ui| {
+            //     //
+            // });
         });
     }
 }

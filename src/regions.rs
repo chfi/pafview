@@ -128,7 +128,7 @@ impl SelectionHandler {
             let d = d.ceil() as u64;
 
             if right_released {
-                *view = view.fit_ranges_in_view(
+                *view = view.fit_ranges_in_view_with_aspect(
                     screen_size.x as f64 / screen_size.y as f64,
                     Some(l..r),
                     Some(u..d),
