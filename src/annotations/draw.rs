@@ -33,6 +33,10 @@ impl AnnotationPainter {
         id
     }
 
+    pub fn set_shape_color(&mut self, shape_id: AnnotShapeId, color: egui::Color32) {
+        self.annotations[shape_id.0].set_color(color);
+    }
+
     // pub fn with_enable_shape_mut(&mut self, shape_id: AnnotShapeId, f: impl FnOnce(&mut bool)) {
     //     f(&mut self.enabled[shape_id.0])
     // }
@@ -74,6 +78,8 @@ pub trait DrawAnnotation {
         screen_size: egui::Vec2,
     );
 
+    fn set_color(&mut self, _color: egui::Color32);
+
     // fn text(&self) -> Option<(&str, egui::Align2)> {
     //     None
     // }
@@ -94,6 +100,12 @@ impl DrawAnnotation for AnnotationDrawCollection {
     ) {
         for item in self.draw.iter() {
             item.draw(galley_cache, painter, view, screen_size);
+        }
+    }
+
+    fn set_color(&mut self, color: egui::Color32) {
+        for item in self.draw.iter_mut() {
+            item.set_color(color);
         }
     }
 }
@@ -177,6 +189,8 @@ impl DrawAnnotation for AnnotationLabel {
         let rect = egui::Rect::from_two_pos(q0.into(), q1.into());
         painter.galley(rect.left_top(), galley, egui::Color32::BLACK);
     }
+
+    fn set_color(&mut self, _color: egui::Color32) {}
 }
 
 pub struct AnnotationWorldRegion {
@@ -224,5 +238,9 @@ impl DrawAnnotation for AnnotationWorldRegion {
         let rect = egui::Rect::from_two_pos(q0.into(), q1.into());
         painter.rect_filled(rect, 0.0, self.color);
         // painter.galley(rect.left_top(), galley, egui::Color32::BLACK);
+    }
+
+    fn set_color(&mut self, color: egui::Color32) {
+        self.color = color;
     }
 }

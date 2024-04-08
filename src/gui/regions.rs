@@ -1,5 +1,5 @@
 use bimap::BiMap;
-use egui::{util::IdTypeMap, Color32, DragValue, FontId, Ui};
+use egui::{color_picker::Alpha, util::IdTypeMap, Color32, DragValue, FontId, Ui};
 use rustc_hash::FxHashMap;
 use ultraviolet::{Mat4, Vec2};
 
@@ -25,12 +25,33 @@ pub struct RegionsOfInterestGui {
 
 #[derive(Default, Clone)]
 struct BookmarkDetailsWidgetState {
+    displayed_ix: Option<usize>,
+
     target_range: String,
     query_range: String,
 
-    // TODO store color32, use color picker
-    color: String,
+    color: egui::Rgba,
     label: String,
+}
+
+impl BookmarkDetailsWidgetState {
+    fn reset_from(
+        &mut self,
+        grid: &AlignmentGrid,
+        bookmark: &RegionOfInterest,
+        bookmark_ix: usize,
+    ) {
+        if let Some(range) = bookmark.x_range.as_ref() {
+            self.target_range = range.to_string_with_names(&grid.sequence_names);
+        }
+        if let Some(range) = bookmark.y_range.as_ref() {
+            self.query_range = range.to_string_with_names(&grid.sequence_names);
+        }
+
+        self.label = bookmark.label.clone();
+        self.color = bookmark.color;
+        self.displayed_ix = Some(bookmark_ix);
+    }
 }
 
 #[derive(Clone)]
@@ -39,7 +60,7 @@ pub struct RegionOfInterest {
     y_range: Option<AxisRange>,
 
     label: String,
-    color: Option<egui::Color32>,
+    color: egui::Rgba,
 
     shape_id: AnnotShapeId,
 }
@@ -69,10 +90,7 @@ impl RegionsOfInterestGui {
             // .auto_sized()
             // .vscroll(true)
             // .default_open(false)
-            .show(&ctx, |ui| {
-                self.ui(app, annotation_painter, view, ui)
-                // self.ui(annotations, alignment_grid, seq_names, input, view, ui)
-            });
+            .show(&ctx, |ui| self.ui(app, annotation_painter, view, ui));
     }
 
     fn ui(
@@ -213,8 +231,6 @@ impl RegionsOfInterestGui {
         }
 
         if label.double_clicked() {
-            // TODO zoom to region
-
             let x_range = bookmark
                 .x_range
                 .as_ref()
@@ -245,7 +261,7 @@ impl RegionsOfInterestGui {
             let x_range = AxisRange::Global(view.x_range());
             let y_range = AxisRange::Global(view.y_range());
             let label = "New bookmark".to_string();
-            let color = egui::Color32::RED.linear_multiply(0.3);
+            let color = egui::Color32::TRANSPARENT;
 
             let draw_shape = AnnotationWorldRegion {
                 world_x_range: Some(view.x_range()),
@@ -258,14 +274,16 @@ impl RegionsOfInterestGui {
                 x_range: Some(x_range),
                 y_range: Some(y_range),
                 label,
-                color: Some(color),
+                color: egui::Rgba::TRANSPARENT,
                 shape_id,
             });
         }
 
         if ui.button("Select region to mark").clicked() {
-            // TODO... how to handle this??
+            // TODO... how to handle this?? need state & comms
         }
+
+        // TODO buttons to add individual X and Y range marks
     }
 
     fn bookmark_details_widget(
@@ -279,15 +297,22 @@ impl RegionsOfInterestGui {
         // probably best to have an "apply" button rather than actually parse on the fly,
         // and there should be a button to reset changes before applying
 
-        let Some(bookmark_ix) = self.bookmark_list_selected_ix else {
-            return;
-        };
-
         let data_id = egui::Id::new("bookmark_detail_widget");
 
         let mut widget_state = ui
             .data(|data| data.get_temp::<BookmarkDetailsWidgetState>(data_id))
             .unwrap_or_default();
+
+        let same_selection = self.bookmark_list_selected_ix == widget_state.displayed_ix;
+
+        let Some(bookmark_ix) = self.bookmark_list_selected_ix else {
+            return;
+        };
+
+        if !same_selection {
+            let bookmark = &self.bookmarks[bookmark_ix];
+            widget_state.reset_from(&alignment_grid, bookmark, bookmark_ix);
+        }
 
         ui.horizontal(|ui| {
             ui.label("Target");
@@ -302,25 +327,29 @@ impl RegionsOfInterestGui {
             ui.label("Label");
             ui.text_edit_singleline(&mut widget_state.label);
         });
-        // ui.text_edit_singleline(&mut widget_state.color);
+        let color_resp = egui::widgets::color_picker::color_edit_button_rgba(
+            ui,
+            &mut widget_state.color,
+            Alpha::OnlyBlend,
+        );
+        // let color_changed = egui::widgets::color_picker::color_picker_color32(
+        //     ui,
+        //     &mut widget_state.color,
+        //     Alpha::OnlyBlend,
+        // );
 
         if ui.button("Reset").clicked() {
             let bookmark = &self.bookmarks[bookmark_ix];
-            if let Some(range) = bookmark.x_range.as_ref() {
-                widget_state.target_range =
-                    range.to_string_with_names(&alignment_grid.sequence_names);
-            }
-            if let Some(range) = bookmark.y_range.as_ref() {
-                widget_state.target_range =
-                    range.to_string_with_names(&alignment_grid.sequence_names);
-            }
+            widget_state.reset_from(&alignment_grid, bookmark, bookmark_ix);
+        }
 
-            widget_state.label = bookmark.label.clone();
+        let bookmark = &mut self.bookmarks[bookmark_ix];
+        if color_resp.changed() {
+            bookmark.color = widget_state.color;
+            annotation_painter.set_shape_color(bookmark.shape_id, bookmark.color.into());
         }
 
         if ui.button("Apply").clicked() {
-            let bookmark = &mut self.bookmarks[bookmark_ix];
-
             let x_range = crate::grid::parse_axis_range_into_global(
                 &alignment_grid.sequence_names,
                 &alignment_grid.x_axis,
@@ -336,6 +365,9 @@ impl RegionsOfInterestGui {
                 bookmark.label = widget_state.label.clone();
             }
 
+            bookmark.color = widget_state.color;
+            annotation_painter.set_shape_color(bookmark.shape_id, bookmark.color.into());
+
             if let Some(range) = x_range {
                 bookmark.x_range = Some(range);
             }
@@ -343,19 +375,6 @@ impl RegionsOfInterestGui {
                 bookmark.y_range = Some(range);
             }
         }
-
-        // let target_id = ui.id().with("target-range");
-        // let query_id = ui.id().with("query-range");
-
-        // let (mut target_buf, mut query_buf) = ui
-        //     .data(|data| {
-        //         let t = data.get_temp::<String>(target_id)?;
-        //         let q = data.get_temp::<String>(query_id)?;
-        //         Some((t, q))
-        //     })
-        //     .unwrap_or_default();
-
-        //
 
         ui.data_mut(|data| data.insert_temp(data_id, widget_state));
     }
