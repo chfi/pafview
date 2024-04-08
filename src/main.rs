@@ -292,13 +292,16 @@ struct LineVertex {
     // color: u32,
 }
 
-#[derive(Clone, PartialEq, PartialOrd)]
+#[derive(Clone)]
 pub enum AppEvent {
     LoadAnnotationFile { path: std::path::PathBuf },
     // AnnotationShapeDisplay {
     //     shape_id: annotations::draw::AnnotShapeId,
     //     enable: Option<bool>,
     // },
+
+    // idk if this is a good idea but worth a try
+    RequestSelection { target: regions::SelectionTarget },
 }
 
 async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewerApp) {
@@ -538,14 +541,10 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 log::error!("Error loading BED file at path `{path:?}`: {err:?}")
                             }
                         }
-                    } // AppEvent::AnnotationShapeDisplay { shape_id, enable } => {
-                      //     if let Some(enable) = enable {
-                      //         annotation_painter.set_enable_shape(shape_id, enable);
-                      //     } else {
-                      //         let enabled = annotation_painter.enable_shape_mut(shape_id);
-                      //         *enabled = !*enabled;
-                      //     }
-                      // }
+                    }
+                    AppEvent::RequestSelection { target } => {
+                        selection_handler.selection_target = Some(target);
+                    }
                 }
 
                 return;
@@ -730,6 +729,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 roi_gui.show_window(
                                     ctx,
                                     &app,
+                                    &event_loop_proxy,
                                     &mut annotation_painter,
                                     &mut app_view,
                                     &mut window_states,

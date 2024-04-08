@@ -1,5 +1,8 @@
 // utilities for drawing & interacting with regions in the match grid
 
+use std::sync::Arc;
+
+use egui::mutex::Mutex;
 use ultraviolet::DVec2;
 
 pub fn region_to_screen_rect(
@@ -84,11 +87,27 @@ pub fn paf_line_debug_aabbs(
 #[derive(Default)]
 pub struct SelectionHandler {
     right_click_w_pos: Option<DVec2>,
+
+    pub(super) selection_target: Option<SelectionTarget>,
+}
+
+// poorly named, but the target of a selection "requested" by another system
+// -- when the SelectionHandler has "completed" a selection, the result is placed
+// here for the "caller" to make use of
+#[derive(Default, Clone)]
+pub struct SelectionTarget {
+    pub result: Arc<Mutex<Option<crate::view::View>>>,
 }
 
 impl SelectionHandler {
+    pub fn has_active_selection_request(&self) -> bool {
+        self.selection_target.is_some()
+    }
+
     pub fn run(&mut self, ctx: &egui::Context, view: &mut crate::view::View) {
         let (right_pressed, right_released, cur_pos) = ctx.input(|i| {
+            // let left_pressed = i.pointer.button_pressed(egui::PointerButton::Primary);
+            // let left_rel = i.pointer.button_released(egui::PointerButton::Primary);
             let right_pressed = i.pointer.button_pressed(egui::PointerButton::Secondary);
             let right_rel = i.pointer.button_released(egui::PointerButton::Secondary);
             let cur_pos = i.pointer.latest_pos();
@@ -128,11 +147,19 @@ impl SelectionHandler {
             let d = d.ceil() as u64;
 
             if right_released {
-                *view = view.fit_ranges_in_view_with_aspect(
+                // TODO should use left button here; factor out & improve
+                let new_view = view.fit_ranges_in_view_with_aspect(
                     screen_size.x as f64 / screen_size.y as f64,
                     Some(l..r),
                     Some(u..d),
                 );
+
+                if let Some(target) = self.selection_target.take() {
+                    let mut result = target.result.lock();
+                    *result = Some(new_view);
+                } else {
+                    *view = new_view;
+                }
                 self.right_click_w_pos.take();
             }
         }

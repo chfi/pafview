@@ -2,6 +2,7 @@ use bimap::BiMap;
 use egui::{color_picker::Alpha, util::IdTypeMap, Color32, DragValue, FontId, Ui};
 use rustc_hash::FxHashMap;
 use ultraviolet::{Mat4, Vec2};
+use winit::event_loop::EventLoopProxy;
 
 use crate::{
     annotations::{
@@ -9,6 +10,7 @@ use crate::{
         AnnotationStore,
     },
     grid::{AlignmentGrid, AxisRange},
+    regions::SelectionTarget,
     view::View,
     AlignedSeq, PafInput, PafViewerApp,
 };
@@ -21,6 +23,8 @@ pub struct RegionsOfInterestGui {
 
     bookmark_list_selected_ix: Option<usize>,
     bookmarks: Vec<RegionOfInterest>,
+
+    selection_request: Option<SelectionTarget>,
 }
 
 #[derive(Default, Clone)]
@@ -76,6 +80,7 @@ impl RegionsOfInterestGui {
         &mut self,
         ctx: &egui::Context,
         app: &PafViewerApp,
+        event_loop: &EventLoopProxy<crate::AppEvent>,
         annotation_painter: &mut AnnotationPainter,
         // annotations: &mut crate::annotations::AnnotationStore,
         // alignment_grid: &crate::grid::AlignmentGrid,
@@ -84,18 +89,60 @@ impl RegionsOfInterestGui {
         view: &mut View,
         window_states: &mut AppWindowStates,
     ) {
+        let mut active_selection = false;
+        let mut selected_view = None;
+        if let Some(target) = self.selection_request.as_ref() {
+            let result = target.result.lock();
+            if let Some(view) = result.as_ref() {
+                selected_view = Some(*view);
+            } else {
+                active_selection = true;
+            }
+        }
+        if let Some(selected) = selected_view {
+            let x_range = AxisRange::Global(selected.x_range());
+            let y_range = AxisRange::Global(selected.y_range());
+            let label = "New bookmark".to_string();
+            let color = egui::Color32::TRANSPARENT;
+
+            let draw_shape = AnnotationWorldRegion {
+                world_x_range: Some(selected.x_range()),
+                world_y_range: Some(selected.y_range()),
+                color,
+            };
+            let shape_id = annotation_painter.add_shape(Box::new(draw_shape));
+
+            let bookmark_ix = self.bookmarks.len();
+            self.bookmarks.push(RegionOfInterest {
+                x_range: Some(x_range),
+                y_range: Some(y_range),
+                label,
+                color: egui::Rgba::TRANSPARENT,
+                shape_id,
+            });
+            self.bookmark_list_selected_ix = Some(bookmark_ix);
+            self.selection_request = None;
+        }
+
+        if active_selection {
+            return;
+        }
+
         egui::Window::new("Regions of Interest")
             .open(&mut window_states.regions_of_interest_open)
             .resizable(true)
             // .auto_sized()
             // .vscroll(true)
             // .default_open(false)
-            .show(&ctx, |ui| self.ui(app, annotation_painter, view, ui));
+            .show(&ctx, |ui| {
+                self.ui(app, event_loop, annotation_painter, view, ui)
+            });
     }
 
     fn ui(
         &mut self,
         app: &PafViewerApp,
+        event_loop: &EventLoopProxy<crate::AppEvent>,
         annotation_painter: &mut AnnotationPainter,
         // annotations: &crate::annotations::AnnotationStore,
         // alignment_grid: &crate::grid::AlignmentGrid,
@@ -161,7 +208,7 @@ impl RegionsOfInterestGui {
 
             match set {
                 SelectedRegionSet::Bookmarks => {
-                    self.bookmark_panel_ui(app, annotation_painter, view, ui);
+                    self.bookmark_panel_ui(app, event_loop, annotation_painter, view, ui);
                     // self.bookmark_panel_ui(annotations, alignment_grid, seq_names, input, view, ui);
                 }
                 SelectedRegionSet::Annotations { list_id } => {
@@ -189,7 +236,8 @@ impl RegionsOfInterestGui {
         let label = ui.add(egui::Label::new(&record.label).sense(egui::Sense::click()));
 
         if label.double_clicked() {
-            // zoom to region
+            // zoom to region... except which? both X & Y? do it depending on which
+            // shapes are enabled, maybe?
         }
 
         if ui.button("Target").clicked() {
@@ -247,6 +295,7 @@ impl RegionsOfInterestGui {
 
     fn bookmark_create_widget(
         &mut self,
+        event_loop: &EventLoopProxy<crate::AppEvent>,
         annotation_painter: &mut AnnotationPainter,
         alignment_grid: &crate::grid::AlignmentGrid,
         view: &mut View,
@@ -275,8 +324,42 @@ impl RegionsOfInterestGui {
         }
 
         if ui.button("Select region to mark").clicked() {
-            // TODO... how to handle this?? need state & comms
+            let target = SelectionTarget::default();
+            let _ = event_loop.send_event(crate::AppEvent::RequestSelection {
+                target: target.clone(),
+            });
+            self.selection_request = Some(target);
         }
+
+        // let mut selected_view = None;
+        // if let Some(target) = self.selection_request.as_ref() {
+        //     let result = target.result.lock();
+        //     if let Some(view) = result.as_ref() {
+        //         selected_view = Some(*view);
+        //     }
+        // }
+        // if let Some(selected) = selected_view {
+        //     let x_range = AxisRange::Global(selected.x_range());
+        //     let y_range = AxisRange::Global(selected.y_range());
+        //     let label = "New bookmark".to_string();
+        //     let color = egui::Color32::TRANSPARENT;
+
+        //     let draw_shape = AnnotationWorldRegion {
+        //         world_x_range: Some(selected.x_range()),
+        //         world_y_range: Some(selected.y_range()),
+        //         color,
+        //     };
+        //     let shape_id = annotation_painter.add_shape(Box::new(draw_shape));
+
+        //     self.bookmarks.push(RegionOfInterest {
+        //         x_range: Some(x_range),
+        //         y_range: Some(y_range),
+        //         label,
+        //         color: egui::Rgba::TRANSPARENT,
+        //         shape_id,
+        //     });
+        //     self.selection_request = None;
+        // }
 
         // TODO buttons to add individual X and Y range marks
     }
@@ -310,17 +393,17 @@ impl RegionsOfInterestGui {
         }
 
         ui.horizontal(|ui| {
+            ui.label("Label");
+            ui.text_edit_singleline(&mut widget_state.label);
+        });
+
+        ui.horizontal(|ui| {
             ui.label("Target");
             ui.text_edit_singleline(&mut widget_state.target_range);
         });
         ui.horizontal(|ui| {
             ui.label("Query");
             ui.text_edit_singleline(&mut widget_state.query_range);
-        });
-
-        ui.horizontal(|ui| {
-            ui.label("Label");
-            ui.text_edit_singleline(&mut widget_state.label);
         });
         let color_resp = egui::widgets::color_picker::color_edit_button_rgba(
             ui,
@@ -468,6 +551,7 @@ impl RegionsOfInterestGui {
     fn bookmark_panel_ui(
         &mut self,
         app: &PafViewerApp,
+        event_loop: &EventLoopProxy<crate::AppEvent>,
         annotation_painter: &mut AnnotationPainter,
         // annotations: &crate::annotations::AnnotationStore,
         // alignment_grid: &crate::grid::AlignmentGrid,
@@ -504,7 +588,13 @@ impl RegionsOfInterestGui {
             // "select & mark region"
             // "custom mark" w/ target & query region inputs
 
-            self.bookmark_create_widget(annotation_painter, &app.alignment_grid, view, ui);
+            self.bookmark_create_widget(
+                event_loop,
+                annotation_painter,
+                &app.alignment_grid,
+                view,
+                ui,
+            );
 
             ui.separator();
             self.bookmark_details_widget(annotation_painter, &app.alignment_grid, view, ui);
