@@ -5,7 +5,7 @@ use egui_wgpu::ScreenDescriptor;
 use grid::AlignmentGrid;
 use regions::SelectionHandler;
 use rustc_hash::FxHashMap;
-use std::borrow::Cow;
+use std::{borrow::Cow, sync::Arc};
 use ultraviolet::{DVec2, Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
@@ -190,6 +190,7 @@ pub fn main() -> anyhow::Result<()> {
     let query_len = process_aligned(&mut query_names, &mut queries);
 
     let seq_names = target_names.into_iter().collect::<bimap::BiMap<_, _>>();
+    let seq_names = Arc::new(seq_names);
 
     let x_axis = grid::GridAxis::from_sequences(&seq_names, &targets);
     let y_axis = x_axis.clone();
@@ -265,7 +266,11 @@ pub fn main() -> anyhow::Result<()> {
         .sum();
     println!("drawing {} matches", total_matches);
 
-    let alignment_grid = AlignmentGrid { x_axis, y_axis };
+    let alignment_grid = AlignmentGrid {
+        x_axis,
+        y_axis,
+        sequence_names: seq_names.clone(),
+    };
 
     let app = PafViewerApp {
         alignment_grid,
@@ -895,7 +900,7 @@ struct PafViewerApp {
 
     paf_input: PafInput,
 
-    seq_names: bimap::BiMap<String, usize>,
+    seq_names: Arc<bimap::BiMap<String, usize>>,
 
     annotations: AnnotationStore,
 }

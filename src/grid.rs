@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use bimap::BiMap;
 use rustc_hash::FxHashMap;
 
@@ -8,27 +10,29 @@ use crate::PafInput;
 pub struct AlignmentGrid {
     pub x_axis: GridAxis,
     pub y_axis: GridAxis,
+
+    pub sequence_names: Arc<BiMap<String, usize>>,
 }
 
-impl AlignmentGrid {
-    /*
-    pub fn tiles_covered_by_view(
-        &self,
-        view: &crate::view::View,
-    ) -> (std::ops::Range<usize>, std::ops::Range<usize>) {
-        // let mut out = Vec::new();
+#[derive(Debug, Clone, PartialEq)]
+pub enum AxisRange {
+    Global(std::ops::RangeInclusive<f64>),
+    Seq {
+        seq_id: usize,
+        range: std::ops::Range<u64>,
+    },
+}
 
-        // let x_min = view.x_min.floor() as u64;
-        // let tgt_ix_min = self.x_axis.seq_offsets.partition_point(|&p| p < x_min);
-        // let y_min = view.y_min.floor() as u64;
-        // let qry_ix_min = self.y_axis.seq_offsets.partition_point(|&p| p < y_min);
-
-        // let x_max = view.x_max.ceil() as u64;
-        // let y_max = view.y_max.ceil() as u64;
-
-        out
+impl AxisRange {
+    pub fn seq(seq_id: usize, range: std::ops::Range<u64>) -> Self {
+        AxisRange::Seq { seq_id, range }
     }
-    */
+}
+
+impl From<std::ops::RangeInclusive<f64>> for AxisRange {
+    fn from(value: std::ops::RangeInclusive<f64>) -> Self {
+        AxisRange::Global(value)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -70,7 +74,7 @@ impl GridAxis {
     }
 
     pub fn from_sequences<'a>(
-        sequence_names: &BiMap<String, usize>,
+        sequence_names: &Arc<BiMap<String, usize>>,
         sequences: impl IntoIterator<Item = &'a crate::AlignedSeq>,
     ) -> Self {
         let iter = sequences.into_iter().filter_map(|seq| {
