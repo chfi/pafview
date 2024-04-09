@@ -128,12 +128,14 @@ impl AnnotationStore {
                 Some(egui::Color32::from_rgb(r, g, b))
             });
 
-            let color = if let Some(color) = color {
+            let mut color = if let Some(color) = color {
                 color
             } else {
                 let [r, g, b] = string_hash_color(&label);
                 egui::Rgba::from_rgb(r, g, b).into()
             };
+
+            color = color.linear_multiply(0.5);
 
             record_list.push(Record {
                 seq_id,
@@ -193,14 +195,12 @@ impl RecordList {
         let y_axis = &alignment_grid.y_axis;
 
         for (record_id, record) in self.records.iter().enumerate() {
-            let world_x_range = x_axis.axis_range_into_global(&AxisRange::Seq {
+            let axis_range = AxisRange::Seq {
                 seq_id: record.seq_id,
                 range: record.seq_range.clone(),
-            });
-            let world_y_range = y_axis.axis_range_into_global(&AxisRange::Seq {
-                seq_id: record.seq_id,
-                range: record.seq_range.clone(),
-            });
+            };
+            let world_x_range = x_axis.axis_range_into_global(&axis_range);
+            let world_y_range = y_axis.axis_range_into_global(&axis_range);
 
             let color = record.color;
 

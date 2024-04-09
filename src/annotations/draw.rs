@@ -51,6 +51,10 @@ impl AnnotationPainter {
     //     f(&mut self.enabled[shape_id.0])
     // }
 
+    pub fn is_shape_enabled(&self, shape_id: AnnotShapeId) -> bool {
+        self.enabled[shape_id.0]
+    }
+
     pub fn enable_shape_mut(&mut self, shape_id: AnnotShapeId) -> &mut bool {
         &mut self.enabled[shape_id.0]
     }
@@ -229,7 +233,7 @@ impl DrawAnnotation for AnnotationWorldRegion {
             }
             (None, Some(ys)) => {
                 let p0 = DVec2::new(view_min.x, *ys.start());
-                let p1 = DVec2::new(view_min.x, *ys.end());
+                let p1 = DVec2::new(view_max.x, *ys.end());
                 [p0, p1]
             }
             _ => {

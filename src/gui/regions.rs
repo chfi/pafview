@@ -130,6 +130,7 @@ impl RegionsOfInterestGui {
 
         egui::Window::new("Regions of Interest")
             .open(&mut window_states.regions_of_interest_open)
+            .default_width(600.0)
             .resizable(true)
             // .auto_sized()
             // .vscroll(true)
@@ -227,30 +228,62 @@ impl RegionsOfInterestGui {
         ui: &mut Ui,
         list_id: usize,
         record_id: usize,
-    ) {
+    ) -> (bool, bool) {
         let Some(list) = app.annotations.list_by_id(list_id) else {
-            return;
+            return (false, false);
         };
         let record = &list.records[record_id];
 
         let label = ui.add(egui::Label::new(&record.label).sense(egui::Sense::click()));
 
+        let target_enabled = app
+            .annotations
+            .target_shape_for(list_id, record_id)
+            .map(|shape| annotation_painter.is_shape_enabled(shape))
+            .unwrap_or(false);
+        let query_enabled = app
+            .annotations
+            .query_shape_for(list_id, record_id)
+            .map(|shape| annotation_painter.is_shape_enabled(shape))
+            .unwrap_or(false);
+
+        let x_axis = &app.alignment_grid.x_axis;
+        let y_axis = &app.alignment_grid.y_axis;
+
         if label.double_clicked() {
-            // zoom to region... except which? both X & Y? do it depending on which
-            // shapes are enabled, maybe?
+            // zoom to region based on which (target and/or query) are being rendered
+
+            let axis_range = AxisRange::Seq {
+                seq_id: record.seq_id,
+                range: record.seq_range.clone(),
+            };
+            let x_range = target_enabled
+                .then(|| x_axis.axis_range_into_global(&axis_range))
+                .flatten();
+            let y_range = query_enabled
+                .then(|| y_axis.axis_range_into_global(&axis_range))
+                .flatten();
+
+            if x_range.is_some() || y_range.is_some() {
+                let size = ui.ctx().screen_rect().size();
+                let mut new_view = view.fit_ranges_in_view_f64(x_range, y_range);
+                new_view.apply_limits([size.x as u32, size.y as u32]);
+                *view = new_view;
+            }
         }
 
+        let mut toggle_target = false;
+        let mut toggle_query = false;
+
         if ui.button("Target").clicked() {
-            if let Some(shape) = app.annotations.target_shape_for(list_id, record_id) {
-                *annotation_painter.enable_shape_mut(shape) ^= true;
-            }
+            toggle_target = true;
         }
 
         if ui.button("Query").clicked() {
-            if let Some(shape) = app.annotations.query_shape_for(list_id, record_id) {
-                *annotation_painter.enable_shape_mut(shape) ^= true;
-            }
+            toggle_query = true;
         }
+
+        (toggle_target, toggle_query)
     }
 
     fn bookmark_list_entry_widget(
@@ -482,8 +515,17 @@ impl RegionsOfInterestGui {
                 egui::Grid::new(ui.id().with("annotation_list"))
                     .striped(true)
                     .show(ui, |ui| {
+                        ui.label("Toggle display");
+                        let tgl_all_target = ui.button("Target").clicked();
+                        let tgl_all_query = ui.button("Query").clicked();
+
+                        ui.end_row();
+
+                        ui.separator();
+                        ui.end_row();
+
                         for record_id in 0..list.records.len() {
-                            self.annotation_list_entry_widget(
+                            let (toggle_target, toggle_query) = self.annotation_list_entry_widget(
                                 app,
                                 annotation_painter,
                                 view,
@@ -492,64 +534,28 @@ impl RegionsOfInterestGui {
                                 record_id,
                             );
 
+                            if toggle_target || tgl_all_target {
+                                if let Some(shape) =
+                                    app.annotations.target_shape_for(list_id, record_id)
+                                {
+                                    *annotation_painter.enable_shape_mut(shape) ^= true;
+                                }
+                            }
+
+                            if toggle_query || tgl_all_query {
+                                if let Some(shape) =
+                                    app.annotations.query_shape_for(list_id, record_id)
+                                {
+                                    *annotation_painter.enable_shape_mut(shape) ^= true;
+                                }
+                            }
+
                             ui.end_row();
                         }
-
-                        /*
-                        for ix in 0..self.bookmarks.len() {
-                            self.bookmark_entry_widget(
-                                // &app.annotations,
-                                annotation_painter,
-                                &app.alignment_grid,
-                                view,
-                                ui,
-                                ix,
-                            );
-
-                            ui.end_row();
-                        }
-                        */
                     });
                 //
             });
         });
-        // let list = &app.annotations.list_by_id(list_id).unwrap();
-
-        // egui::ScrollArea::vertical().show(ui, |ui| {
-        //     for (record_id, record) in list.records.iter().enumerate() {
-        //         ui.horizontal(|ui| {
-        //             ui.label(format!("{}", record.label));
-
-        //             // let target_btn = ui.button("Target");
-        //             // let query_btn = ui.button("Query");
-
-        //             /*
-        //             let state = self.get_region_state(app, list_id, record_id);
-
-        //             if target_btn.clicked() {
-        //                 state.draw_target_region = !state.draw_target_region;
-        //                 log::info!(
-        //                     "drawing {} target region: {}\t(region {:?})",
-        //                     record.label,
-        //                     state.draw_target_region,
-        //                     state.seq_region
-        //                 );
-        //             }
-
-        //             if query_btn.clicked() {
-        //                 state.draw_query_region = !state.draw_query_region;
-        //                 log::info!(
-        //                     "drawing {} query region: {}\t(region {:?})",
-        //                     record.label,
-        //                     state.draw_query_region,
-        //                     state.seq_region
-        //                 );
-        //             }
-        //             */
-        //         });
-        //     }
-        // });
-        //
     }
 
     fn bookmark_panel_ui(
@@ -602,11 +608,6 @@ impl RegionsOfInterestGui {
 
             ui.separator();
             self.bookmark_details_widget(annotation_painter, &app.alignment_grid, view, ui);
-
-            //
-            // ui.horizontal(|ui| {
-            //     //
-            // });
         });
     }
 }
