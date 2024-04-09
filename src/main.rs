@@ -5,7 +5,7 @@ use egui_wgpu::ScreenDescriptor;
 use grid::AlignmentGrid;
 use regions::SelectionHandler;
 use rustc_hash::FxHashMap;
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, str::FromStr, sync::Arc};
 use ultraviolet::{DVec2, Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
@@ -246,16 +246,6 @@ pub fn main() -> anyhow::Result<()> {
     };
 
     let mut annotations = AnnotationStore::default();
-
-    if let Some(bed_path) = bed_path {
-        log::info!("Loading BED file `{bed_path}`");
-        match annotations.load_bed_file(&seq_names, &bed_path) {
-            Ok(_) => {
-                log::info!("Loaded BED file `{bed_path}`");
-            }
-            Err(err) => log::error!("Error loading BED file at path `{bed_path}`: {err:?}"),
-        }
-    }
 
     println!("sum target len: {target_len}");
     println!("sum query len: {query_len}");
@@ -505,6 +495,12 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
     let event_loop_proxy = event_loop.create_proxy();
 
+    if let Some(bed_path) = std::env::args().nth(2) {
+        if let Ok(path) = std::path::PathBuf::from_str(&bed_path) {
+            event_loop_proxy.send_event(AppEvent::LoadAnnotationFile { path });
+        }
+    }
+
     // TODO build this on a separate thread
     // let rstar_match = spatial::RStarMatches::from_paf(&input);
 
@@ -533,7 +529,11 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                 match event {
                     AppEvent::LoadAnnotationFile { path } => {
                         // TODO check file extension maybe, other logic
-                        match app.annotations.load_bed_file(&app.seq_names, &path) {
+                        match app.annotations.load_bed_file(
+                            &app.alignment_grid,
+                            &mut annotation_painter,
+                            &path,
+                        ) {
                             Ok(_) => {
                                 log::info!("Loaded BED file `{path:?}`");
                             }
@@ -543,7 +543,10 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                         }
                     }
                     AppEvent::RequestSelection { target } => {
-                        selection_handler.selection_target = Some(target);
+                        // ignore if someone's already waiting for a region selection
+                        if !selection_handler.has_active_selection_request() {
+                            selection_handler.selection_target = Some(target);
+                        }
                     }
                 }
 

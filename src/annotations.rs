@@ -6,7 +6,13 @@ use egui::Galley;
 use rustc_hash::FxHashMap;
 use ultraviolet::{DVec2, Vec2};
 
-use crate::{gui::AppWindowStates, PafInput, PafViewerApp};
+use crate::{
+    grid::{AlignmentGrid, AxisRange},
+    gui::AppWindowStates,
+    PafInput, PafViewerApp,
+};
+
+use self::draw::AnnotShapeId;
 
 pub mod draw;
 
@@ -15,9 +21,26 @@ pub struct AnnotationStore {
     annotation_sources: BiMap<String, usize>,
     annotation_lists: Vec<RecordList>,
     // annotation_sources: FxHashMap<PathBuf, RecordList>,
+
+    // same indices as annotation_list & RecordLists
+    shapes: Vec<Vec<AnnotationShapes>>,
+    // shapes: FxHashMap<(usize, usize), AnnotationShapes>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct AnnotationShapes {
+    pub target: AnnotShapeId,
+    pub query: AnnotShapeId,
 }
 
 impl AnnotationStore {
+    pub fn target_shape_for(&self, list_id: usize, record_id: usize) -> Option<AnnotShapeId> {
+        self.shapes.get(list_id)?.get(record_id).map(|s| s.target)
+    }
+    pub fn query_shape_for(&self, list_id: usize, record_id: usize) -> Option<AnnotShapeId> {
+        self.shapes.get(list_id)?.get(record_id).map(|s| s.query)
+    }
+
     pub fn source_names_iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a str)> {
         (0..self.annotation_lists.len()).filter_map(|i| {
             Some((
@@ -40,7 +63,9 @@ impl AnnotationStore {
 
     pub fn load_bed_file(
         &mut self,
-        seq_names: &BiMap<String, usize>,
+        alignment_grid: &AlignmentGrid,
+        // seq_names: &BiMap<String, usize>,
+        painter: &mut draw::AnnotationPainter,
         bed_path: impl AsRef<std::path::Path>,
     ) -> Result<()> {
         use std::io::prelude::*;
@@ -61,7 +86,8 @@ impl AnnotationStore {
             let seq_name = *fields
                 .get(0)
                 .ok_or(anyhow!("Sequence name missing from BED row"))?;
-            let seq_id = *seq_names
+            let seq_id = *alignment_grid
+                .sequence_names
                 .get_by_left(seq_name)
                 .ok_or(anyhow!("Could not find sequence `{seq_name}`"))?;
 
@@ -126,9 +152,13 @@ impl AnnotationStore {
 
         self.annotation_sources
             .insert(source_str, self.annotation_lists.len());
-        self.annotation_lists.push(RecordList {
+
+        let record_list = RecordList {
             records: record_list,
-        });
+        };
+        let shapes = record_list.prepare_annotation_shapes(alignment_grid, painter);
+        self.annotation_lists.push(record_list);
+        self.shapes.push(shapes);
 
         Ok(())
     }
@@ -148,6 +178,65 @@ pub struct Record {
 
     pub color: egui::Color32,
     pub label: String,
+}
+
+impl RecordList {
+    fn prepare_annotation_shapes(
+        &self,
+        // app: &PafViewerApp,
+        alignment_grid: &AlignmentGrid,
+        painter: &mut draw::AnnotationPainter,
+    ) -> Vec<AnnotationShapes> {
+        let mut shapes = Vec::new();
+
+        let x_axis = &alignment_grid.x_axis;
+        let y_axis = &alignment_grid.y_axis;
+
+        for (record_id, record) in self.records.iter().enumerate() {
+            let world_x_range = x_axis.axis_range_into_global(&AxisRange::Seq {
+                seq_id: record.seq_id,
+                range: record.seq_range.clone(),
+            });
+            let world_y_range = y_axis.axis_range_into_global(&AxisRange::Seq {
+                seq_id: record.seq_id,
+                range: record.seq_range.clone(),
+            });
+
+            let color = record.color;
+
+            let target_shape = draw::AnnotationWorldRegion {
+                world_x_range: world_x_range.clone(),
+                world_y_range: None,
+                color,
+            };
+            let target_label = draw::AnnotationLabel {
+                world_x_range: world_x_range.clone(),
+                world_y_range: None,
+                align: egui::Align2::CENTER_TOP,
+                text: record.label.clone(),
+            };
+            let target =
+                painter.add_collection([Box::new(target_shape) as _, Box::new(target_label) as _]);
+
+            let query_shape = draw::AnnotationWorldRegion {
+                world_x_range: None,
+                world_y_range: world_y_range.clone(),
+                color,
+            };
+            let query_label = draw::AnnotationLabel {
+                world_x_range: None,
+                world_y_range,
+                align: egui::Align2::CENTER_TOP,
+                text: record.label.clone(),
+            };
+            let query =
+                painter.add_collection([Box::new(query_shape) as _, Box::new(query_label) as _]);
+
+            shapes.push(AnnotationShapes { target, query });
+        }
+
+        shapes
+    }
 }
 
 #[derive(Default)]

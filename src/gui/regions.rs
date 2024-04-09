@@ -241,11 +241,15 @@ impl RegionsOfInterestGui {
         }
 
         if ui.button("Target").clicked() {
-            // TODO toggle target region display; need to use annotationpainter first
+            if let Some(shape) = app.annotations.target_shape_for(list_id, record_id) {
+                *annotation_painter.enable_shape_mut(shape) ^= true;
+            }
         }
 
         if ui.button("Query").clicked() {
-            // TODO toggle target region display; need to use annotationpainter first
+            if let Some(shape) = app.annotations.query_shape_for(list_id, record_id) {
+                *annotation_painter.enable_shape_mut(shape) ^= true;
+            }
         }
     }
 

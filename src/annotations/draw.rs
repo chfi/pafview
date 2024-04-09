@@ -33,6 +33,16 @@ impl AnnotationPainter {
         id
     }
 
+    pub fn add_collection(
+        &mut self,
+        draw: impl IntoIterator<Item = Box<dyn DrawAnnotation>>,
+    ) -> AnnotShapeId {
+        let draw_collection = AnnotationDrawCollection {
+            draw: draw.into_iter().collect(),
+        };
+        self.add_shape(Box::new(draw_collection))
+    }
+
     pub fn set_shape_color(&mut self, shape_id: AnnotShapeId, color: egui::Color32) {
         self.annotations[shape_id.0].set_color(color);
     }
@@ -113,7 +123,7 @@ impl DrawAnnotation for AnnotationDrawCollection {
 pub struct AnnotationLabel {
     pub world_x_range: Option<std::ops::RangeInclusive<f64>>,
     pub world_y_range: Option<std::ops::RangeInclusive<f64>>,
-    pub align: egui::Align,
+    pub align: egui::Align2,
 
     pub text: String,
     // can't use TextFormat as key bc not Eq; hash manually and key w/ u64, later
@@ -150,6 +160,7 @@ impl DrawAnnotation for AnnotationLabel {
         let view_min = DVec2::new(view.x_min, view.y_min);
         let view_max = DVec2::new(view.x_max, view.y_max);
 
+        // TODO take `align` into account
         let [p0, p1] = match (&self.world_x_range, &self.world_y_range) {
             (Some(xs), Some(ys)) => {
                 // draw in top left of screen rect, for now
@@ -174,17 +185,11 @@ impl DrawAnnotation for AnnotationLabel {
             }
         };
 
-        let min = p0.min_by_component(view_min);
-        let max = p1.max_by_component(view_max);
-        // let min = p0.min_by_component(DVec2::new(view.x_min, view.y_min));
-        // let max = p1.max_by_component(DVec2::new(view.x_max, view.y_max));
-        // let x_min = p0.x.min(view.x_min);
-        // let y_min = p0.y.min(view.y_min);
-        // let x_max = p1.x.max(view.x_max);
-        // let y_max = p1.y.max(view.y_max);
+        let q0: [f32; 2] = view.map_world_to_screen(screen_size, p0).into();
+        let q1: [f32; 2] = view.map_world_to_screen(screen_size, p1).into();
 
-        let q0: [f32; 2] = view.map_world_to_screen(screen_size, min).into();
-        let q1: [f32; 2] = view.map_world_to_screen(screen_size, max).into();
+        // let q0: [f32; 2] = view.map_world_to_screen(screen_size, min).into();
+        // let q1: [f32; 2] = view.map_world_to_screen(screen_size, max).into();
 
         let rect = egui::Rect::from_two_pos(q0.into(), q1.into());
         painter.galley(rect.left_top(), galley, egui::Color32::BLACK);
@@ -235,9 +240,16 @@ impl DrawAnnotation for AnnotationWorldRegion {
         let q0: [f32; 2] = view.map_world_to_screen(screen_size, p0).into();
         let q1: [f32; 2] = view.map_world_to_screen(screen_size, p1).into();
 
-        let rect = egui::Rect::from_two_pos(q0.into(), q1.into());
+        let mut rect = egui::Rect::from_two_pos(q0.into(), q1.into());
+
+        if rect.width() < 1.0 {
+            rect.set_width(1.0);
+        }
+        if rect.height() < 1.0 {
+            rect.set_height(1.0);
+        }
+
         painter.rect_filled(rect, 0.0, self.color);
-        // painter.galley(rect.left_top(), galley, egui::Color32::BLACK);
     }
 
     fn set_color(&mut self, color: egui::Color32) {
