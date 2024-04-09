@@ -511,6 +511,20 @@ impl RegionsOfInterestGui {
         };
 
         ui.vertical(|ui| {
+            let mut filter_text = ui.data(|data| {
+                data.get_temp::<String>(ui.id().with("filter_text"))
+                    .unwrap_or_default()
+            });
+            ui.horizontal(|ui| {
+                ui.label("Filter");
+                ui.text_edit_singleline(&mut filter_text);
+                if ui.button("Clear").clicked() {
+                    filter_text.clear();
+                }
+            });
+
+            ui.separator();
+
             egui::ScrollArea::vertical().show(ui, |ui| {
                 egui::Grid::new(ui.id().with("annotation_list"))
                     .striped(true)
@@ -524,7 +538,11 @@ impl RegionsOfInterestGui {
                         ui.separator();
                         ui.end_row();
 
-                        for record_id in 0..list.records.len() {
+                        for (record_id, record) in list.records.iter().enumerate() {
+                            if !record.label.contains(&filter_text) {
+                                continue;
+                            }
+
                             let (toggle_target, toggle_query) = self.annotation_list_entry_widget(
                                 app,
                                 annotation_painter,
@@ -555,6 +573,8 @@ impl RegionsOfInterestGui {
                     });
                 //
             });
+
+            ui.data_mut(|data| data.insert_temp(ui.id().with("filter_text"), filter_text));
         });
     }
 
