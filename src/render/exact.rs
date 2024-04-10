@@ -12,7 +12,47 @@ pub struct CpuViewRasterizerEgui {
     last_texture: Option<(SizedTexture, egui::Rect)>,
     last_view: Option<crate::view::View>,
 
-    last_wgpu_texture: Option<(wgpu::Texture, wgpu::TextureView)>,
+    pub(super) last_wgpu_texture: Option<(wgpu::Texture, wgpu::TextureView)>,
+}
+
+pub(super) struct CpuRasterizerBindGroups {
+    pub(super) image_bind_groups: [super::ImageRendererBindGroups; 2],
+    // pub(super) texture_view_id: wgpu::Id<wgpu::TextureView>,
+}
+
+impl CpuRasterizerBindGroups {
+    pub(super) fn new(
+        device: &wgpu::Device,
+        image_renderer: &super::ImageRenderer,
+        // texture_view: &wgpu::TextureView,
+    ) -> Self {
+        let bind_group_0_layout = image_renderer.pipeline.get_bind_group_layout(0);
+        // let bind_group_1_layout = image_renderer.pipeline.get_bind_group_layout(1);
+
+        // NB: double buffering is probably not strictly necessary right now, but
+        // might as well have it so it's easier to thread later
+        let mut bind_groups_front =
+            super::ImageRendererBindGroups::new(device, &bind_group_0_layout);
+        let mut bind_groups_back =
+            super::ImageRendererBindGroups::new(device, &bind_group_0_layout);
+
+        Self {
+            image_bind_groups: [bind_groups_front, bind_groups_back],
+        }
+
+        // image_renderer.create_bind_groups(device, &mut bind_groups_front, texture_view);
+        // image_renderer.create_bind_groups(device, &mut bind_groups_back, texture_view);
+    }
+
+    pub(super) fn create_bind_groups(
+        &mut self,
+        device: &wgpu::Device,
+        image_renderer: &super::ImageRenderer,
+        texture_view: &wgpu::TextureView,
+    ) {
+        image_renderer.create_bind_groups(device, &mut self.image_bind_groups[0], texture_view);
+        image_renderer.create_bind_groups(device, &mut self.image_bind_groups[1], texture_view);
+    }
 }
 
 impl CpuViewRasterizerEgui {
@@ -20,23 +60,22 @@ impl CpuViewRasterizerEgui {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        ctx: &egui::Context,
+        window_dims: [u32; 2],
         app: &crate::PafViewerApp,
         view: &crate::view::View,
     ) {
-        let size = ctx.screen_rect().size();
-
+        let [width, height] = window_dims;
         let need_realloc = if let Some((texture, _)) = self.last_wgpu_texture.as_ref() {
             let extent = texture.size();
-            size.x as u32 != extent.width || size.y as u32 != extent.height
+            width != extent.width || height != extent.height
         } else {
             true
         };
 
         if need_realloc {
             let size = wgpu::Extent3d {
-                width: size.x as u32,
-                height: size.y as u32,
+                width,
+                height,
                 depth_or_array_layers: 1,
             };
             let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -62,9 +101,7 @@ impl CpuViewRasterizerEgui {
             unreachable!();
         };
 
-        if let Some((pixels, px_size, _rect)) =
-            draw_exact_to_cpu_buffer(app, [size.x as u32, size.y as u32], view)
-        {
+        if let Some((pixels, px_size, _rect)) = draw_exact_to_cpu_buffer(app, window_dims, view) {
             let size = wgpu::Extent3d {
                 width: px_size.x as u32,
                 height: px_size.y as u32,
@@ -74,7 +111,7 @@ impl CpuViewRasterizerEgui {
             queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture,
-                    mip_level: 1,
+                    mip_level: 0,
                     origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
                     aspect: wgpu::TextureAspect::All,
                 },

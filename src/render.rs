@@ -13,6 +13,9 @@ use wgpu::Texture;
 use wgpu::{CommandEncoder, Device, Queue, TextureFormat, TextureView};
 use winit::{event::WindowEvent, window::Window};
 
+use self::exact::CpuRasterizerBindGroups;
+use self::exact::CpuViewRasterizerEgui;
+
 pub mod batch;
 pub mod exact;
 
@@ -417,6 +420,8 @@ pub struct PafRenderer {
 
     image_renderer: ImageRenderer,
     image_bind_groups: [ImageRendererBindGroups; 2],
+    exact_image_bind_groups: exact::CpuRasterizerBindGroups,
+    // exact_image_bind_groups: Option<[ImageRendererBindGroups; 2]>,
 
     // temporary (may be used for grid later still)
     identity_uniform: wgpu::Buffer,
@@ -471,6 +476,8 @@ impl PafRenderer {
             }],
         });
 
+        let exact_image_bind_groups = CpuRasterizerBindGroups::new(device, &image_renderer);
+
         Self {
             line_pipeline,
             msaa_samples,
@@ -489,6 +496,8 @@ impl PafRenderer {
             image_renderer,
             image_bind_groups,
 
+            exact_image_bind_groups,
+
             identity_uniform,
             identity_bind_group,
         }
@@ -505,6 +514,8 @@ impl PafRenderer {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        app: &crate::PafViewerApp,
+        cpu_rasterizer: &mut CpuViewRasterizerEgui,
         match_data: &batch::MatchDrawBatchData,
         view: &crate::view::View,
         window_dims: [u32; 2],
@@ -520,9 +531,48 @@ impl PafRenderer {
                 window_dims,
                 // self.match_instances.clone(),
             );
-        }
+            self.draw_front_image(device, queue, view, window_dims, swapchain_view, encoder);
+        } else {
+            cpu_rasterizer.draw_into_wgpu_texture(device, queue, window_dims, app, view);
 
-        self.draw_front_image(device, queue, view, window_dims, swapchain_view, encoder);
+            let Some((_texture, texture_view)) = &cpu_rasterizer.last_wgpu_texture else {
+                return;
+            };
+
+            // if self.exact_image_bind_groups.is_none() {
+            //     self.exact_image_bind_groups = Some(CpuRasterizerBindGroups::new(
+            //         device,
+            //         &self.image_renderer,
+            //         view,
+            //     ));
+            // }
+
+            self.exact_image_bind_groups.create_bind_groups(
+                device,
+                &self.image_renderer,
+                texture_view,
+            );
+            // self.imag
+
+            // let old_params = &set.params;
+            // let new_params = PafDrawParams::from_view_and_dims(view, window_dims);
+            let bind_group = &mut self.exact_image_bind_groups.image_bind_groups[0];
+            bind_group.update_uniform(queue);
+            self.image_renderer
+                .draw(bind_group, swapchain_view, encoder);
+
+            // let need_new_bind_groups = let Some(bind_groups) = &self.exact_image_bind_groups {
+            //     bind_groups.texture_view_id != view.global_id()
+            // } else {
+            //     true
+            // };
+
+            // if need_new_bind_groups {
+            //     // self.exact_image_bind_groups = Some(
+            // }
+
+            // draw front image
+        }
     }
 
     fn draw_front_image(
@@ -548,9 +598,10 @@ impl PafRenderer {
                 &set.framebuffers.color_view,
             );
 
-            let old_params = &set.params;
-            let new_params = PafDrawParams::from_view_and_dims(view, window_dims);
-            self.image_bind_groups[0].update_uniform(queue, old_params, &new_params);
+            // let old_params = &set.params;
+            // let new_params = PafDrawParams::from_view_and_dims(view, window_dims);
+            // self.image_bind_groups[0].update_uniform(queue, old_params, &new_params);
+            self.image_bind_groups[0].update_uniform(queue);
 
             self.image_renderer
                 .draw(&self.image_bind_groups[0], swapchain_view, encoder);
@@ -1020,8 +1071,8 @@ impl ImageRendererBindGroups {
     fn update_uniform(
         &self,
         queue: &wgpu::Queue,
-        old_params: &PafDrawParams,
-        new_params: &PafDrawParams,
+        // old_params: &PafDrawParams,
+        // new_params: &PafDrawParams,
     ) {
         // TODO update uniform based on old & new view
         let matrix = Mat4::identity();

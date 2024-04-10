@@ -693,6 +693,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                         paf_renderer.draw(
                             &device,
                             &queue,
+                            &app,
+                            &mut cpu_rasterizer,
                             &match_draw_data,
                             &app_view,
                             win_size,
@@ -711,7 +713,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 pixels_per_point: window.scale_factor() as f32,
                             },
                             |ctx| {
-                                cpu_rasterizer.draw_and_display_view_layer(ctx, &app, &app_view);
+                                // cpu_rasterizer.draw_and_display_view_layer(ctx, &app, &app_view);
 
                                 selection_handler.run(ctx, &mut app_view);
                                 // regions::paf_line_debug_aabbs(&input, ctx, &app_view);
