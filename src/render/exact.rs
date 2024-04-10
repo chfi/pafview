@@ -11,9 +11,80 @@ use crate::{
 pub struct CpuViewRasterizerEgui {
     last_texture: Option<(SizedTexture, egui::Rect)>,
     last_view: Option<crate::view::View>,
+
+    last_wgpu_texture: Option<(wgpu::Texture, wgpu::TextureView)>,
 }
 
 impl CpuViewRasterizerEgui {
+    pub fn draw_into_wgpu_texture(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        ctx: &egui::Context,
+        app: &crate::PafViewerApp,
+        view: &crate::view::View,
+    ) {
+        let size = ctx.screen_rect().size();
+
+        let need_realloc = if let Some((texture, _)) = self.last_wgpu_texture.as_ref() {
+            let extent = texture.size();
+            size.x as u32 != extent.width || size.y as u32 != extent.height
+        } else {
+            true
+        };
+
+        if need_realloc {
+            let size = wgpu::Extent3d {
+                width: size.x as u32,
+                height: size.y as u32,
+                depth_or_array_layers: 1,
+            };
+            let texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("BpRasterizer Texture"),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+
+            let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+                label: Some(&format!("BpRasterizer Texture View")),
+                ..Default::default()
+            });
+
+            self.last_wgpu_texture = Some((texture, texture_view));
+        }
+
+        let Some((texture, _texture_view)) = &self.last_wgpu_texture else {
+            unreachable!();
+        };
+
+        if let Some((pixels, px_size, _rect)) =
+            draw_exact_to_cpu_buffer(app, [size.x as u32, size.y as u32], view)
+        {
+            let size = wgpu::Extent3d {
+                width: px_size.x as u32,
+                height: px_size.y as u32,
+                depth_or_array_layers: 1,
+            };
+            //
+            queue.write_texture(
+                wgpu::ImageCopyTexture {
+                    texture,
+                    mip_level: 1,
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    aspect: wgpu::TextureAspect::All,
+                },
+                bytemuck::cast_slice(&pixels),
+                wgpu::ImageDataLayout::default(),
+                size,
+            )
+        }
+    }
+
     pub fn draw_and_display_view_layer(
         &mut self,
         ctx: &egui::Context,
