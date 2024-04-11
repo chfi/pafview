@@ -705,17 +705,24 @@ struct PixelBuffer {
 }
 
 impl PixelBuffer {
-    //
-    fn new(width: u32, height: u32) -> Self {
+    fn new_color(width: u32, height: u32, color: egui::Color32) -> Self {
         Self {
             width,
             height,
-            pixels: vec![egui::Color32::TRANSPARENT; (width * height) as usize],
+            pixels: vec![color; (width * height) as usize],
         }
     }
 
-    // fn blit_from(&mut self, src_buf: &[egui::Color32], src_width: usize) {
-    fn blit_from(
+    fn new(width: u32, height: u32) -> Self {
+        Self::new_color(width, height, egui::Color32::TRANSPARENT)
+    }
+
+    fn blit_from_buffer(&mut self, dst_offset: impl Into<[i32; 2]>, src: &Self) {
+        let src_size = [src.width, src.height];
+        self.blit_from_slice(dst_offset, src_size, &src.pixels);
+    }
+
+    fn blit_from_slice(
         &mut self,
         dst_offset: impl Into<[i32; 2]>,
         src_size: impl Into<[u32; 2]>,
@@ -726,23 +733,18 @@ impl PixelBuffer {
         debug_assert!(src.len() == (src_width as usize * src_height as usize));
 
         let (dst_vis_cols, src_vis_cols) = {
-            // let min = x0.max(0) as usize;
-            // let max = (x0 as u32 + src_width).min(self.width) as usize;
             let dst_min = x0.max(0) as u32;
-            let dst_max = (x0 as u32 + src_width).min(self.width) as u32;
+            let dst_max = ((x0 + src_width as i32) as u32).min(self.width);
 
-            let src_min = (-x0).max(0) as u32;
+            let src_min = (-y0).max(0) as u32;
             let src_max = src_min + (dst_max - dst_min);
 
             (dst_min..dst_max, src_min..src_max)
         };
 
-        // let dst_vis_rows = {
         let (dst_vis_rows, src_vis_rows) = {
-            // let min = y0.max(0) as usize;
-            // let max = (y0 as u32 + src_height).min(self.height) as usize;
             let dst_min = y0.max(0) as u32;
-            let dst_max = (y0 as u32 + src_height).min(self.height) as u32;
+            let dst_max = ((y0 + src_height as i32) as u32).min(self.height);
 
             let src_min = (-y0).max(0) as u32;
             let src_max = src_min + (dst_max - dst_min);
@@ -841,5 +843,66 @@ mod tests {
         for ([tgt, qry], is_match) in iter {
             println!("[{tgt:3}, {qry:3}] - {is_match}");
         }
+    }
+
+    #[test]
+    fn test_pixel_buffer_blit() {
+        let mut buf = PixelBuffer::new(48, 48);
+
+        let red = PixelBuffer::new_color(8, 8, egui::Color32::RED);
+        let blue = PixelBuffer::new_color(16, 8, egui::Color32::BLUE);
+        let green = PixelBuffer::new_color(8, 16, egui::Color32::GREEN);
+
+        buf.blit_from_buffer([-4, 16], &red);
+        buf.blit_from_buffer([16, 40], &green);
+        buf.blit_from_buffer([40, -3], &blue);
+
+        let mut reds = 0;
+        let mut greens = 0;
+        let mut blues = 0;
+
+        for &px in buf.pixels.iter() {
+            if px == egui::Color32::RED {
+                reds += 1;
+            } else if px == egui::Color32::GREEN {
+                greens += 1;
+            } else if px == egui::Color32::BLUE {
+                blues += 1;
+            }
+        }
+
+        // debug_print_pixel_buffer(&buf);
+        assert_eq!(reds, 4 * 8);
+        assert_eq!(greens, 8 * 8);
+        assert_eq!(blues, 8 * 5);
+    }
+
+    #[allow(dead_code)]
+    fn debug_print_pixel_buffer(buf: &PixelBuffer) {
+        let h_border = (0..buf.width + 2).map(|_| '-').collect::<String>();
+        println!("{h_border}");
+        for row in 0..buf.height {
+            print!("|");
+            for col in 0..buf.width {
+                let ix = (col + row * buf.width) as usize;
+
+                let px = &buf.pixels[ix];
+
+                if !px.is_opaque() {
+                    print!(" ");
+                } else if *px == egui::Color32::RED {
+                    print!("R");
+                } else if *px == egui::Color32::BLUE {
+                    print!("B");
+                } else if *px == egui::Color32::GREEN {
+                    print!("G");
+                } else {
+                    print!(" ");
+                }
+            }
+            println!("|");
+        }
+
+        println!("{h_border}");
     }
 }
