@@ -4,14 +4,11 @@ use ultraviolet::UVec2;
 
 use crate::{
     cigar::{CigarOp, ProcessedCigar},
-    grid::GridAxis,
+    grid::{AxisRange, GridAxis},
 };
 
 #[derive(Default)]
 pub struct CpuViewRasterizerEgui {
-    last_texture: Option<(SizedTexture, egui::Rect)>,
-    last_view: Option<crate::view::View>,
-
     pub(super) last_wgpu_texture: Option<(wgpu::Texture, wgpu::TextureView)>,
 }
 
@@ -21,27 +18,17 @@ pub(super) struct CpuRasterizerBindGroups {
 }
 
 impl CpuRasterizerBindGroups {
-    pub(super) fn new(
-        device: &wgpu::Device,
-        image_renderer: &super::ImageRenderer,
-        // texture_view: &wgpu::TextureView,
-    ) -> Self {
+    pub(super) fn new(device: &wgpu::Device, image_renderer: &super::ImageRenderer) -> Self {
         let bind_group_0_layout = image_renderer.pipeline.get_bind_group_layout(0);
-        // let bind_group_1_layout = image_renderer.pipeline.get_bind_group_layout(1);
 
         // NB: double buffering is probably not strictly necessary right now, but
         // might as well have it so it's easier to thread later
-        let mut bind_groups_front =
-            super::ImageRendererBindGroups::new(device, &bind_group_0_layout);
-        let mut bind_groups_back =
-            super::ImageRendererBindGroups::new(device, &bind_group_0_layout);
+        let bind_groups_front = super::ImageRendererBindGroups::new(device, &bind_group_0_layout);
+        let bind_groups_back = super::ImageRendererBindGroups::new(device, &bind_group_0_layout);
 
         Self {
             image_bind_groups: [bind_groups_front, bind_groups_back],
         }
-
-        // image_renderer.create_bind_groups(device, &mut bind_groups_front, texture_view);
-        // image_renderer.create_bind_groups(device, &mut bind_groups_back, texture_view);
     }
 
     pub(super) fn create_bind_groups(
@@ -101,98 +88,39 @@ impl CpuViewRasterizerEgui {
             unreachable!();
         };
 
-        if let Some((pixels, px_size, rect)) = draw_exact_to_cpu_buffer(app, window_dims, view) {
-            // let size = wgpu::Extent3d {
-            //     width: px_size.x as u32,
-            //     height: px_size.y as u32,
-            //     depth_or_array_layers: 1,
-            // };
-            //
-            // let x = rect.width() as u32;
-            // let y = rect.height() as u32;
-
-            let offset = rect.left_top();
-            // let offset = rect.le
-            let x = offset.x as u32;
-            let y = offset.y as u32;
-            let width = px_size.x;
+        if let Some(pixels) = draw_exact_to_cpu_buffer(app, window_dims, view) {
+            let extent = wgpu::Extent3d {
+                width: pixels.width,
+                height: pixels.height,
+                depth_or_array_layers: 1,
+            };
 
             queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x, y, z: 0 },
+                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    // origin: wgpu::Origin3d { x, y, z: 0 },
                     aspect: wgpu::TextureAspect::All,
                 },
-                bytemuck::cast_slice(&pixels),
+                bytemuck::cast_slice(&pixels.pixels),
                 wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(4 * width),
+                    bytes_per_row: Some(4 * extent.width),
                     rows_per_image: None,
                 },
                 extent,
             )
         }
     }
-
-    pub fn draw_and_display_view_layer(
-        &mut self,
-        ctx: &egui::Context,
-        app: &crate::PafViewerApp,
-        view: &crate::view::View,
-    ) {
-        if self.last_view.as_ref() != Some(view) {
-            let size = ctx.screen_rect().size();
-
-            if let Some((pixels, px_size, rect)) =
-                draw_exact_to_cpu_buffer(app, [size.x as u32, size.y as u32], view)
-            {
-                //
-                let tex_mgr = ctx.tex_manager();
-                let mut tex_mgr = tex_mgr.write();
-                let tex_id = tex_mgr.alloc(
-                    "ExactRenderTexture".into(),
-                    ImageData::Color(
-                        ColorImage {
-                            size: [px_size.x as usize, px_size.y as usize],
-                            pixels,
-                        }
-                        .into(),
-                    ),
-                    TextureOptions::LINEAR,
-                );
-                self.last_texture = Some((
-                    SizedTexture::new(tex_id, [px_size.x as f32, px_size.y as f32]),
-                    rect,
-                ));
-                self.last_view = Some(view.clone());
-            } else {
-                self.last_texture = None;
-                self.last_view = None;
-            }
-        }
-
-        if let Some((texture, _rect)) = &self.last_texture {
-            let painter = ctx.layer_painter(egui::LayerId::new(
-                egui::Order::Background,
-                "cpu-rasterizer-layer".into(),
-            ));
-
-            let uv = egui::Rect::from_min_max([0.0, 0.0].into(), [1.0, 1.0].into());
-            // painter.image(texture.id, *rect, uv, egui::Color32::WHITE);
-            let tint = egui::Color32::WHITE;
-            // let tint = tint.linear_multiply(0.5);
-            let rect = ctx.screen_rect();
-            painter.image(texture.id, rect, uv, tint);
-        }
-    }
 }
 
-pub fn draw_exact_to_cpu_buffer(
+fn draw_exact_to_cpu_buffer(
     app: &crate::PafViewerApp,
     canvas_size: impl Into<UVec2>,
     view: &crate::view::View,
-) -> Option<(Vec<egui::Color32>, UVec2, egui::Rect)> {
+    // ) -> Option<(Vec<egui::Color32>, UVec2, egui::Rect)> {
+) -> Option<PixelBuffer> {
     let canvas_size = canvas_size.into();
 
     let bp_per_pixel = view.width() / canvas_size.x as f64;
@@ -256,9 +184,6 @@ pub fn draw_exact_to_cpu_buffer(
                 continue;
             }
 
-            // log::info!("  > target_range: {target_range:?}");
-            // log::info!("  > query_range: {query_range:?}");
-
             // compute from canvas_size & the proportions of target/query range
             // vs the view
             let bp_width = target_range.end - target_range.start;
@@ -271,8 +196,13 @@ pub fn draw_exact_to_cpu_buffer(
 
             let mut buf = Vec::new();
 
-            let top_left = [target_range.start as f64, query_range.start as f64];
-            let btm_right = [target_range.end as f64, query_range.end as f64];
+            let x_range =
+                x_axis.axis_range_into_global(&AxisRange::seq(target_id, target_range.clone()))?;
+            let y_range =
+                y_axis.axis_range_into_global(&AxisRange::seq(query_id, query_range.clone()))?;
+
+            let top_left = [*x_range.start(), *y_range.start()];
+            let btm_right = [*x_range.end(), *y_range.end()];
 
             let size = ultraviolet::Vec2::new(canvas_size.x as f32, canvas_size.y as f32);
             let p0: [f32; 2] = view.map_world_to_screen(size, top_left).into();
@@ -292,248 +222,16 @@ pub fn draw_exact_to_cpu_buffer(
         }
     }
 
-    // log::info!("using 1 out of {} tiles", tile_bufs.len());
+    let mut px_buffer = PixelBuffer::new_color(canvas_size.x, canvas_size.y, egui::Color32::WHITE);
 
-    return tile_bufs.into_iter().next().map(|(_, a)| a);
+    for (tile, (tile_pixels, tile_size, tile_rect)) in tile_bufs {
+        let dst_o = tile_rect.left_top();
+        let dst_offset = [dst_o.x as i32, dst_o.y as i32];
 
-    /*
-    // then draw each tile to its own buffer
-    let img_size = (canvas_size.x * canvas_size.y) as usize;
-    let mut pixel_buf = vec![egui::Color32::TRANSPARENT; img_size];
-    log::info!("canvas size: {canvas_size:?}");
-
-    for ((_tgt_id, _qry_id), (tile_pixels, tile_rect)) in tile_bufs {
-        // find the rows & columns in `pixel_buf` that corresponds
-        // to the current pair
-        // log::info!("tile_rect: {tile_rect:?}");
-
-        let src_width = tile_rect.width() as usize;
-
-        let left = tile_rect.left() as usize;
-        let right = tile_rect.right() as usize;
-        let top = tile_rect.top() as usize;
-        let bottom = tile_rect.bottom() as usize;
-
-        for y in top..bottom {
-            let i = y * canvas_size.x as usize;
-            let range = (i + left)..(i + right - 1);
-            let src_y_offset = y - top;
-            let src_i = src_y_offset * src_width;
-            let mut src_range = src_i..(src_i + src_width);
-
-            if src_range.len() > range.len() {
-                src_range.end = src_range.start + range.len();
-            }
-
-            // dbg!(&src_range);
-            // dbg!(&range);
-
-            let src_slice = &tile_pixels[src_range];
-            let dst_slice = &mut pixel_buf[range];
-            dst_slice.clone_from_slice(src_slice);
-            // pixel_buf[range].clone_from_slice(src_slice);
-        }
+        px_buffer.blit_from_slice(dst_offset, tile_size, &tile_pixels);
     }
 
-    Some(pixel_buf)
-    */
-}
-
-/// pixel/bp-perfect CPU rasterization
-
-#[derive(Default)]
-pub struct ExactRenderViewDebug {
-    textures: FxHashMap<[usize; 2], (egui::TextureId, UVec2)>,
-    last_texture: Option<SizedTexture>,
-}
-
-impl ExactRenderViewDebug {
-    pub fn show(
-        &mut self,
-        ctx: &egui::Context,
-        app: &crate::PafViewerApp,
-        window_dims: impl Into<UVec2>,
-        view: &crate::view::View,
-    ) {
-        egui::Window::new("exact render view test").show(ctx, |ui| {
-            let mut clicked = false;
-
-            egui::Grid::new("exact-debug-renderer-grid")
-                .num_columns(2)
-                .show(ui, |ui| {
-                    if ui.button("Render").clicked() {
-                        clicked = true;
-                    }
-                    // });
-
-                    if let Some(texture) = self.last_texture {
-                        ui.image(egui::ImageSource::Texture(texture));
-                    }
-                });
-
-            // let x_axis = &app.alignment_grid.x_axis;
-            // let y_axis = &app.alignment_grid.y_axis;
-
-            let window_dims = window_dims.into();
-
-            if clicked {
-                if let Some((pixels, size, rect)) = draw_exact_to_cpu_buffer(app, window_dims, view)
-                {
-                    let tex_mgr = ctx.tex_manager();
-                    let mut tex_mgr = tex_mgr.write();
-                    let tex_id = tex_mgr.alloc(
-                        "ExactRenderTexture".into(),
-                        ImageData::Color(
-                            ColorImage {
-                                // size: [window_dims.x as usize, window_dims.y as usize],
-                                // size: [rect.width() as usize, rect.height() as usize],
-                                size: [size.x as usize, size.y as usize],
-                                pixels,
-                            }
-                            .into(),
-                        ),
-                        TextureOptions::LINEAR,
-                    );
-                    let size = window_dims / 2;
-
-                    self.last_texture =
-                        Some(SizedTexture::new(tex_id, [size.x as f32, size.y as f32]));
-                    // Some(SizedTexture::new(tex_id, [size.x as f32, size.y as f32]));
-                }
-            }
-        });
-    }
-}
-
-#[derive(Default)]
-pub struct ExactRenderDebug {
-    // last_params: Option<RenderParams>,
-    last_texture: Option<SizedTexture>,
-
-    textures: FxHashMap<[usize; 2], (egui::TextureId, UVec2)>,
-    // egui_id_target: egui::Id,
-    // egui_id_query: egui::Id,
-}
-
-impl ExactRenderDebug {
-    /*
-     */
-
-    pub const TARGET_DATA_ID: &'static str = "exact-render-test-target";
-    pub const QUERY_DATA_ID: &'static str = "exact-render-test-query";
-
-    pub fn show(
-        &mut self,
-        ctx: &egui::Context,
-        app: &crate::PafViewerApp,
-        // seq_names: &bimap::BiMap<String, usize>,
-        // paf_input: &crate::PafInput,
-    ) {
-        let parse_range =
-            |axis: &crate::grid::GridAxis, txt: &str| -> Option<(usize, std::ops::Range<u64>)> {
-                let mut split = txt.split(':');
-                let name = split.next()?;
-                let id = *app.seq_names.get_by_left(name)?;
-
-                let offset = axis.sequence_offset(id)?;
-                // let offset = seqs[id].offset;
-
-                let mut range = split
-                    .next()?
-                    .split('-')
-                    .filter_map(|s| s.parse::<u64>().ok());
-                let start = range.next()? + offset;
-                let end = range.next()? + offset;
-
-                Some((id, start..end))
-            };
-
-        egui::Window::new("exact render test").show(ctx, |ui| {
-            let target_id = egui::Id::new(Self::TARGET_DATA_ID);
-            let query_id = egui::Id::new(Self::QUERY_DATA_ID);
-            // let target_id = ui.id().with("target-range");
-            // let query_id = ui.id().with("query-range");
-
-            let (mut target_buf, mut query_buf) = ui
-                .data(|data| {
-                    let t = data.get_temp::<String>(target_id)?;
-                    let q = data.get_temp::<String>(query_id)?;
-                    Some((t, q))
-                })
-                .unwrap_or_default();
-
-            let mut clicked = false;
-
-            egui::Grid::new("exact-debug-renderer-grid")
-                .num_columns(2)
-                .show(ui, |ui| {
-                    ui.vertical(|ui| {
-                        ui.horizontal(|ui| {
-                            ui.label("Target");
-                            ui.text_edit_singleline(&mut target_buf);
-                        });
-
-                        ui.horizontal(|ui| {
-                            ui.label("Query");
-                            ui.text_edit_singleline(&mut query_buf);
-                        });
-
-                        if ui.button("Render").clicked() {
-                            clicked = true;
-                        }
-                    });
-
-                    if let Some(texture) = self.last_texture {
-                        ui.image(egui::ImageSource::Texture(texture));
-                    }
-                });
-
-            let x_axis = &app.alignment_grid.x_axis;
-            let y_axis = &app.alignment_grid.y_axis;
-
-            if clicked {
-                // let (tgt_id, tgt_range) = parse_range(x_axis, &target_buf);
-                // let (qry_id, qry_range) = parse_range(y_axis, &query_buf);
-                let target = parse_range(x_axis, &target_buf);
-                let query = parse_range(y_axis, &query_buf);
-
-                if let (Some((tgt_id, tgt_range)), Some((qry_id, qry_range))) = (target, query) {
-                    let line = *app.paf_input.pair_line_ix.get(&(tgt_id, qry_id)).unwrap();
-                    let match_data = &app.paf_input.processed_lines[line];
-
-                    let mut pixels = Vec::new();
-                    draw_subsection(
-                        match_data,
-                        tgt_range,
-                        qry_range,
-                        [500, 500].into(),
-                        &mut pixels,
-                    );
-
-                    let tex_mgr = ctx.tex_manager();
-                    let mut tex_mgr = tex_mgr.write();
-                    let tex_id = tex_mgr.alloc(
-                        "ExactRenderTexture".into(),
-                        ImageData::Color(
-                            ColorImage {
-                                size: [500, 500],
-                                pixels,
-                            }
-                            .into(),
-                        ),
-                        TextureOptions::LINEAR,
-                    );
-
-                    self.last_texture = Some(SizedTexture::new(tex_id, [500.0, 500.0]));
-                }
-            }
-
-            ui.data_mut(|data| {
-                data.insert_temp(target_id, target_buf);
-                data.insert_temp(query_id, query_buf);
-            });
-        });
-    }
+    Some(px_buffer)
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
@@ -552,7 +250,7 @@ pub fn draw_subsection(
 ) {
     let size = (canvas_size.x * canvas_size.y) as usize;
     canvas_data.clear();
-    canvas_data.resize(size, egui::Color32::TRANSPARENT);
+    canvas_data.resize(size, egui::Color32::WHITE);
 
     // TODO doesn't take strand into account yet
     let match_iter = MatchOpIter::from_range(
@@ -568,10 +266,7 @@ pub fn draw_subsection(
     let qry_len = query_range.end - query_range.start;
     let bp_height = canvas_size.y as f64 / qry_len as f64;
 
-    // for ([target_pos, query_pos], is_match) in match_iter {
     for ([target_pos, query_pos], cg_ix) in match_iter {
-        // want to map target_pos to an x_range, query_pos to a y_range
-
         let cg_op = match_data.cigar[cg_ix].0;
         let is_match = cg_op.is_match();
 
@@ -581,8 +276,6 @@ pub fn draw_subsection(
             egui::Color32::RED
         };
 
-        // let target_offset = target_pos;
-        // let query_offset = query_pos;
         let Some(target_offset) = target_pos.checked_sub(target_range.start) else {
             continue;
         };
