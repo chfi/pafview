@@ -7,6 +7,7 @@ use winit::event_loop::EventLoopProxy;
 use crate::{
     annotations::{
         draw::{AnnotShapeId, AnnotationPainter, AnnotationWorldRegion},
+        label_layout::compute_layout_for_labels,
         AnnotationStore,
     },
     grid::{AlignmentGrid, AxisRange},
@@ -25,6 +26,8 @@ pub struct RegionsOfInterestGui {
     bookmarks: Vec<RegionOfInterest>,
 
     selection_request: Option<SelectionTarget>,
+
+    label_debug: Vec<(egui::Pos2, std::sync::Arc<egui::Galley>)>,
 }
 
 #[derive(Default, Clone)]
@@ -152,6 +155,12 @@ impl RegionsOfInterestGui {
         view: &mut View,
         ui: &mut Ui,
     ) {
+        let painter = ui.ctx().debug_painter();
+
+        for (pos, galley) in &self.label_debug {
+            painter.galley(*pos, galley.clone(), egui::Color32::BLACK);
+        }
+
         // 2 panes, left/right
 
         // left is list of annotation sources, including the "built-in" "bookmarks" set
@@ -511,6 +520,33 @@ impl RegionsOfInterestGui {
         };
 
         ui.vertical(|ui| {
+            if ui.button("test label layout").clicked() {
+                let ctx = ui.ctx();
+
+                let labels = list.records.iter().map(|record| {
+                    let galley = annotation_painter.cache_label(ctx, &record.label);
+
+                    let axis_range = AxisRange::Seq {
+                        seq_id: record.seq_id,
+                        range: record.seq_range.clone(),
+                    };
+                    let x_range = app
+                        .alignment_grid
+                        .x_axis
+                        .axis_range_into_global(&axis_range)
+                        .unwrap();
+
+                    crate::annotations::label_layout::LabelDef {
+                        text: &record.label,
+                        galley,
+                        world_x_region: x_range,
+                    }
+                });
+
+                self.label_debug =
+                    compute_layout_for_labels(ctx.screen_rect().size(), view, labels);
+            }
+
             let mut filter_text = ui.data(|data| {
                 data.get_temp::<String>(ui.id().with("filter_text"))
                     .unwrap_or_default()
@@ -551,6 +587,13 @@ impl RegionsOfInterestGui {
                                 list_id,
                                 record_id,
                             );
+
+                            // if let Some(shape) = (toggle_target || tgl_all_target)
+                            //     .then(|| app.annotations.target_shape_for(list_id, record_id))
+                            //     .flatten()
+                            // {
+                            //         *annotation_painter.enable_shape_mut(shape) ^= true;
+                            // }
 
                             if toggle_target || tgl_all_target {
                                 if let Some(shape) =

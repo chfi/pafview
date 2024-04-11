@@ -43,6 +43,23 @@ impl AnnotationPainter {
         self.add_shape(Box::new(draw_collection))
     }
 
+    pub fn cache_label(&mut self, ctx: &egui::Context, text: &str) -> Arc<Galley> {
+        if let Some(galley) = self.galley_cache.get(text) {
+            galley.clone()
+        } else {
+            let galley = ctx.fonts(|fonts| {
+                fonts.layout_no_wrap(
+                    text.to_string(),
+                    egui::FontId::monospace(12.0),
+                    egui::Color32::BLACK,
+                )
+            });
+
+            self.galley_cache.insert(text.to_string(), galley.clone());
+            galley
+        }
+    }
+
     pub fn set_shape_color(&mut self, shape_id: AnnotShapeId, color: egui::Color32) {
         self.annotations[shape_id.0].set_color(color);
     }
