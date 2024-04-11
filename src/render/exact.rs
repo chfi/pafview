@@ -72,15 +72,15 @@ impl CpuViewRasterizerEgui {
             true
         };
 
+        let extent = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
         if need_realloc {
-            let size = wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            };
             let texture = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("BpRasterizer Texture"),
-                size,
+                size: extent,
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
@@ -101,23 +101,36 @@ impl CpuViewRasterizerEgui {
             unreachable!();
         };
 
-        if let Some((pixels, px_size, _rect)) = draw_exact_to_cpu_buffer(app, window_dims, view) {
-            let size = wgpu::Extent3d {
-                width: px_size.x as u32,
-                height: px_size.y as u32,
-                depth_or_array_layers: 1,
-            };
+        if let Some((pixels, px_size, rect)) = draw_exact_to_cpu_buffer(app, window_dims, view) {
+            // let size = wgpu::Extent3d {
+            //     width: px_size.x as u32,
+            //     height: px_size.y as u32,
+            //     depth_or_array_layers: 1,
+            // };
             //
+            // let x = rect.width() as u32;
+            // let y = rect.height() as u32;
+
+            let offset = rect.left_top();
+            // let offset = rect.le
+            let x = offset.x as u32;
+            let y = offset.y as u32;
+            let width = px_size.x;
+
             queue.write_texture(
                 wgpu::ImageCopyTexture {
                     texture,
                     mip_level: 0,
-                    origin: wgpu::Origin3d { x: 0, y: 0, z: 0 },
+                    origin: wgpu::Origin3d { x, y, z: 0 },
                     aspect: wgpu::TextureAspect::All,
                 },
                 bytemuck::cast_slice(&pixels),
-                wgpu::ImageDataLayout::default(),
-                size,
+                wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * width),
+                    rows_per_image: None,
+                },
+                extent,
             )
         }
     }
@@ -682,6 +695,84 @@ impl<'a> Iterator for MatchOpIter<'a> {
         }
 
         None
+    }
+}
+
+struct PixelBuffer {
+    width: u32,
+    height: u32,
+    pixels: Vec<egui::Color32>,
+}
+
+impl PixelBuffer {
+    //
+    fn new(width: u32, height: u32) -> Self {
+        Self {
+            width,
+            height,
+            pixels: vec![egui::Color32::TRANSPARENT; (width * height) as usize],
+        }
+    }
+
+    // fn blit_from(&mut self, src_buf: &[egui::Color32], src_width: usize) {
+    fn blit_from(
+        &mut self,
+        dst_offset: impl Into<[i32; 2]>,
+        src_size: impl Into<[u32; 2]>,
+        src: &[egui::Color32],
+    ) {
+        let [x0, y0] = dst_offset.into();
+        let [src_width, src_height] = src_size.into();
+        debug_assert!(src.len() == (src_width as usize * src_height as usize));
+
+        let (dst_vis_cols, src_vis_cols) = {
+            // let min = x0.max(0) as usize;
+            // let max = (x0 as u32 + src_width).min(self.width) as usize;
+            let dst_min = x0.max(0) as u32;
+            let dst_max = (x0 as u32 + src_width).min(self.width) as u32;
+
+            let src_min = (-x0).max(0) as u32;
+            let src_max = src_min + (dst_max - dst_min);
+
+            (dst_min..dst_max, src_min..src_max)
+        };
+
+        // let dst_vis_rows = {
+        let (dst_vis_rows, src_vis_rows) = {
+            // let min = y0.max(0) as usize;
+            // let max = (y0 as u32 + src_height).min(self.height) as usize;
+            let dst_min = y0.max(0) as u32;
+            let dst_max = (y0 as u32 + src_height).min(self.height) as u32;
+
+            let src_min = (-y0).max(0) as u32;
+            let src_max = src_min + (dst_max - dst_min);
+
+            (dst_min..dst_max, src_min..src_max)
+        };
+
+        for (dst_row, src_row) in std::iter::zip(dst_vis_rows, src_vis_rows) {
+            // for dst_row in dst_vis_rows {
+            let col_start = dst_vis_cols.start;
+            let col_len = dst_vis_cols.end - col_start;
+
+            let dst_start = dst_row * self.width + col_start;
+            let dst_end = dst_start + col_len;
+            let dst_range = (dst_start as usize)..(dst_end as usize);
+
+            let dst_slice = &mut self.pixels[dst_range];
+
+            let col_start = src_vis_cols.start;
+            let col_end = src_vis_cols.end;
+            debug_assert_eq!(col_end - col_start, col_len);
+
+            let src_start = src_row * src_width + col_start;
+            let src_end = src_start + col_len;
+            let src_range = (src_start as usize)..(src_end as usize);
+
+            let src_slice = &src[src_range];
+
+            dst_slice.copy_from_slice(src_slice);
+        }
     }
 }
 
