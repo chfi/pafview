@@ -15,6 +15,7 @@ use crate::{
 use self::draw::AnnotShapeId;
 
 pub mod draw;
+pub mod label_layout;
 
 #[derive(Default)]
 pub struct AnnotationStore {
