@@ -189,11 +189,15 @@ pub fn main() -> anyhow::Result<()> {
     let target_len = process_aligned(&mut target_names, &mut targets);
     let query_len = process_aligned(&mut query_names, &mut queries);
 
-    let seq_names = target_names.into_iter().collect::<bimap::BiMap<_, _>>();
+    let seq_names = target_names
+        .iter()
+        .chain(&query_names)
+        .map(|(n, i)| (n.clone(), *i))
+        .collect::<bimap::BiMap<_, _>>();
     let seq_names = Arc::new(seq_names);
 
     let x_axis = grid::GridAxis::from_sequences(&seq_names, &targets);
-    let y_axis = x_axis.clone();
+    let y_axis = grid::GridAxis::from_sequences(&seq_names, &queries);
 
     // process matches
     let mut processed_lines = Vec::new();
@@ -335,7 +339,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
     let (grid_buffer, grid_color_buffer, grid_instances) = {
         let input = &app.paf_input;
-        let instances = input.targets.len() + input.queries.len() + 2;
+        let instances = input.targets.len() + input.queries.len() + 4;
         let mut lines: Vec<LineVertex> = Vec::with_capacity(instances);
 
         let mut targets_sort = input
