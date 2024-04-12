@@ -15,13 +15,14 @@ pub struct ProcessedCigar {
     pub query_offset: u64,
     pub query_len: u64,
 
+    pub strand_rev: bool,
+
     pub match_edges: Vec<[DVec2; 2]>,
     pub match_offsets: Vec<[u64; 2]>,
     pub match_lens: Vec<u64>,
     // TODO these flags should be in a struct & single vec
     pub match_is_match: Vec<bool>,
-    pub match_is_rev: Vec<bool>,
-
+    // pub match_is_rev: Vec<bool>,
     pub match_cigar_index: Vec<usize>,
 
     pub aabb_min: DVec2,
@@ -131,7 +132,13 @@ impl ProcessedCigar {
             })
             .collect::<Vec<_>>();
 
+        let strand_rev = paf_line.strand_rev;
+
         let [mut target_pos, mut query_pos] = origin;
+
+        if strand_rev {
+            target_pos = paf_line.tgt_seq_len - 1;
+        }
 
         let target_id = *seq_names
             .get_by_left(paf_line.tgt_name)
@@ -144,7 +151,7 @@ impl ProcessedCigar {
         let mut match_offsets = Vec::new();
         let mut match_lens = Vec::new();
         let mut match_is_match = Vec::new();
-        let mut match_is_rev = Vec::new();
+        // let mut match_is_rev = Vec::new();
 
         let mut match_cigar_index = Vec::new();
 
@@ -180,7 +187,7 @@ impl ProcessedCigar {
                         match_lens.push(count);
 
                         match_is_match.push(op.is_match());
-                        match_is_rev.push(paf_line.strand_rev);
+                        // match_is_rev.push(paf_line.strand_rev);
                         match_cigar_index.push(cg_ix);
                     }
 
@@ -217,11 +224,12 @@ impl ProcessedCigar {
             query_offset: origin[1],
             query_len,
 
+            strand_rev,
+
             match_edges,
             match_offsets,
             match_lens,
             match_is_match,
-            match_is_rev,
 
             match_cigar_index,
             cigar: ops,
