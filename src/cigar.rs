@@ -31,6 +31,51 @@ pub struct ProcessedCigar {
     pub cigar: Vec<(CigarOp, u64)>,
 }
 
+pub struct CigarIterItem {
+    target_offset: u64,
+    query_offset: u64,
+
+    is_rev: bool,
+    op: CigarOp,
+    op_count: u64,
+}
+
+pub struct CigarIter<'a> {
+    cigar: &'a ProcessedCigar,
+    index_range: std::ops::Range<usize>,
+}
+
+impl<'a> CigarIter<'a> {
+    fn new(cigar: &'a ProcessedCigar, target_range: std::ops::Range<u64>) -> Self {
+        let t_start = cigar
+            .match_offsets
+            .partition_point(|[t, _]| *t < target_range.start);
+        let t_start = t_start.checked_sub(1).unwrap_or_default();
+
+        let t_end = cigar
+            .match_offsets
+            .partition_point(|[t, _]| *t < target_range.end);
+
+        let index_range = t_start..t_end;
+
+        Self { cigar, index_range }
+    }
+}
+
+impl<'a> Iterator for CigarIter<'a> {
+    type Item = CigarIterItem;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
+}
+
+impl<'a> DoubleEndedIterator for CigarIter<'a> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        todo!()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum CigarOp {
