@@ -31,46 +31,130 @@ pub struct ProcessedCigar {
     pub cigar: Vec<(CigarOp, u64)>,
 }
 
-pub struct CigarIterItem {
-    target_offset: u64,
-    query_offset: u64,
+#[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum Strand {
+    #[default]
+    Forward,
+    Reverse,
+}
 
-    is_rev: bool,
+impl std::str::FromStr for Strand {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "+" => Ok(Self::Forward),
+            "-" => Ok(Self::Reverse),
+            _ => Err("Strand must be + or -"),
+        }
+    }
+}
+
+pub struct CigarIterItem {
+    target_range: std::ops::Range<u64>,
+    query_range: std::ops::Range<u64>,
+
+    // target_offset: u64,
+    // query_offset: u64,
+    query_strand: Strand,
     op: CigarOp,
     op_count: u64,
 }
 
-pub struct CigarIter<'a> {
-    cigar: &'a ProcessedCigar,
-    index_range: std::ops::Range<usize>,
+impl CigarIterItem {
+    //
 }
 
-impl<'a> CigarIter<'a> {
-    fn new(cigar: &'a ProcessedCigar, target_range: std::ops::Range<u64>) -> Self {
-        let t_start = cigar
-            .match_offsets
-            .partition_point(|[t, _]| *t < target_range.start);
-        let t_start = t_start.checked_sub(1).unwrap_or_default();
+pub struct CigarIter<'a, 'seq> {
+    cigar: &'a CigarIndex,
 
-        let t_end = cigar
-            .match_offsets
-            .partition_point(|[t, _]| *t < target_range.end);
+    op_index_range: std::ops::Range<usize>,
+    target_range: std::ops::Range<u64>,
+    query_range: std::ops::Range<u64>,
 
-        let index_range = t_start..t_end;
+    target_seq: Option<&'seq [u8]>,
+    query_seq: Option<&'seq [u8]>,
+}
 
-        Self { cigar, index_range }
+impl<'a, 'seq> CigarIter<'a, 'seq> {
+    fn new(cigar: &'a CigarIndex, target_range: std::ops::Range<u64>) -> Self {
+        let start_i = cigar
+            .op_target_offsets
+            .partition_point(|&t| t < target_range.start);
+        let start_i = start_i.checked_sub(1).unwrap_or_default();
+
+        let end_i = cigar
+            .op_target_offsets
+            .partition_point(|&t| t < target_range.end);
+
+        let t_start = cigar.op_target_offsets[start_i];
+        let t_end = cigar.op_target_offsets[end_i];
+
+        let q_start = cigar.op_query_offsets[start_i];
+        let q_end = cigar.op_query_offsets[end_i];
+        let query_range = q_start..q_end; //... hmmmm
+
+        //
+
+        // let [t_start, q_start] = cigar.ops.match_offsets[i_start];
+        // let [t_end, q_end] = cigar.ops.match_offsets[i_end];
+
+        let op_index_range = start_i..end_i;
+
+        Self {
+            cigar,
+
+            op_index_range,
+            target_range,
+            query_range,
+
+            target_seq: None,
+            query_seq: None,
+        }
     }
+
+    // fn new_with_seqs(
+    //     target_seq: &'seq [u8],
+    //     query_seq: &'seq [u8],
+    //     cigar: &'a ProcessedCigar,
+    //     target_range: std::ops::Range<u64>,
+    // ) -> Self {
+    //     let mut result = Self::new(cigar, target_range);
+    //     result.target_seq = Some(target_seq);
+    //     result.query_seq = Some(query_seq);
+    //     result
+    // }
 }
 
-impl<'a> Iterator for CigarIter<'a> {
+impl<'a, 'seq> Iterator for CigarIter<'a, 'seq> {
     type Item = CigarIterItem;
 
     fn next(&mut self) -> Option<Self::Item> {
+        let index = self.op_index_range.next()?;
+
+        // get the target range for the current op
+        let target_offset = self.cigar.op_target_offsets[index];
+
+        // the query range -- which must be inverted if strand is reverse
+
+        // let query_offset_fwd = self.
+
+        let query_strand = self.cigar.query_strand;
+
+        let item = CigarIterItem {
+            target_range: todo!(),
+            query_range: todo!(),
+            query_strand,
+            op: todo!(),
+            op_count: todo!(),
+        };
+
         todo!()
     }
 }
 
-impl<'a> DoubleEndedIterator for CigarIter<'a> {
+impl<'a, 'seq> DoubleEndedIterator for CigarIter<'a, 'seq> {
     fn next_back(&mut self) -> Option<Self::Item> {
         todo!()
     }
@@ -90,6 +174,18 @@ pub enum CigarOp {
 }
 
 impl CigarOp {
+    pub fn parse_str_into_vec(cigar: &str) -> Vec<(CigarOp, u64)> {
+        cigar
+            .split_inclusive(['M', 'X', '=', 'D', 'I', 'S', 'H', 'N'])
+            .filter_map(|opstr| {
+                let count = opstr[..opstr.len() - 1].parse::<u64>().ok()?;
+                let op = opstr.as_bytes()[opstr.len() - 1] as char;
+                let op = CigarOp::try_from(op).ok()?;
+                Some((op, count))
+            })
+            .collect::<Vec<_>>()
+    }
+
     pub fn apply_to_offsets(&self, count: u64, offsets: [u64; 2]) -> [u64; 2] {
         use CigarOp as Cg;
         let [tgt, qry] = offsets;
@@ -153,6 +249,122 @@ impl TryFrom<char> for CigarOp {
     }
 }
 
+pub struct CigarIndex {
+    pub target_seq_id: usize,
+    pub query_seq_id: usize,
+
+    pub target_len: u64,
+    pub query_len: u64,
+
+    pub query_strand: Strand,
+    pub ops: Vec<(CigarOp, u64)>,
+
+    pub op_line_vertices: Vec<[DVec2; 2]>,
+    pub op_target_offsets: Vec<u64>,
+    pub op_query_offsets: Vec<u64>,
+}
+
+impl CigarIndex {
+    pub fn op_target_range(&self, op_ix: usize) -> Option<std::ops::Range<u64>> {
+        if op_ix + 1 >= self.op_target_offsets.len() {
+            return None;
+        }
+        let start = *self.op_target_offsets.get(op_ix)?;
+        let end = *self.op_target_offsets.get(op_ix + 1)?;
+        Some(start..end)
+    }
+
+    fn op_query_range_fwd(&self, op_ix: usize) -> Option<std::ops::Range<u64>> {
+        if op_ix + 1 >= self.op_query_offsets.len() {
+            return None;
+        }
+        let start = *self.op_query_offsets.get(op_ix)?;
+        let end = *self.op_query_offsets.get(op_ix + 1)?;
+        Some(start..end)
+    }
+
+    pub fn op_query_range(&self, op_ix: usize) -> Option<std::ops::Range<u64>> {
+        let fwd_range = self.op_query_range_fwd(op_ix)?;
+
+        let start = self.query_len - fwd_range.start;
+        let end = self.query_len - fwd_range.end;
+        Some(start..end)
+    }
+
+    pub fn from_paf_line(
+        paf_line: &crate::PafLine<&str>,
+        target_seq_id: usize,
+        query_seq_id: usize,
+    ) -> Self {
+        use CigarOp as Cg;
+
+        let cigar = CigarOp::parse_str_into_vec(&paf_line.cigar);
+
+        let query_strand = if paf_line.strand_rev {
+            Strand::Reverse
+        } else {
+            Strand::Forward
+        };
+
+        let mut op_line_vertices = Vec::new();
+        let mut op_target_offsets = Vec::new();
+        let mut op_query_offsets = Vec::new();
+
+        let mut target_offset = 0u64;
+
+        // query offsets are always stored as 0-based & increasing,
+        // even when reverse
+        let mut query_offset = 0u64;
+
+        // let mut query_offset = match query_strand {
+        //     Strand::Forward => 0u64,
+        //     Strand::Reverse =>
+        // };
+
+        for (op, count) in cigar.iter() {
+            op_target_offsets.push(target_offset);
+            op_query_offsets.push(query_offset);
+
+            match op {
+                Cg::M | Cg::X | Cg::Eq => {
+                    // output match line for high-scale view
+                    todo!();
+
+                    // increment target & query
+                    target_offset += count;
+                    query_offset += count;
+                }
+                Cg::D => {
+                    // increment target
+                    target_offset += count;
+                }
+                Cg::I => {
+                    // increment query
+                    query_offset += count;
+                }
+                _ => (),
+            }
+        }
+
+        //
+        op_target_offsets.push(target_offset);
+        op_query_offsets.push(query_offset);
+
+        Self {
+            target_seq_id,
+            query_seq_id,
+            query_strand,
+            ops: cigar,
+            op_line_vertices,
+            op_target_offsets,
+            op_query_offsets,
+            target_len: target_offset,
+            query_len: query_offset,
+        }
+    }
+    //
+}
+
 impl ProcessedCigar {
     pub fn from_line_local(
         seq_names: &BiMap<String, usize>,
@@ -166,16 +378,7 @@ impl ProcessedCigar {
         paf_line: &crate::PafLine<&str>,
         origin: [u64; 2],
     ) -> anyhow::Result<Self> {
-        let ops = paf_line
-            .cigar
-            .split_inclusive(['M', 'X', '=', 'D', 'I', 'S', 'H', 'N'])
-            .filter_map(|opstr| {
-                let count = opstr[..opstr.len() - 1].parse::<u64>().ok()?;
-                let op = opstr.as_bytes()[opstr.len() - 1] as char;
-                let op = CigarOp::try_from(op).ok()?;
-                Some((op, count))
-            })
-            .collect::<Vec<_>>();
+        let ops = CigarOp::parse_str_into_vec(&paf_line.cigar);
 
         let strand_rev = paf_line.strand_rev;
 
@@ -282,5 +485,15 @@ impl ProcessedCigar {
             aabb_min,
             aabb_max,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cigar_raster_iter() {
+        todo!();
     }
 }

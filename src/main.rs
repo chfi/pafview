@@ -54,19 +54,19 @@ impl PafInput {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct PafLine<S> {
-    query_name: S,
-    query_seq_len: u64,
-    query_seq_start: u64,
-    query_seq_end: u64,
+pub struct PafLine<S> {
+    pub query_name: S,
+    pub query_seq_len: u64,
+    pub query_seq_start: u64,
+    pub query_seq_end: u64,
 
-    tgt_name: S,
-    tgt_seq_len: u64,
-    tgt_seq_start: u64,
-    tgt_seq_end: u64,
+    pub tgt_name: S,
+    pub tgt_seq_len: u64,
+    pub tgt_seq_start: u64,
+    pub tgt_seq_end: u64,
 
-    strand_rev: bool,
-    cigar: S,
+    pub strand_rev: bool,
+    pub cigar: S,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
