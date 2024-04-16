@@ -133,32 +133,31 @@ impl<'a, 'seq> Iterator for CigarIter<'a, 'seq> {
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.op_index_range.next()?;
 
+        let (op, op_count) = *self.cigar.ops.get(index)?;
+
         // get the target range for the current op
-        let target_offset = self.cigar.op_target_offsets[index];
-
-        // the query range -- which must be inverted if strand is reverse
-
-        // let query_offset_fwd = self.
+        let target_range = self.cigar.op_target_range(index)?;
+        let query_range = self.cigar.op_query_range(index)?;
 
         let query_strand = self.cigar.query_strand;
 
         let item = CigarIterItem {
-            target_range: todo!(),
-            query_range: todo!(),
+            target_range,
+            query_range,
             query_strand,
-            op: todo!(),
-            op_count: todo!(),
+            op,
+            op_count,
         };
 
-        todo!()
+        Some(item)
     }
 }
 
-impl<'a, 'seq> DoubleEndedIterator for CigarIter<'a, 'seq> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        todo!()
-    }
-}
+// impl<'a, 'seq> DoubleEndedIterator for CigarIter<'a, 'seq> {
+//     fn next_back(&mut self) -> Option<Self::Item> {
+//         todo!()
+//     }
+// }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
@@ -321,14 +320,31 @@ impl CigarIndex {
         //     Strand::Reverse =>
         // };
 
-        for (op, count) in cigar.iter() {
+        for &(op, count) in cigar.iter() {
             op_target_offsets.push(target_offset);
             op_query_offsets.push(query_offset);
 
             match op {
                 Cg::M | Cg::X | Cg::Eq => {
                     // output match line for high-scale view
-                    todo!();
+                    let x0 = target_offset as f64;
+                    let x1 = x0 + count as f64;
+
+                    let [y0, y1] = match query_strand {
+                        Strand::Forward => {
+                            let y0 = query_offset as f64;
+                            let y1 = y0 + count as f64;
+                            [y0, y1]
+                        }
+                        Strand::Reverse => {
+                            let query_len = paf_line.query_seq_len;
+                            let y0 = (query_len - query_offset) as f64;
+                            let y1 = y0 + count as f64;
+                            [y0, y1]
+                        }
+                    };
+
+                    op_line_vertices.push([[x0, y0].into(), [x1, y1].into()]);
 
                     // increment target & query
                     target_offset += count;

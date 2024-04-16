@@ -7,6 +7,8 @@ use crate::{
     grid::{AxisRange, GridAxis},
 };
 
+pub mod detail;
+
 #[derive(Default)]
 pub struct CpuViewRasterizerEgui {
     pub(super) last_wgpu_texture: Option<(wgpu::Texture, wgpu::TextureView)>,
@@ -317,6 +319,7 @@ struct MatchOpIter<'a> {
     // current_match: Option<(usize, [u64; 2], bool)>,
     current_match: Option<(CigarOp, usize, std::ops::Range<u64>, [u64; 2])>,
     // current_match: Option<(std::ops::Range<u64>, [u64; 2], bool, bool)>,
+    reverse: bool,
     done: bool,
 }
 
@@ -326,10 +329,19 @@ impl<'a> MatchOpIter<'a> {
         match_cg_ix: &'a [usize],
         cigar: &'a [(CigarOp, u64)],
         target_range: std::ops::Range<u64>,
+        reverse: bool,
     ) -> Self {
-        let t_start = match_offsets.partition_point(|[t, _]| *t < target_range.start);
+        // let t_start = if reverse {
+        //     todo!();
+        // } else {
+        //     let t_start = match_offsets.partition_point(|[t, _]| *t < target_range.start);
+        //     t_start.checked_sub(1).unwrap_or_default()
+        // };
 
+        let t_start = match_offsets.partition_point(|[t, _]| *t < target_range.start);
         let t_start = t_start.checked_sub(1).unwrap_or_default();
+
+        let q_start = todo!();
 
         Self {
             // data: match_data,
@@ -342,6 +354,7 @@ impl<'a> MatchOpIter<'a> {
             index: t_start,
             current_match: None,
 
+            reverse,
             done: false,
         }
     }
