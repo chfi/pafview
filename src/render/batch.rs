@@ -4,8 +4,10 @@ use rustc_hash::FxHashMap;
 use ultraviolet::{Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
+use crate::sequences::SeqId;
+
 pub struct MatchDrawBatchData {
-    alignment_pair_index: FxHashMap<(usize, usize), usize>,
+    alignment_pair_index: FxHashMap<(SeqId, SeqId), usize>,
 
     buffers: DrawBatchBuffers,
 }

@@ -81,26 +81,26 @@ fn build_detail_texture() -> Option<Vec<egui::Color32>> {
     let nucls = vec!['G', 'T', 'C', 'A'];
     let nucl_pairs = nucls
         .iter()
-        .flat_map(|a| nucls.iter().map(|b| (a, b)))
+        .flat_map(|a| nucls.iter().map(|b| (*a, *b)))
         .collect::<Vec<_>>();
 
     let small_glyph_pairs = gtca_small_glyphs
         .iter()
-        .flat_map(|a| gtca_small_glyphs.iter().map(|b| (a, b)))
+        .flat_map(|a| gtca_small_glyphs.iter().map(|b| (*a, *b)))
         .collect::<Vec<_>>();
 
     // for (col, (fst, snd)) in std::iter::zip(&gtca_small_glyphs
 
     // row 0 - (mis)match, white GTCA on black, both seqs
-    for (col, &(fst, snd)) in small_glyph_pairs.iter().enumerate() {
-        let dst_x0 = col * tile_width;
-        let dst_x1 = dst_x0 + tile_width;
+    // for (col, &(fst, snd)) in small_glyph_pairs.iter().enumerate() {
+    //     let dst_x0 = col * tile_width;
+    //     let dst_x1 = dst_x0 + tile_width;
 
-        let dst_y0 = row * tile_height;
-        let dst_y1 = dst_y0 + tile_height;
+    //     let dst_y0 = row * tile_height;
+    //     let dst_y1 = dst_y0 + tile_height;
 
-        //
-    }
+    //     //
+    // }
 
     /*
     row += 1;
@@ -155,6 +155,11 @@ fn cigar_color_def(op: CigarOp) -> egui::Color32 {
     }
 }
 
+// pub fn draw_cigar_section(
+//         target_seq: &[u8],
+//         query_seq: &[u8],
+
+/*
 pub fn draw_subsection(
     target_seq: &[u8],
     query_seq: &[u8],
@@ -221,3 +226,4 @@ pub fn draw_subsection(
         }
     }
 }
+*/

@@ -3,14 +3,16 @@ use egui::{util::IdTypeMap, Color32, DragValue, FontId, Ui};
 use rustc_hash::FxHashMap;
 use ultraviolet::{Mat4, Vec2};
 
-use crate::{annotations::AnnotationStore, view::View, AlignedSeq, PafInput, PafViewerApp};
+use crate::{
+    annotations::AnnotationStore, sequences::SeqId, view::View, AlignedSeq, PafInput, PafViewerApp,
+};
 
 pub mod debug;
 pub mod regions;
 
 pub fn goto_range_controls(
     alignment_grid: &crate::grid::AlignmentGrid,
-    seq_names: &BiMap<String, usize>,
+    seq_names: &BiMap<String, SeqId>,
     input: &PafInput,
     view: &mut View,
     ui: &mut Ui,
@@ -26,7 +28,7 @@ pub fn goto_range_controls(
         })
         .unwrap_or_default();
 
-    let parse_range = |names: &BiMap<String, usize>,
+    let parse_range = |names: &BiMap<String, SeqId>,
                        axis: &crate::grid::GridAxis,
                        txt: &str|
      -> Option<std::ops::Range<u64>> {
@@ -107,7 +109,7 @@ pub fn goto_range_controls(
 pub fn view_controls(
     ctx: &egui::Context,
     alignment_grid: &crate::grid::AlignmentGrid,
-    seq_names: &BiMap<String, usize>,
+    seq_names: &BiMap<String, SeqId>,
     input: &PafInput,
     view: &mut View,
     window_states: &mut AppWindowStates,
@@ -242,7 +244,7 @@ pub fn draw_ruler_v(painter: &egui::Painter, window_dims: [f32; 2], screen_x: f3
 
 pub fn draw_cursor_position_rulers(
     grid: &crate::grid::AlignmentGrid,
-    seq_names: &bimap::BiMap<String, usize>,
+    seq_names: &bimap::BiMap<String, SeqId>,
     // input: &PafInput,
     ctx: &egui::Context,
     view: &crate::view::View,
@@ -261,7 +263,7 @@ pub fn draw_cursor_position_rulers(
 
 pub fn draw_cursor_position_rulers_impl(
     grid: &crate::grid::AlignmentGrid,
-    seq_names: &bimap::BiMap<String, usize>,
+    seq_names: &bimap::BiMap<String, SeqId>,
     // input: &PafInput,
     painter: &egui::Painter,
     window_dims: impl Into<[f32; 2]>,

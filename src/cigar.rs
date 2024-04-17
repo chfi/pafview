@@ -3,14 +3,16 @@ use ultraviolet::DVec2;
 
 use anyhow::anyhow;
 
+use crate::sequences::SeqId;
+
 // TODO needs a thorough cleaning
 pub struct ProcessedCigar {
-    pub target_id: usize,
+    pub target_id: SeqId,
     #[deprecated]
     pub target_offset: u64,
     pub target_len: u64,
 
-    pub query_id: usize,
+    pub query_id: SeqId,
     #[deprecated]
     pub query_offset: u64,
     pub query_len: u64,
@@ -66,18 +68,17 @@ impl CigarIterItem {
     //
 }
 
-pub struct CigarIter<'a, 'seq> {
+pub struct CigarIter<'a> {
     cigar: &'a CigarIndex,
 
     op_index_range: std::ops::Range<usize>,
     target_range: std::ops::Range<u64>,
     query_range: std::ops::Range<u64>,
-
-    target_seq: Option<&'seq [u8]>,
-    query_seq: Option<&'seq [u8]>,
+    // target_seq: Option<&'seq [u8]>,
+    // query_seq: Option<&'seq [u8]>,
 }
 
-impl<'a, 'seq> CigarIter<'a, 'seq> {
+impl<'a> CigarIter<'a> {
     fn new(cigar: &'a CigarIndex, target_range: std::ops::Range<u64>) -> Self {
         let start_i = cigar
             .op_target_offsets
@@ -108,9 +109,8 @@ impl<'a, 'seq> CigarIter<'a, 'seq> {
             op_index_range,
             target_range,
             query_range,
-
-            target_seq: None,
-            query_seq: None,
+            // target_seq: None,
+            // query_seq: None,
         }
     }
 
@@ -127,7 +127,7 @@ impl<'a, 'seq> CigarIter<'a, 'seq> {
     // }
 }
 
-impl<'a, 'seq> Iterator for CigarIter<'a, 'seq> {
+impl<'a> Iterator for CigarIter<'a> {
     type Item = CigarIterItem;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -167,13 +167,18 @@ impl Cigar {
         let ops = cigar
             .split_inclusive(['M', 'X', '=', 'D', 'I', 'S', 'H', 'N'])
             .filter_map(|opstr| {
-                let count = opstr[..opstr.len() - 1].parse::<u64>().ok()?;
+                let count = opstr[..opstr.len() - 1].parse::<u32>().ok()?;
                 let op = opstr.as_bytes()[opstr.len() - 1] as char;
                 let op = CigarOp::try_from(op).ok()?;
-                Some((op, count))
-            });
+                Some(op.pack(count))
+            })
+            .collect::<Vec<_>>();
 
-        todo!();
+        Cigar(ops)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (CigarOp, u32)> + '_ {
+        self.0.iter().copied().map(CigarOp::unpack)
     }
 }
 
@@ -545,14 +550,14 @@ impl CigarIndex {
 
 impl ProcessedCigar {
     pub fn from_line_local(
-        seq_names: &BiMap<String, usize>,
+        seq_names: &BiMap<String, SeqId>,
         paf_line: &crate::PafLine<&str>,
     ) -> anyhow::Result<Self> {
         Self::from_line(seq_names, paf_line, [0, 0])
     }
 
     pub fn from_line(
-        seq_names: &BiMap<String, usize>,
+        seq_names: &BiMap<String, SeqId>,
         paf_line: &crate::PafLine<&str>,
         origin: [u64; 2],
     ) -> anyhow::Result<Self> {
@@ -670,11 +675,16 @@ impl ProcessedCigar {
 mod tests {
     use super::*;
 
+    const TEST_PAF_RECORD: &'static str = "Y12#1#chrXIV	800685	30204	50196	+	S288C#1#chrXIV	800685	30000	50000	19922	20001	255	cg:Z:578=1X922=1X1135=1X334=1X194=1X653=1X90=1X32=1X715=1X41=1X29=1X92=1X368=1X504=1X140=1X14=1X18=1X233=1X703=4D6=1X603=1X844=1X86=1X562=1X1081=1X64=1X151=1X32=1X73=1X58=1X59=1X861=1X1216=1X1432=1X291=1X313=1X825=4D189=1X173=1X53=1X26=1X334=1X190=1X74=1X226=2X59=1X251=1X90=1X118=1X80=1X405=1X265=1X80=1X184=1X27=1X212=1X59=1X41=1X197=1X132=1X414=1X38=1X15=1X60=1X69=1X51=2X21=1D236=1X60=1I17=1X85=1X39=";
+
     const TEST_CIGAR: &'static str = "578=1X922=1X1135=1X334=1X194=1X653=1X90=1X32=1X715=1X41=1X29=1X92=1X368=1X504=1X140=1X14=1X18=1X233=1X703=4D6=1X603=1X844=1X86=1X562=1X1081=1X64=1X151=1X32=1X73=1X58=1X59=1X861=1X1216=1X1432=1X291=1X313=1X825=4D189=1X173=1X53=1X26=1X334=1X190=1X74=1X226=2X59=1X251=1X90=1X118=1X80=1X405=1X265=1X80=1X184=1X27=1X212=1X59=1X41=1X197=1X132=1X414=1X38=1X15=1X60=1X69=1X51=2X21=1D236=1X60=1I17=1X85=1X39=";
 
     #[test]
     fn cigar_raster_iter() {
-        let cigar_ops = CigarOp::parse_str_into_vec(TEST_CIGAR);
+        let paf_line = crate::parse_paf_line(TEST_PAF_RECORD.split("\t")).unwrap();
+        // let cigar_ops = CigarOp::parse_str_into_vec(TEST_CIGAR);
+
+        // let cg_index = CigarIndex::from_cigar(&cigar_ops, 0, 0,
 
         todo!();
     }

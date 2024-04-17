@@ -9,6 +9,7 @@ use ultraviolet::{DVec2, Vec2};
 use crate::{
     grid::{AlignmentGrid, AxisRange},
     gui::AppWindowStates,
+    sequences::SeqId,
     PafInput, PafViewerApp,
 };
 
@@ -176,7 +177,7 @@ pub struct RecordList {
 }
 
 pub struct Record {
-    pub seq_id: usize,
+    pub seq_id: SeqId,
     pub seq_range: std::ops::Range<u64>,
 
     pub color: egui::Color32,
@@ -577,16 +578,16 @@ pub fn string_hash_color(path_name: &str) -> [f32; 3] {
 }
 
 pub fn find_matches_for_target_range(
-    seq_names: &BiMap<String, usize>,
+    seq_names: &BiMap<String, SeqId>,
     input: &PafInput,
     // target_name: &str,
-    target_id: usize,
+    target_id: SeqId,
     target_range: std::ops::Range<u64>,
 ) -> Vec<(usize, Vec<[DVec2; 2]>)> {
     // let Some(&target_id) = seq_names.get(target_name) else {
     //     return Vec::new();
     // };
-    let target = &input.targets[target_id];
+    let target = &input.targets[target_id.0];
     let global_tgt_offset = target.offset as u64 + target_range.start;
 
     let mut output = Vec::new();
@@ -631,7 +632,7 @@ struct AnnotTestState {
 }
 
 pub fn draw_annotation_test_window(
-    seq_names: &BiMap<String, usize>,
+    seq_names: &BiMap<String, SeqId>,
     input: &PafInput,
     ctx: &egui::Context,
     view: &crate::view::View,

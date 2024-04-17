@@ -5,6 +5,7 @@ use ultraviolet::UVec2;
 use crate::{
     cigar::{CigarOp, ProcessedCigar},
     grid::{AxisRange, GridAxis},
+    sequences::SeqId,
 };
 
 pub mod detail;
@@ -117,6 +118,16 @@ impl CpuViewRasterizerEgui {
     }
 }
 
+fn draw_to_pixel_buffer<'a>(
+    cigars: impl IntoIterator<Item = &'a crate::cigar::CigarIndex>,
+    sequences: Option<&FxHashMap<usize, Vec<u8>>>,
+    grid: &crate::grid::AlignmentGrid,
+    canvas_size: impl Into<UVec2>,
+    view: &crate::view::View,
+) -> Option<PixelBuffer> {
+    None
+}
+
 fn draw_exact_to_cpu_buffer(
     app: &crate::PafViewerApp,
     canvas_size: impl Into<UVec2>,
@@ -141,7 +152,7 @@ fn draw_exact_to_cpu_buffer(
     let y_axis = &app.alignment_grid.y_axis;
 
     let clamped_range = |axis: &GridAxis,
-                         seq_id: usize,
+                         seq_id: SeqId,
                          // range: std::ops::Range<u64>,
                          view_range: std::ops::RangeInclusive<f64>| {
         let range = axis.sequence_axis_range(seq_id)?;
@@ -163,7 +174,7 @@ fn draw_exact_to_cpu_buffer(
     // log::info!("x_tiles covered by {:?}: {}", view.x_range(), x_tiles.len());
     // log::info!("y_tiles covered by {:?}: {}", view.y_range(), y_tiles.len());
 
-    let mut tile_bufs: FxHashMap<(usize, usize), (Vec<egui::Color32>, UVec2, egui::Rect)> =
+    let mut tile_bufs: FxHashMap<(SeqId, SeqId), (Vec<egui::Color32>, UVec2, egui::Rect)> =
         FxHashMap::default();
 
     for target_id in x_tiles {
@@ -260,6 +271,7 @@ pub fn draw_subsection(
         &match_data.match_cigar_index,
         &match_data.cigar,
         target_range.clone(),
+        match_data.strand_rev,
     );
 
     let tgt_len = target_range.end - target_range.start;
@@ -536,7 +548,7 @@ mod tests {
 
         let len = cigar.iter().map(|(_, c)| *c).sum::<u64>();
 
-        let iter = MatchOpIter::from_range(&offsets, &cg_ix, &cigar, 0..len);
+        let iter = MatchOpIter::from_range(&offsets, &cg_ix, &cigar, 0..len, false);
 
         for ([tgt, qry], is_match) in iter {
             println!("[{tgt:3}, {qry:3}] - {is_match}");
@@ -544,7 +556,7 @@ mod tests {
 
         println!();
 
-        let iter = MatchOpIter::from_range(&offsets, &cg_ix, &cigar, 15..40);
+        let iter = MatchOpIter::from_range(&offsets, &cg_ix, &cigar, 15..40, false);
 
         for ([tgt, qry], is_match) in iter {
             println!("[{tgt:3}, {qry:3}] - {is_match}");

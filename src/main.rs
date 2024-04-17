@@ -25,20 +25,20 @@ mod grid;
 mod gui;
 mod regions;
 mod render;
-mod spatial;
+mod sequences;
 mod view;
 
 pub use cigar::*;
 use render::*;
 use view::View;
 
-use crate::{annotations::AnnotationStore, gui::AppWindowStates};
+use crate::{annotations::AnnotationStore, gui::AppWindowStates, sequences::SeqId};
 
 struct PafInput {
     queries: Vec<AlignedSeq>,
     targets: Vec<AlignedSeq>,
 
-    pair_line_ix: FxHashMap<(usize, usize), usize>,
+    pair_line_ix: FxHashMap<(SeqId, SeqId), usize>,
 
     // match_edges: Vec<[DVec2; 2]>,
     processed_lines: Vec<ProcessedCigar>,
@@ -80,7 +80,9 @@ struct AlignedSeq {
     offset: u64,
 }
 
-fn parse_paf_line<'a>(mut fields: impl Iterator<Item = &'a str>) -> Option<PafLine<&'a str>> {
+pub(crate) fn parse_paf_line<'a>(
+    mut fields: impl Iterator<Item = &'a str>,
+) -> Option<PafLine<&'a str>> {
     let (query_name, query_seq_len, query_seq_start, query_seq_end) =
         parse_name_range(&mut fields)?;
     let strand = fields.next()?;
@@ -192,7 +194,7 @@ pub fn main() -> anyhow::Result<()> {
     let seq_names = target_names
         .iter()
         .chain(&query_names)
-        .map(|(n, i)| (n.clone(), *i))
+        .map(|(n, i)| (n.clone(), SeqId(*i)))
         .collect::<bimap::BiMap<_, _>>();
     let seq_names = Arc::new(seq_names);
 
@@ -926,7 +928,7 @@ struct PafViewerApp {
 
     paf_input: PafInput,
 
-    seq_names: Arc<bimap::BiMap<String, usize>>,
+    seq_names: Arc<bimap::BiMap<String, SeqId>>,
 
     annotations: AnnotationStore,
 }
