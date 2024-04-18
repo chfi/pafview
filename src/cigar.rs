@@ -33,7 +33,7 @@ pub struct ProcessedCigar {
     pub cigar: Vec<(CigarOp, u64)>,
 }
 
-#[derive(Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum Strand {
     #[default]
@@ -54,18 +54,14 @@ impl std::str::FromStr for Strand {
 }
 
 pub struct CigarIterItem {
-    target_range: std::ops::Range<u64>,
-    query_range: std::ops::Range<u64>,
+    pub target_range: std::ops::Range<u64>,
+    pub query_range: std::ops::Range<u64>,
 
     // target_offset: u64,
     // query_offset: u64,
-    query_strand: Strand,
-    op: CigarOp,
-    op_count: u64,
-}
-
-impl CigarIterItem {
-    //
+    pub query_strand: Strand,
+    pub op: CigarOp,
+    pub op_count: u64,
 }
 
 pub struct CigarIter<'a> {
@@ -175,6 +171,19 @@ impl Cigar {
             .collect::<Vec<_>>();
 
         Cigar(ops)
+    }
+
+    pub fn target_and_query_len(&self) -> [u64; 2] {
+        self.iter()
+            .map(|(op, count)| {
+                let c = count as u64;
+                match op {
+                    CigarOp::Eq | CigarOp::X | CigarOp::M => [c, c],
+                    CigarOp::I => [0, c],
+                    CigarOp::D => [c, 0],
+                }
+            })
+            .fold([0, 0], |[a_t, a_q], [t, q]| [a_t + t, a_q + q])
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (CigarOp, u32)> + '_ {
@@ -291,6 +300,7 @@ impl TryFrom<char> for CigarOp {
     }
 }
 
+#[derive(Debug)]
 pub struct CigarIndex {
     pub target_seq_id: usize,
     pub query_seq_id: usize,
@@ -307,6 +317,10 @@ pub struct CigarIndex {
 }
 
 impl CigarIndex {
+    pub fn iter_target_range(&self, target_range: std::ops::Range<u64>) -> CigarIter<'_> {
+        CigarIter::new(self, target_range)
+    }
+
     pub fn op_target_range(&self, op_ix: usize) -> Option<std::ops::Range<u64>> {
         if op_ix + 1 >= self.op_target_offsets.len() {
             return None;
@@ -400,7 +414,6 @@ impl CigarIndex {
                 _ => (),
             }
         }
-
         debug_assert_eq!(target_offset, target_len);
         debug_assert_eq!(query_offset, query_len);
         //
@@ -451,12 +464,15 @@ impl CigarIndex {
             Strand::Forward
         };
 
+        let target_len = paf_line.tgt_seq_end - paf_line.tgt_seq_start;
+        let query_len = paf_line.query_seq_end - paf_line.query_seq_start;
+
         Self::from_cigar_string(
             &paf_line.cigar,
             target_seq_id,
             query_seq_id,
-            paf_line.tgt_seq_len,
-            paf_line.query_seq_len,
+            target_len,
+            query_len,
             query_strand,
         )
 
@@ -684,7 +700,10 @@ mod tests {
         let paf_line = crate::parse_paf_line(TEST_PAF_RECORD.split("\t")).unwrap();
         // let cigar_ops = CigarOp::parse_str_into_vec(TEST_CIGAR);
 
-        // let cg_index = CigarIndex::from_cigar(&cigar_ops, 0, 0,
+        let cigar = Cigar::parse_str(test_cigar);
+
+        let cg_index = CigarIndex::from_paf_line(&paf_line, 0, 0);
+        println!("{:?}", cg_index);
 
         todo!();
     }

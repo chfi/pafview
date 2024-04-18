@@ -12,7 +12,9 @@
 
 use ultraviolet::UVec2;
 
-use crate::CigarOp;
+use crate::{CigarIndex, CigarIter, CigarOp};
+
+use super::PixelBuffer;
 
 fn build_detail_texture() -> Option<Vec<egui::Color32>> {
     let fonts = egui::text::Fonts::new(2.0, 512, egui::FontDefinitions::default());
@@ -155,9 +157,19 @@ fn cigar_color_def(op: CigarOp) -> egui::Color32 {
     }
 }
 
-// pub fn draw_cigar_section(
-//         target_seq: &[u8],
-//         query_seq: &[u8],
+pub fn draw_cigar_section(
+    target_seq: &[u8],
+    query_seq: &[u8],
+    cigar: &CigarIndex,
+    target_range: std::ops::Range<u64>,
+    query_range: std::ops::Range<u64>,
+    canvas: &mut PixelBuffer,
+    // subcanvas_offset: UVec2
+) {
+    let cg_iter = cigar.iter_target_range(target_range.clone());
+
+    todo!();
+}
 
 /*
 pub fn draw_subsection(
