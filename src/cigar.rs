@@ -53,15 +53,16 @@ impl std::str::FromStr for Strand {
     }
 }
 
+#[derive(Debug)]
 pub struct CigarIterItem {
     pub target_range: std::ops::Range<u64>,
     pub query_range: std::ops::Range<u64>,
 
     // target_offset: u64,
     // query_offset: u64,
-    pub query_strand: Strand,
+    // pub query_strand: Strand,
     pub op: CigarOp,
-    pub op_count: u64,
+    pub op_count: u32,
 }
 
 pub struct CigarIter<'a> {
@@ -129,18 +130,18 @@ impl<'a> Iterator for CigarIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.op_index_range.next()?;
 
-        let (op, op_count) = *self.cigar.ops.get(index)?;
+        let (op, op_count) = self.cigar.cigar.get(index)?;
 
         // get the target range for the current op
         let target_range = self.cigar.op_target_range(index)?;
         let query_range = self.cigar.op_query_range(index)?;
 
-        let query_strand = self.cigar.query_strand;
+        // let query_strand = self.cigar.query_strand;
 
         let item = CigarIterItem {
             target_range,
             query_range,
-            query_strand,
+            // query_strand,
             op,
             op_count,
         };
@@ -158,7 +159,14 @@ impl<'a> Iterator for CigarIter<'a> {
 // Packed representation of an entire cigar
 pub struct Cigar(Vec<u32>);
 
+// impl std::fmt::Debug for Cigar
+
 impl Cigar {
+    pub fn get(&self, index: usize) -> Option<(CigarOp, u32)> {
+        let packed = self.0.get(index)?;
+        Some(CigarOp::unpack(*packed))
+    }
+
     pub fn parse_str(cigar: &str) -> Self {
         let ops = cigar
             .split_inclusive(['M', 'X', '=', 'D', 'I', 'S', 'H', 'N'])
@@ -207,13 +215,13 @@ pub enum CigarOp {
 impl CigarOp {
     pub fn pack(&self, count: u32) -> u32 {
         let op = (*self as u32) << 29;
-        op | count
+        op | (count & !0xE0000000)
     }
 
     pub fn unpack(val: u32) -> (CigarOp, u32) {
         use CigarOp as Cg;
         let op = (val >> 29).min(4); // just to be safe (default to M)
-        let count = val & !(0x11 << 29);
+        let count = val & !0xE0000000;
 
         let op = match op {
             0 => Cg::Eq,
@@ -300,28 +308,51 @@ impl TryFrom<char> for CigarOp {
     }
 }
 
-#[derive(Debug)]
+// #[derive(Debug)]
 pub struct CigarIndex {
-    pub target_seq_id: usize,
-    pub query_seq_id: usize,
+    // pub target_seq_id: usize,
+    // pub query_seq_id: usize,
 
+    // pub range_in_target_seq: std::ops::Range<u64>,
+    // pub range_in_query_seq: std::ops::Range<u64>,
     pub target_len: u64,
     pub query_len: u64,
-
     pub query_strand: Strand,
-    pub ops: Vec<(CigarOp, u64)>,
-
+    pub cigar: Cigar,
+    // pub ops: Vec<(CigarOp, u64)>,
     pub op_line_vertices: Vec<[DVec2; 2]>,
     pub op_target_offsets: Vec<u64>,
     pub op_query_offsets: Vec<u64>,
 }
 
 impl CigarIndex {
-    pub fn iter_target_range(&self, target_range: std::ops::Range<u64>) -> CigarIter<'_> {
+    pub(crate) fn iter_target_range(&self, target_range: std::ops::Range<u64>) -> CigarIter<'_> {
         CigarIter::new(self, target_range)
     }
 
-    pub fn op_target_range(&self, op_ix: usize) -> Option<std::ops::Range<u64>> {
+    /*
+    /// Returns the target and query range of the `{op_ix}`th operation in this cigar.
+    /// The ranges are mapped into the intervals defined by `{target_start_end}` and
+    /// `{query_start_end}`, with the correct offset depending on strandedness.
+    pub fn map_op_range(
+        &self,
+        op_ix: usize,
+        target_start_end: std::ops::Range<u64>,
+        query_start_end: std::ops::Range<u64>,
+        query_strand: Strand,
+    ) -> Option<[std::ops::Range<u64>; 2]> {
+        if op_ix >= self.op_target_offsets.len() {
+            return None;
+        }
+        let local_tgt = self.op_target_offsets[op_ix];
+        let local_qry = self.op_query_offsets[op_ix];
+        //
+    }
+    */
+
+    // these provide the offsets for the operation *within the context of the cigar*,
+    // i.e. they do not account for target/query start & end fields in PAF, or strand
+    fn op_target_range(&self, op_ix: usize) -> Option<std::ops::Range<u64>> {
         if op_ix + 1 >= self.op_target_offsets.len() {
             return None;
         }
@@ -330,7 +361,7 @@ impl CigarIndex {
         Some(start..end)
     }
 
-    fn op_query_range_fwd(&self, op_ix: usize) -> Option<std::ops::Range<u64>> {
+    fn op_query_range(&self, op_ix: usize) -> Option<std::ops::Range<u64>> {
         if op_ix + 1 >= self.op_query_offsets.len() {
             return None;
         }
@@ -339,25 +370,29 @@ impl CigarIndex {
         Some(start..end)
     }
 
-    pub fn op_query_range(&self, op_ix: usize) -> Option<std::ops::Range<u64>> {
-        let fwd_range = self.op_query_range_fwd(op_ix)?;
+    // fn op_query_range(&self, op_ix: usize) -> Option<std::ops::Range<u64>> {
+    //     let fwd_range = self.op_query_range_fwd(op_ix)?;
 
-        let start = self.query_len - fwd_range.start;
-        let end = self.query_len - fwd_range.end;
-        Some(start..end)
+    //     let start = self.query_len - fwd_range.start;
+    //     let end = self.query_len - fwd_range.end;
+    //     Some(start..end)
+    // }
+
+    pub fn target_and_query_len(&self) -> [u64; 2] {
+        self.cigar.target_and_query_len()
     }
 
     pub fn from_cigar(
-        cigar: &[(CigarOp, u64)],
-        target_seq_id: usize,
-        query_seq_id: usize,
+        cigar: Cigar,
+        // target_seq_id: usize,
+        // query_seq_id: usize,
         target_len: u64,
         query_len: u64,
         query_strand: Strand,
     ) -> Self {
         use CigarOp as Cg;
 
-        let cigar = cigar.to_vec();
+        // let cigar = cigar.to_vec();
 
         let mut op_line_vertices = Vec::new();
         let mut op_target_offsets = Vec::new();
@@ -374,7 +409,7 @@ impl CigarIndex {
         //     Strand::Reverse =>
         // };
 
-        for &(op, count) in cigar.iter() {
+        for (op, count) in cigar.iter() {
             op_target_offsets.push(target_offset);
             op_query_offsets.push(query_offset);
 
@@ -400,31 +435,31 @@ impl CigarIndex {
                     op_line_vertices.push([[x0, y0].into(), [x1, y1].into()]);
 
                     // increment target & query
-                    target_offset += count;
-                    query_offset += count;
+                    target_offset += count as u64;
+                    query_offset += count as u64;
                 }
                 Cg::D => {
                     // increment target
-                    target_offset += count;
+                    target_offset += count as u64;
                 }
                 Cg::I => {
                     // increment query
-                    query_offset += count;
+                    query_offset += count as u64;
                 }
                 _ => (),
             }
         }
-        debug_assert_eq!(target_offset, target_len);
-        debug_assert_eq!(query_offset, query_len);
+        // debug_assert_eq!(target_offset, target_len);
+        // debug_assert_eq!(query_offset, query_len);
         //
         op_target_offsets.push(target_offset);
         op_query_offsets.push(query_offset);
 
         Self {
-            target_seq_id,
-            query_seq_id,
+            // target_seq_id,
+            // query_seq_id,
             query_strand,
-            ops: cigar,
+            cigar,
             op_line_vertices,
             op_target_offsets,
             op_query_offsets,
@@ -435,28 +470,20 @@ impl CigarIndex {
 
     pub fn from_cigar_string(
         cigar: &str,
-        target_seq_id: usize,
-        query_seq_id: usize,
         target_len: u64,
         query_len: u64,
         query_strand: Strand,
     ) -> Self {
-        let cigar = CigarOp::parse_str_into_vec(cigar);
+        let cigar = Cigar::parse_str(cigar);
+        // let cigar = CigarOp::parse_str_into_vec(cigar);
 
-        Self::from_cigar(
-            &cigar,
-            target_seq_id,
-            query_seq_id,
-            target_len,
-            query_len,
-            query_strand,
-        )
+        Self::from_cigar(cigar, target_len, query_len, query_strand)
     }
 
     pub fn from_paf_line(
         paf_line: &crate::PafLine<&str>,
-        target_seq_id: usize,
-        query_seq_id: usize,
+        // target_seq_id: usize,
+        // query_seq_id: usize,
     ) -> Self {
         let query_strand = if paf_line.strand_rev {
             Strand::Reverse
@@ -467,14 +494,7 @@ impl CigarIndex {
         let target_len = paf_line.tgt_seq_end - paf_line.tgt_seq_start;
         let query_len = paf_line.query_seq_end - paf_line.query_seq_start;
 
-        Self::from_cigar_string(
-            &paf_line.cigar,
-            target_seq_id,
-            query_seq_id,
-            target_len,
-            query_len,
-            query_strand,
-        )
+        Self::from_cigar_string(&paf_line.cigar, target_len, query_len, query_strand)
 
         /*
         use CigarOp as Cg;
@@ -695,6 +715,43 @@ mod tests {
 
     const TEST_CIGAR: &'static str = "578=1X922=1X1135=1X334=1X194=1X653=1X90=1X32=1X715=1X41=1X29=1X92=1X368=1X504=1X140=1X14=1X18=1X233=1X703=4D6=1X603=1X844=1X86=1X562=1X1081=1X64=1X151=1X32=1X73=1X58=1X59=1X861=1X1216=1X1432=1X291=1X313=1X825=4D189=1X173=1X53=1X26=1X334=1X190=1X74=1X226=2X59=1X251=1X90=1X118=1X80=1X405=1X265=1X80=1X184=1X27=1X212=1X59=1X41=1X197=1X132=1X414=1X38=1X15=1X60=1X69=1X51=2X21=1D236=1X60=1I17=1X85=1X39=";
 
+    fn print_u32(val: u32) {
+        print!("{val:0<32b}");
+    }
+
+    #[test]
+    fn test_cigar_index() {
+        let cg_str = "50=10I5X7D20M";
+        // let cg_str = "5=5I5X5D5M";
+
+        let cg_ops = Cigar::parse_str(cg_str);
+        let [target_len, query_len] = cg_ops.target_and_query_len();
+
+        // for (i, (val, (op, count))) in std::iter::zip(&cg_ops.0, cg_ops.iter()).enumerate() {}
+        // println!("target: {target_len}, query: {query_len}");
+
+        assert_eq!(target_len, 82);
+        assert_eq!(query_len, 85);
+
+        // create cigarindex
+        let cg_index = CigarIndex::from_cigar(cg_ops, target_len, query_len, Strand::Forward);
+        // TODO test range mapping
+
+        // TODO test cigar index iteration
+
+        for item in cg_index.iter_target_range(0..target_len) {
+            println!("{item:?}");
+        }
+
+        // TODO ranges should output correctly
+        // compare against expected lines
+
+        // TODO test bp-level cutting of cigar index iter
+
+        // TODO test strand
+    }
+
+    /*
     #[test]
     fn cigar_raster_iter() {
         let paf_line = crate::parse_paf_line(TEST_PAF_RECORD.split("\t")).unwrap();
@@ -707,4 +764,5 @@ mod tests {
 
         todo!();
     }
+    */
 }

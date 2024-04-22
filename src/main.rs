@@ -23,54 +23,23 @@ mod annotations;
 pub mod cigar;
 mod grid;
 mod gui;
+pub mod paf;
 mod regions;
 mod render;
 mod sequences;
 mod view;
 
 pub use cigar::*;
+pub use paf::{PafInput, PafLine};
 use render::*;
 use view::View;
 
-use crate::{annotations::AnnotationStore, gui::AppWindowStates, sequences::SeqId};
-
-struct PafInput {
-    queries: Vec<AlignedSeq>,
-    targets: Vec<AlignedSeq>,
-
-    pair_line_ix: FxHashMap<(SeqId, SeqId), usize>,
-
-    // match_edges: Vec<[DVec2; 2]>,
-    processed_lines: Vec<ProcessedCigar>,
-}
-
-impl PafInput {
-    fn total_matches(&self) -> usize {
-        self.processed_lines
-            .iter()
-            .map(|l| l.match_edges.len())
-            .sum()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PafLine<S> {
-    pub query_name: S,
-    pub query_seq_len: u64,
-    pub query_seq_start: u64,
-    pub query_seq_end: u64,
-
-    pub tgt_name: S,
-    pub tgt_seq_len: u64,
-    pub tgt_seq_start: u64,
-    pub tgt_seq_end: u64,
-
-    pub strand_rev: bool,
-    pub cigar: S,
-}
+use crate::{
+    annotations::AnnotationStore, gui::AppWindowStates, paf::parse_paf_line, sequences::SeqId,
+};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct AlignedSeq {
+pub struct AlignedSeq {
     // name of the given sequence
     name: String,
     // its length
@@ -80,40 +49,14 @@ struct AlignedSeq {
     offset: u64,
 }
 
-pub(crate) fn parse_paf_line<'a>(
-    mut fields: impl Iterator<Item = &'a str>,
-) -> Option<PafLine<&'a str>> {
-    let (query_name, query_seq_len, query_seq_start, query_seq_end) =
-        parse_name_range(&mut fields)?;
-    let strand = fields.next()?;
-    let (tgt_name, tgt_seq_len, tgt_seq_start, tgt_seq_end) = parse_name_range(&mut fields)?;
+pub fn test_main() -> anyhow::Result<()> {
+    let mut args = std::env::args();
+    let paf_path = args.nth(1).ok_or(anyhow!("Path to PAF not provided"))?;
 
-    let cigar = fields.skip(3).find_map(|s| s.strip_prefix("cg:Z:"))?;
+    // let reader = std::fs::File::open(&
+    let paf_input = PafInput::read_paf_file(&paf_path)?;
 
-    Some(PafLine {
-        query_name,
-        query_seq_len,
-        query_seq_start,
-        query_seq_end,
-
-        tgt_name,
-        tgt_seq_len,
-        tgt_seq_start,
-        tgt_seq_end,
-
-        strand_rev: strand == "-",
-        cigar,
-    })
-}
-
-fn parse_name_range<'a>(
-    mut fields: impl Iterator<Item = &'a str>,
-) -> Option<(&'a str, u64, u64, u64)> {
-    let name = fields.next()?;
-    let len = fields.next()?.parse().ok()?;
-    let start = fields.next()?.parse().ok()?;
-    let end = fields.next()?.parse().ok()?;
-    Some((name, len, start, end))
+    Ok(())
 }
 
 pub fn main() -> anyhow::Result<()> {
