@@ -104,7 +104,7 @@ pub fn main() -> anyhow::Result<()> {
         alignments,
         alignment_grid: todo!(),
         sequences,
-        // paf_input: todo!(),
+        paf_input: todo!(),
         seq_names: todo!(),
         annotations: todo!(),
     };
@@ -932,6 +932,5 @@ struct PafViewerApp {
 
     #[deprecated]
     seq_names: Arc<bimap::BiMap<String, SeqId>>,
-
     annotations: AnnotationStore,
 }

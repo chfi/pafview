@@ -4,11 +4,12 @@ use ultraviolet::DVec2;
 
 use crate::{
     sequences::{SeqId, Sequences},
-    Cigar, CigarIndex, ProcessedCigar, Strand,
+    Cigar, CigarIndex, CigarIter, CigarOp, ProcessedCigar, Strand,
 };
 
 /// Location and orientation of an alignment of two sequences of
 /// lengths `target_total_len` and `query_total_len`
+#[derive(Clone)]
 pub struct AlignmentLocation {
     pub target_total_len: u64,
     pub target_range: std::ops::Range<u64>,
@@ -72,45 +73,51 @@ pub struct Alignment {
 }
 
 pub struct AlignmentIter<'cg> {
-    cigar: &'cg CigarIndex,
-
-    op_index_range: std::ops::Range<usize>,
-    target_range: std::ops::Range<u64>,
+    // cigar: &'cg CigarIndex,
+    cigar_iter: CigarIter<'cg>,
+    location: AlignmentLocation,
+    // op_index_range: std::ops::Range<usize>,
+    // target_range: std::ops::Range<u64>,
     // query_range: std::ops::Range<u64>,
 }
 
+impl<'cg> AlignmentIter<'cg> {
+    fn new(
+        alignment: &'cg Alignment,
+        // cigar: &'cg CigarIndex,
+        target_range: std::ops::Range<u64>,
+    ) -> Self {
+        // let c
+        let cigar_iter = alignment.cigar.iter_target_range(target_range);
+
+        Self {
+            cigar_iter,
+            location: alignment.location.clone(),
+            // op_index_range: todo!(),
+            // target_range,
+            // query_range: todo!(),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct AlignmentIterItem {
-    op_ix: usize,
+    // op_ix: usize,
+    pub op: CigarOp,
+    pub op_count: u32,
     target_range: std::ops::Range<u64>,
     query_range: std::ops::Range<u64>,
 
     query_rev: bool,
 }
 
-impl<'cg> AlignmentIter<'cg> {
-    fn new(
-        cigar: &'cg CigarIndex,
-        //
-        target_range: std::ops::Range<u64>,
-    ) -> Self {
-        let start_i = cigar
-            .op_target_offsets
-            .partition_point(|&t| t < target_range.start);
-        let start_i = start_i.checked_sub(1).unwrap_or_default();
+impl AlignmentIterItem {
+    pub fn target_seq_range(&self) -> &std::ops::Range<u64> {
+        &self.target_range
+    }
 
-        let end_i = cigar
-            .op_target_offsets
-            .partition_point(|&t| t < target_range.end);
-        // let query_range = q_start..q_end; //... hmmmm
-
-        let op_index_range = start_i..end_i;
-
-        Self {
-            cigar,
-            op_index_range: todo!(),
-            target_range,
-            // query_range: todo!(),
-        }
+    pub fn query_seq_range(&self) -> &std::ops::Range<u64> {
+        &self.query_range
     }
 }
 
@@ -118,7 +125,21 @@ impl<'cg> Iterator for AlignmentIter<'cg> {
     type Item = AlignmentIterItem;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        let cg_item = self.cigar_iter.next()?;
+        let target_range = self
+            .location
+            .map_from_local_target_range(cg_item.target_range);
+        let query_range = self
+            .location
+            .map_from_local_query_range(cg_item.query_range);
+
+        Some(AlignmentIterItem {
+            op: cg_item.op,
+            op_count: cg_item.op_count,
+            target_range,
+            query_range,
+            query_rev: self.location.query_strand.is_rev(),
+        })
     }
 }
 
@@ -148,12 +169,12 @@ impl Alignment {
         }
     }
 
-    pub fn iter_target_range<'cg>(
-        &'cg self,
-        target_range: std::ops::Range<u64>,
-    ) -> AlignmentIter<'cg> {
-        AlignmentIter::new(&self.cigar, target_range)
-    }
+    // pub fn iter_target_range<'cg>(
+    //     &'cg self,
+    //     target_range: std::ops::Range<u64>,
+    // ) -> AlignmentIter<'cg> {
+    //     AlignmentIter::new(&self, target_range)
+    // }
 }
 
 pub struct Alignments {
@@ -260,24 +281,6 @@ fn parse_name_range<'a>(
     Some((name, len, start, end))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_alignment_iter() {
-        // AlignmentIter should emit (or, AlignmentIterItem should have methods that return)
-        //  - a sequence of [target, query] positions, each with cigar op & possibly 1 or 2 sequence indices
-        // -- order doesn't really matter there
-
-        //  - the forward sequence slices of the corresponding target and query sequences, if available
-        //  - (maybe) char-level iterators over the sequences in orientation order
-
-        // the returned sequences/cigar ops (and ranges) should be cut
-        // at the ends, but that can be done by the caller
-    }
-}
-
 #[deprecated]
 pub struct PafInput {
     // pub alignments: FxHashMap<(SeqId, SeqId), Alignment>,
@@ -298,5 +301,50 @@ impl PafInput {
             .iter()
             .map(|l| l.match_edges.len())
             .sum()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_alignment_iter() {
+        // AlignmentIter should emit (or, AlignmentIterItem should have methods that return)
+        //  - a sequence of [target, query] positions, each with cigar op & possibly 1 or 2 sequence indices
+        // -- order doesn't really matter there
+
+        //  - the forward sequence slices of the corresponding target and query sequences, if available
+        //  - (maybe) char-level iterators over the sequences in orientation order
+
+        // the returned sequences/cigar ops (and ranges) should be cut
+        // at the ends, but that can be done by the caller
+
+        let cg_str = "50=10I5X7D20M";
+        // let cg_str = "5=5I5X5D5M";
+
+        let cg_ops = Cigar::parse_str(cg_str);
+        let [target_len, query_len] = cg_ops.target_and_query_len();
+
+        let target_total = target_len + 30;
+        let query_total = query_len + 20;
+
+        let alignment = Alignment {
+            target_id: SeqId(0),
+            query_id: SeqId(0),
+
+            location: AlignmentLocation {
+                target_total_len: target_total,
+                target_range: 15..(15 + target_len),
+                query_total_len: query_total,
+                query_range: 0..query_len,
+                query_strand: Strand::Reverse,
+            },
+            cigar: CigarIndex::from_cigar(cg_ops, target_len, query_len, Strand::Reverse),
+        };
+
+        for item in AlignmentIter::new(&alignment, 0..30) {
+            println!("{item:?}");
+        }
     }
 }

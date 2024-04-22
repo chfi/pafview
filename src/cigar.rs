@@ -37,8 +37,14 @@ pub struct ProcessedCigar {
 #[repr(u8)]
 pub enum Strand {
     #[default]
-    Forward,
-    Reverse,
+    Forward = 0,
+    Reverse = 1,
+}
+
+impl Strand {
+    pub fn is_rev(&self) -> bool {
+        *self == Strand::Reverse
+    }
 }
 
 impl std::str::FromStr for Strand {
@@ -421,6 +427,8 @@ impl CigarIndex {
         // query_seq_id: usize,
         target_len: u64,
         query_len: u64,
+        // NB & TODO: Strand here vestigial; op_line_vertices
+        // should be in Alignment or elsewhere
         query_strand: Strand,
     ) -> Self {
         use CigarOp as Cg;
@@ -785,7 +793,7 @@ mod tests {
         assert_eq!(expected_ranges.as_slice(), actual.as_slice());
 
         // test bp-level cutting of cigar index iter
-        let expected_ranges = [(30..50, 30..50u64), (50..50, 50..60), (50..55, 60..60)];
+        let expected_ranges = [(30..50, 30..50u64), (50..50, 50..60), (50..55, 60..65)];
         let actual_ranges = cg_index
             .iter_target_range(30..55)
             .map(|c| (c.target_range.clone(), c.query_range.clone()))
