@@ -1,39 +1,96 @@
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use ultraviolet::DVec2;
+
 use crate::{
     sequences::{SeqId, Sequences},
-    CigarIndex, ProcessedCigar,
+    Cigar, CigarIndex, ProcessedCigar, Strand,
 };
+
+/// Location and orientation of an alignment of two sequences of
+/// lengths `target_total_len` and `query_total_len`
+pub struct AlignmentLocation {
+    // target_total_len: u64,
+    target_range: std::ops::Range<u64>,
+
+    // query_total_len: u64,
+    query_range: std::ops::Range<u64>,
+    query_strand: Strand,
+}
+
+impl AlignmentLocation {
+    pub fn aligned_target_len(&self) -> u64 {
+        self.target_range.end - self.target_range.start
+    }
+
+    pub fn aligned_query_len(&self) -> u64 {
+        self.query_range.end - self.query_range.start
+    }
+
+    /// Maps `local_range` so that it is offset according to `self.target_range`
+    /// `local_range.end` must be smaller than or equal to `self.aligned_target_len()`
+    pub fn map_from_local_target_range(
+        &self,
+        local_range: std::ops::Range<u64>,
+    ) -> std::ops::Range<u64> {
+        let start = local_range.start + self.target_range.start;
+        let end = local_range.end + self.target_range.start;
+        start..end
+    }
+
+    /// Maps `local_range` so that it is offset according to `self.query_range`.
+    /// Takes strand into account, e.g. if `query_strand` is `Reverse` and `local_range = 0..10`,
+    /// the output will point to the last 10 bytes of the aligned part of the query sequence
+    ///
+    /// `local_range.end` must be smaller than or equal to `self.aligned_query_len()`
+    pub fn map_from_local_query_range(
+        &self,
+        local_range: std::ops::Range<u64>,
+    ) -> std::ops::Range<u64> {
+        match self.query_strand {
+            Strand::Forward => {
+                let start = local_range.start + self.query_range.start;
+                let end = local_range.end + self.query_range.start;
+                start..end
+            }
+            Strand::Reverse => {
+                let end = self.query_range.end - local_range.start;
+                let start = end - (local_range.end - local_range.start);
+                start..end
+            }
+        }
+    }
+}
 
 pub struct Alignment {
     pub target_id: SeqId,
-    // pub target_
+    pub query_id: SeqId,
+
+    pub location: AlignmentLocation,
     pub cigar: CigarIndex,
+    // pub cigar_op_vertices: Vec<[DVec2; 2]>,
 }
 
-pub struct AlignmentIter<'cg, 'seq> {
+pub struct AlignmentIter<'cg> {
     cigar: &'cg CigarIndex,
-    seqs: &'seq Sequences,
 
     op_index_range: std::ops::Range<usize>,
     target_range: std::ops::Range<u64>,
     // query_range: std::ops::Range<u64>,
 }
 
-pub struct AlignmentIterItem<'seq> {
+pub struct AlignmentIterItem {
     op_ix: usize,
     target_range: std::ops::Range<u64>,
     query_range: std::ops::Range<u64>,
 
-    target_seq: Option<&'seq [u8]>,
-    query_seq: Option<&'seq [u8]>,
     query_rev: bool,
 }
 
-impl<'cg, 'seq> AlignmentIter<'cg, 'seq> {
+impl<'cg> AlignmentIter<'cg> {
     fn new(
         cigar: &'cg CigarIndex,
-        seqs: &'seq Sequences,
+        //
         target_range: std::ops::Range<u64>,
     ) -> Self {
         let start_i = cigar
@@ -50,7 +107,6 @@ impl<'cg, 'seq> AlignmentIter<'cg, 'seq> {
 
         Self {
             cigar,
-            seqs,
             op_index_range: todo!(),
             target_range,
             // query_range: todo!(),
@@ -58,8 +114,8 @@ impl<'cg, 'seq> AlignmentIter<'cg, 'seq> {
     }
 }
 
-impl<'cg, 'seq> Iterator for AlignmentIter<'cg, 'seq> {
-    type Item = AlignmentIterItem<'seq>;
+impl<'cg> Iterator for AlignmentIter<'cg> {
+    type Item = AlignmentIterItem;
 
     fn next(&mut self) -> Option<Self::Item> {
         todo!()
@@ -67,12 +123,34 @@ impl<'cg, 'seq> Iterator for AlignmentIter<'cg, 'seq> {
 }
 
 impl Alignment {
-    pub fn iter_target_range<'cg, 'seq>(
+    pub fn new(seq_names: &bimap::BiMap<String, SeqId>, paf_line: PafLine<&'_ str>) -> Self {
+        let cigar = CigarIndex::from_paf_line(&paf_line);
+
+        let target_id = *seq_names.get_by_left(paf_line.tgt_name).unwrap();
+        let query_id = *seq_names.get_by_left(paf_line.query_name).unwrap();
+
+        let target_range = paf_line.tgt_seq_start..paf_line.tgt_seq_end;
+        let query_range = paf_line.query_seq_start..paf_line.query_seq_end;
+
+        let location = AlignmentLocation {
+            target_range,
+            query_range,
+            query_strand: cigar.query_strand,
+        };
+
+        Self {
+            target_id,
+            query_id,
+            location,
+            cigar,
+        }
+    }
+
+    pub fn iter_target_range<'cg>(
         &'cg self,
-        sequences: &'seq Sequences,
         target_range: std::ops::Range<u64>,
-    ) -> AlignmentIter<'cg, 'seq> {
-        AlignmentIter::new(&self.cigar, sequences, target_range)
+    ) -> AlignmentIter<'cg> {
+        AlignmentIter::new(&self.cigar, target_range)
     }
 }
 
@@ -134,7 +212,7 @@ impl PafInput {
                 //
                 // }
 
-                let cigar = CigarIndex::from_paf_line(&paf_line, 0, 0);
+                let cigar = CigarIndex::from_paf_line(&paf_line);
 
                 let target_total_len = paf_line.tgt_seq_len;
                 let query_total_len = paf_line.query_seq_len;
