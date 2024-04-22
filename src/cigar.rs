@@ -70,7 +70,7 @@ pub struct CigarIter<'a> {
 
     op_index_range: std::ops::Range<usize>,
     target_range: std::ops::Range<u64>,
-    query_range: std::ops::Range<u64>,
+    // query_range: std::ops::Range<u64>,
     // target_seq: Option<&'seq [u8]>,
     // query_seq: Option<&'seq [u8]>,
 }
@@ -86,12 +86,12 @@ impl<'a> CigarIter<'a> {
             .op_target_offsets
             .partition_point(|&t| t < target_range.end);
 
-        let t_start = cigar.op_target_offsets[start_i];
-        let t_end = cigar.op_target_offsets[end_i];
+        // let t_start = cigar.op_target_offsets[start_i];
+        // let t_end = cigar.op_target_offsets[end_i];
 
-        let q_start = cigar.op_query_offsets[start_i];
-        let q_end = cigar.op_query_offsets[end_i];
-        let query_range = q_start..q_end; //... hmmmm
+        // let q_start = cigar.op_query_offsets[start_i];
+        // let q_end = cigar.op_query_offsets[end_i];
+        // let query_range = q_start..q_end; //... hmmmm
 
         //
 
@@ -105,7 +105,7 @@ impl<'a> CigarIter<'a> {
 
             op_index_range,
             target_range,
-            query_range,
+            // query_range,
             // target_seq: None,
             // query_seq: None,
         }
@@ -130,15 +130,38 @@ impl<'a> Iterator for CigarIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let index = self.op_index_range.next()?;
 
-        let (op, op_count) = self.cigar.cigar.get(index)?;
+        let (op, mut op_count) = self.cigar.cigar.get(index)?;
 
         // get the target range for the current op
-        let target_range = self.cigar.op_target_range(index)?;
-        let query_range = self.cigar.op_query_range(index)?;
+        let op_target = self.cigar.op_target_range(index)?;
+        let op_query = self.cigar.op_query_range(index)?;
 
-        // let query_strand = self.cigar.query_strand;
+        // compute the clipped query range from the target
+        let mut target_range = op_target.clone();
+        let mut query_range = op_query.clone();
+
+        if op_target.end > self.target_range.end {
+            let clipped = op_target.end - self.target_range.end;
+            target_range.end -= clipped;
+            op_count -= clipped as u32;
+
+            if op.consumes_query() {
+                query_range.end -= clipped;
+            }
+        }
+
+        if op_target.start < self.target_range.start {
+            let clipped = self.target_range.start - op_target.start;
+            target_range.start += clipped;
+            op_count -= clipped as u32;
+
+            if op.consumes_query() {
+                query_range.start += clipped;
+            }
+        }
 
         let item = CigarIterItem {
+            // target_range: target_clamped,
             target_range,
             query_range,
             // query_strand,
@@ -149,12 +172,6 @@ impl<'a> Iterator for CigarIter<'a> {
         Some(item)
     }
 }
-
-// impl<'a, 'seq> DoubleEndedIterator for CigarIter<'a, 'seq> {
-//     fn next_back(&mut self) -> Option<Self::Item> {
-//         todo!()
-//     }
-// }
 
 // Packed representation of an entire cigar
 pub struct Cigar(Vec<u32>);
@@ -253,6 +270,22 @@ impl CigarOp {
             Cg::D /* | Cg::N */ => [tgt + count, qry],
             Cg::I => [tgt, qry + count],
             // Cg::S | Cg::H => offsets,
+        }
+    }
+
+    pub fn consumes_target(&self) -> bool {
+        use CigarOp::*;
+        match self {
+            Eq | X | M | D => true,
+            _ => false,
+        }
+    }
+
+    pub fn consumes_query(&self) -> bool {
+        use CigarOp::*;
+        match self {
+            Eq | X | M | I => true,
+            _ => false,
         }
     }
 
@@ -738,17 +771,33 @@ mod tests {
         // TODO test range mapping
 
         // TODO test cigar index iteration
+        let expected_ranges = [
+            (0..50, 0..50u64),
+            (50..50, 50..60),
+            (50..55, 60..65),
+            (55..62, 65..65),
+            (62..82, 65..85),
+        ];
+        let actual = cg_index
+            .iter_target_range(0..target_len)
+            .map(|c| (c.target_range.clone(), c.query_range.clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(expected_ranges.as_slice(), actual.as_slice());
 
-        for item in cg_index.iter_target_range(0..target_len) {
-            println!("{item:?}");
-        }
+        // test bp-level cutting of cigar index iter
+        let expected_ranges = [(30..50, 30..50u64), (50..50, 50..60), (50..55, 60..60)];
+        let actual_ranges = cg_index
+            .iter_target_range(30..55)
+            .map(|c| (c.target_range.clone(), c.query_range.clone()))
+            .collect::<Vec<_>>();
 
-        // TODO ranges should output correctly
-        // compare against expected lines
+        assert_eq!(expected_ranges.as_slice(), actual_ranges.as_slice());
 
-        // TODO test bp-level cutting of cigar index iter
-
-        // TODO test strand
+        // for item in cg_index.iter_target_range(0..target_len) {
+        // for item in cg_index.iter_target_range(0..30) {
+        // for item in cg_index.iter_target_range(30..55) {
+        //     println!("{item:?}");
+        // }
     }
 
     /*
