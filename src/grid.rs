@@ -143,11 +143,11 @@ impl GridAxis {
 
     pub fn from_sequences<'a>(
         sequence_names: &Arc<BiMap<String, SeqId>>,
-        sequences: impl IntoIterator<Item = &'a crate::AlignedSeq>,
+        sequences: impl IntoIterator<Item = (&'a str, u64)>,
     ) -> Self {
-        let iter = sequences.into_iter().filter_map(|seq| {
-            let seq_id = *sequence_names.get_by_left(&seq.name)?;
-            Some((seq_id, seq.len))
+        let iter = sequences.into_iter().filter_map(|(name, len)| {
+            let seq_id = *sequence_names.get_by_left(name)?;
+            Some((seq_id, len))
         });
 
         Self::from_index_and_lengths(iter)

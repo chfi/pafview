@@ -10,12 +10,12 @@ use crate::{
 /// Location and orientation of an alignment of two sequences of
 /// lengths `target_total_len` and `query_total_len`
 pub struct AlignmentLocation {
-    // target_total_len: u64,
-    target_range: std::ops::Range<u64>,
+    pub target_total_len: u64,
+    pub target_range: std::ops::Range<u64>,
 
-    // query_total_len: u64,
-    query_range: std::ops::Range<u64>,
-    query_strand: Strand,
+    pub query_total_len: u64,
+    pub query_range: std::ops::Range<u64>,
+    pub query_strand: Strand,
 }
 
 impl AlignmentLocation {
@@ -136,6 +136,8 @@ impl Alignment {
             target_range,
             query_range,
             query_strand: cigar.query_strand,
+            target_total_len: paf_line.tgt_seq_len,
+            query_total_len: paf_line.query_seq_len,
         };
 
         Self {
@@ -154,114 +156,55 @@ impl Alignment {
     }
 }
 
-pub struct PafInput {
-    // pub alignments: FxHashMap<(SeqId, SeqId), CigarIndex>,
-    pub queries: Vec<crate::AlignedSeq>,
-    pub targets: Vec<crate::AlignedSeq>,
-
-    // alignment_pairs: Vec<(
-    pub pair_line_ix: FxHashMap<(SeqId, SeqId), usize>,
-
-    // match_edges: Vec<[DVec2; 2]>,
-    pub processed_lines: Vec<ProcessedCigar>,
+pub struct Alignments {
+    pub pairs: FxHashMap<(SeqId, SeqId), Alignment>,
 }
 
-impl PafInput {
-    pub fn total_matches(&self) -> usize {
-        self.processed_lines
-            .iter()
-            .map(|l| l.match_edges.len())
-            .sum()
+pub fn load_input_files(
+    paf_path: impl AsRef<std::path::Path>,
+    fasta_path: Option<impl AsRef<std::path::Path>>,
+) -> anyhow::Result<(Alignments, Sequences)> {
+    use std::io::prelude::*;
+
+    let reader = std::fs::File::open(&paf_path).map(std::io::BufReader::new)?;
+    let mut lines = Vec::new();
+
+    for line in reader.lines() {
+        lines.push(line?);
     }
+    let paf_lines = lines
+        .iter()
+        .filter_map(|s| parse_paf_line(s.split('\t')))
+        .collect::<Vec<_>>();
 
-    // pub fn parse_from_lines<'s>(lines: impl IntoIterator<Item = &'s str>) -> anyhow::Result<Self> {
-    pub fn read_paf_file(paf_path: impl AsRef<std::path::Path>) -> anyhow::Result<Self> {
-        use std::io::prelude::*;
+    let sequences = if let Some(fasta_path) = fasta_path {
+        Sequences::from_fasta(fasta_path)?
+    } else {
+        Sequences::from_paf(&paf_lines).unwrap()
+    };
 
-        let reader = std::fs::File::open(&paf_path).map(std::io::BufReader::new)?;
+    let alignments = Alignments::from_paf_lines(&sequences, paf_lines);
 
-        // let mut sequences = FxHashMap::default();
-        // let mut targets = Vec::new();
-        // let mut queries = Vec::new();
-        // let mut targets = FxHashMap::default();
-        // let mut queries = FxHashMap::default();
+    Ok((alignments, sequences))
+}
 
-        // let mut add_sequencesjj
+impl Alignments {
+    pub fn from_paf_lines<'l>(
+        // NB: construct Sequences from iterator over PafLines (or FASTA) before
+        sequences: &Sequences,
+        lines: impl IntoIterator<Item = PafLine<&'l str>>,
+    ) -> Self {
+        let mut pairs = FxHashMap::default();
 
-        // fn print_paf(line: &PafLine<&str>) {
-        //     println!(
-        //         "{} - len {}, start {}, end {}",
-        //         line.query_name, line.query_seq_len, line.query_seq_start, line.query_seq_end
-        //     );
-        // }
+        for paf_line in lines {
+            let target_id = sequences.names().get_by_left(paf_line.tgt_name).unwrap();
+            let query_id = sequences.names().get_by_left(paf_line.query_name).unwrap();
+            let alignment = Alignment::new(&sequences.names(), paf_line);
 
-        let debug = ["SK1#1#chrI", "S288C#1#chrI"]
-            .into_iter()
-            .map(String::from)
-            .collect::<FxHashSet<_>>();
-
-        for line in reader.lines() {
-            let line = line?;
-            if let Some(paf_line) = parse_paf_line(line.split('\t')) {
-                // println!("{paf_line:?}");
-
-                // if let Some(existing) = targets.get(&paf_line.query_name) {
-                // print!("found existing query ");
-                // print_paf
-                // println!("found query: {
-                //
-                // }
-
-                let cigar = CigarIndex::from_paf_line(&paf_line);
-
-                let target_total_len = paf_line.tgt_seq_len;
-                let query_total_len = paf_line.query_seq_len;
-
-                let target_align_len = paf_line.tgt_seq_end - paf_line.tgt_seq_start;
-                let query_align_len = paf_line.query_seq_end - paf_line.query_seq_start;
-
-                let [target_len, query_len] = cigar.target_and_query_len();
-
-                if debug.contains(paf_line.tgt_name) {
-                    print!(
-                        "target: {}, query: {}\t",
-                        paf_line.tgt_name, paf_line.query_name,
-                    );
-                    print!("total: {target_total_len}, {query_total_len}\t");
-                    println!("aligned: {target_align_len}, {query_align_len}\tcigar: {target_len}, {query_len}");
-                }
-
-                // print!(
-                //     "query: {}, target: {}\t",
-                //     paf_line.query_name, paf_line.tgt_name
-                // );
-                // print!("total: {query_total_len}, {target_total_len}\t");
-                // println!("aligned: {query_align_len}, {target_align_len}\tcigar: {query_len}, {target_len}");
-
-                // if !sequences.contains_key(&paf_line.query_name) {
-                //     //
-                // }
-
-                // println!(
-                //     "query {} - len {}, start {}, end {}",
-                //     paf_line.query_name,
-                //     paf_line.query_seq_len,
-                //     paf_line.query_seq_start,
-                //     paf_line.query_seq_end
-                // );
-
-                // println!(
-                //     "tgt {} - len {}, start {}, end {}",
-                //     paf_line.tgt_name,
-                //     paf_line.tgt_seq_len,
-                //     paf_line.tgt_seq_start,
-                //     paf_line.tgt_seq_end
-                // );
-            }
+            pairs.insert((*target_id, *query_id), alignment);
         }
 
-        //
-        todo!();
+        Self { pairs }
     }
 }
 
@@ -332,5 +275,28 @@ mod tests {
 
         // the returned sequences/cigar ops (and ranges) should be cut
         // at the ends, but that can be done by the caller
+    }
+}
+
+#[deprecated]
+pub struct PafInput {
+    // pub alignments: FxHashMap<(SeqId, SeqId), Alignment>,
+    // pub alignments: FxHashMap<(SeqId, SeqId), CigarIndex>,
+    pub queries: Vec<crate::AlignedSeq>,
+    pub targets: Vec<crate::AlignedSeq>,
+
+    // alignment_pairs: Vec<(
+    pub pair_line_ix: FxHashMap<(SeqId, SeqId), usize>,
+
+    // match_edges: Vec<[DVec2; 2]>,
+    pub processed_lines: Vec<ProcessedCigar>,
+}
+
+impl PafInput {
+    pub fn total_matches(&self) -> usize {
+        self.processed_lines
+            .iter()
+            .map(|l| l.match_edges.len())
+            .sum()
     }
 }

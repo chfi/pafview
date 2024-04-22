@@ -1,10 +1,13 @@
 use annotations::{draw::AnnotationPainter, AnnotationGuiHandler};
 use bimap::BiMap;
 use bytemuck::{Pod, Zeroable};
+use clap::Parser;
 use egui_wgpu::ScreenDescriptor;
 use grid::AlignmentGrid;
+use paf::Alignments;
 use regions::SelectionHandler;
 use rustc_hash::FxHashMap;
+use sequences::Sequences;
 use std::{borrow::Cow, str::FromStr, sync::Arc};
 use ultraviolet::{DVec2, Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
@@ -19,11 +22,13 @@ use std::io::prelude::*;
 
 use anyhow::anyhow;
 
-mod annotations;
 pub mod cigar;
+pub mod paf;
+
+mod annotations;
+mod cli;
 mod grid;
 mod gui;
-pub mod paf;
 mod regions;
 mod render;
 mod sequences;
@@ -54,12 +59,63 @@ pub fn test_main() -> anyhow::Result<()> {
     let paf_path = args.nth(1).ok_or(anyhow!("Path to PAF not provided"))?;
 
     // let reader = std::fs::File::open(&
-    let paf_input = PafInput::read_paf_file(&paf_path)?;
+    // let paf_input = PafInput::read_paf_file(&paf_path)?;
 
     Ok(())
 }
 
 pub fn main() -> anyhow::Result<()> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        env_logger::init();
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        console_log::init().expect("could not initialize logger");
+    }
+
+    let args = crate::cli::Cli::parse();
+
+    // Load PAF and optional FASTA
+    let (alignments, sequences) = crate::paf::load_input_files(&args.paf, args.fasta)?;
+
+    // construct AlignmentGrid
+    let targets = alignments
+        .pairs
+        .values()
+        .map(|al| (al.target_id, al.location.target_total_len));
+    let x_axis = grid::GridAxis::from_index_and_lengths(targets);
+    let queries = alignments
+        .pairs
+        .values()
+        .map(|al| (al.target_id, al.location.target_total_len));
+    let y_axis = grid::GridAxis::from_index_and_lengths(queries);
+
+    let alignment_grid = AlignmentGrid {
+        x_axis,
+        y_axis,
+        sequence_names: sequences.names().clone(),
+    };
+
+    // TODO replace PafInput everywhere...
+
+    let app = PafViewerApp {
+        alignments,
+        alignment_grid: todo!(),
+        sequences,
+        // paf_input: todo!(),
+        seq_names: todo!(),
+        annotations: todo!(),
+    };
+
+    start_window(app);
+
+    Ok(())
+}
+
+/*
+pub fn old_main() -> anyhow::Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::init();
@@ -222,6 +278,7 @@ pub fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
+*/
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd, Pod, Zeroable)]
 #[repr(C)]
@@ -867,10 +924,13 @@ pub fn write_png(
 }
 
 struct PafViewerApp {
+    alignments: Alignments,
     alignment_grid: AlignmentGrid,
+    sequences: Sequences,
 
     paf_input: PafInput,
 
+    #[deprecated]
     seq_names: Arc<bimap::BiMap<String, SeqId>>,
 
     annotations: AnnotationStore,
