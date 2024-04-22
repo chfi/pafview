@@ -10,11 +10,137 @@
 // AGTC   AG AT AC AA
 //
 
+use rustc_hash::FxHashMap;
 use ultraviolet::UVec2;
 
 use crate::{CigarIndex, CigarIter, CigarOp};
 
 use super::PixelBuffer;
+
+fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer> {
+    let fonts = egui::text::Fonts::new(2.0, 512, egui::FontDefinitions::default());
+
+    let tile_width = 16.0;
+    let tile_height = tile_width;
+
+    let gtca_galley = fonts.layout(
+        "GTCA".into(),
+        egui::FontId::monospace(16.0),
+        egui::Color32::BLACK,
+        512.0,
+    );
+    let gtca_small_galley = fonts.layout(
+        "GTCA".into(),
+        egui::FontId::monospace(10.0),
+        egui::Color32::BLACK,
+        512.0,
+    );
+
+    let gtca_glyphs = gtca_galley.rows[0]
+        .glyphs
+        .iter()
+        .take(4)
+        .copied()
+        .collect::<Vec<_>>();
+    let gtca_small_glyphs = gtca_small_galley.rows[0]
+        .glyphs
+        .iter()
+        .take(4)
+        .copied()
+        .collect::<Vec<_>>();
+
+    fonts.begin_frame(1.0, 512);
+    let font_img = fonts.image();
+    // let gtca_small_img
+
+    let font_buffer = PixelBuffer {
+        width: font_img.width() as u32,
+        height: font_img.height() as u32,
+        pixels: font_img.srgba_pixels(None).collect::<Vec<_>>(),
+    };
+
+    let get_nucl_i = |ix: usize| {
+        let g = gtca_glyphs[ix].uv_rect;
+        let src_offset = [g.min[0] as u32, g.min[1] as u32];
+        let src_size = [
+            g.max[0] as u32 - src_offset[0],
+            g.max[1] as u32 - src_offset[1],
+        ];
+        (src_offset, src_size)
+    };
+
+    let get_small_nucl_i = |ix: usize| {
+        let g = gtca_small_glyphs[ix].uv_rect;
+        let src_offset = [g.min[0] as u32, g.min[1] as u32];
+        let src_size = [
+            g.max[0] as u32 - src_offset[0],
+            g.max[1] as u32 - src_offset[1],
+        ];
+        (src_offset, src_size)
+    };
+
+    use CigarOp as Cg;
+    let mut tiles = FxHashMap::default();
+
+    let tile_size = 32;
+
+    // add individual target/query bps for I & D
+
+    // add both bp pairs for M/=/X
+
+    let nucleotides = ['G', 'T', 'C', 'A'];
+
+    for (op, bg_color) in [
+        (Cg::I, egui::Color32::GREEN),
+        (Cg::D, egui::Color32::YELLOW), // testing
+    ] {
+        for (nucl_i, &nucl) in nucleotides.iter().enumerate() {
+            let mut buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
+            let (offset, size) = get_nucl_i(nucl_i);
+            font_buffer.sample_subimage_into(&mut buffer, [0.0, 0.0], [1.0, 1.0], offset, size);
+
+            if op == Cg::I {
+                tiles.insert((Cg::I, [None, Some(nucl)]), buffer);
+            } else {
+                tiles.insert((Cg::D, [Some(nucl), None]), buffer);
+            }
+        }
+    }
+    for (op, bg_color) in [
+        (Cg::M, egui::Color32::BLACK),
+        (Cg::Eq, egui::Color32::BLUE), // testing
+        (Cg::X, egui::Color32::RED),
+    ] {
+        for (qi, &query) in nucleotides.iter().enumerate() {
+            for (ti, &target) in nucleotides.iter().enumerate() {
+                let mut buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
+
+                let (q_offset, q_size) = get_small_nucl_i(qi);
+                let (t_offset, t_size) = get_small_nucl_i(ti);
+
+                font_buffer.sample_subimage_into(
+                    &mut buffer,
+                    [0.0, 0.0],
+                    [1.0, 1.0],
+                    q_offset,
+                    q_size,
+                );
+
+                font_buffer.sample_subimage_into(
+                    &mut buffer,
+                    [tile_size as f32 * 0.5, tile_size as f32 * 0.5],
+                    [1.0, 1.0],
+                    t_offset,
+                    t_size,
+                );
+
+                tiles.insert((op, [Some(target), Some(query)]), buffer);
+            }
+        }
+    }
+
+    tiles
+}
 
 fn build_detail_texture() -> Option<Vec<egui::Color32>> {
     let fonts = egui::text::Fonts::new(2.0, 512, egui::FontDefinitions::default());
@@ -157,16 +283,33 @@ fn cigar_color_def(op: CigarOp) -> egui::Color32 {
     }
 }
 
-pub fn draw_cigar_section(
-    target_seq: &[u8],
-    query_seq: &[u8],
-    cigar: &CigarIndex,
-    target_range: std::ops::Range<u64>,
-    query_range: std::ops::Range<u64>,
+pub fn draw_alignments(
+    alignments: &crate::paf::Alignments,
+    sequences: &crate::sequences::Sequences,
+    grid: &crate::AlignmentGrid,
+    view: &crate::view::View,
+    canvas_size: impl Into<UVec2>,
+    // canvas: &mut PixelBuffer,
+) -> PixelBuffer {
+    let canvas_size = canvas_size.into();
+
+    let mut pixels = PixelBuffer::new(canvas_size.x, canvas_size.y);
+
+    //
+
+    pixels
+}
+
+fn draw_cigar_section(
+    alignment: &crate::paf::Alignment,
+    target_seq: Option<&[u8]>,
+    query_seq: Option<&[u8]>,
+    view: &crate::view::View,
+    // canvas corresponding to the whole view
     canvas: &mut PixelBuffer,
-    // subcanvas_offset: UVec2
 ) {
-    let cg_iter = cigar.iter_target_range(target_range.clone());
+    // derive target & query range from view & alignment
+    // let cg_iter = cigar.iter_target_range(target_range.clone());
 
     todo!();
 }

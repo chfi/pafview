@@ -416,14 +416,79 @@ impl<'a> Iterator for MatchOpIter<'a> {
     }
 }
 
-struct PixelBuffer {
-    width: u32,
-    height: u32,
-    pixels: Vec<egui::Color32>,
+pub struct PixelBuffer {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<egui::Color32>,
 }
 
 impl PixelBuffer {
-    fn new_color(width: u32, height: u32, color: egui::Color32) -> Self {
+    pub fn sample_into(&self, dst: &mut PixelBuffer, dst_offset: [f32; 2], dst_scale: [f32; 2]) {
+        // Calculate the bounds in the dst buffer that correspond to the src bounds
+        let start_x = ((0.0 - dst_offset[0]) * dst_scale[0].max(0.0).ceil()) as usize;
+        let start_y = ((0.0 - dst_offset[1]) * dst_scale[1].max(0.0).ceil()) as usize;
+        let end_x =
+            (((self.width as f32 - dst_offset[0]) * dst_scale[0]).min(dst.width as f32)) as usize;
+        let end_y =
+            (((self.height as f32 - dst_offset[1]) * dst_scale[1]).min(dst.height as f32)) as usize;
+
+        for y in start_y..end_y {
+            for x in start_x..end_x {
+                let src_x = (x as f32 - dst_offset[0]) / dst_scale[0];
+                let src_y = (y as f32 - dst_offset[1]) / dst_scale[1];
+
+                if src_x >= 0.0
+                    && src_x < self.width as f32
+                    && src_y >= 0.0
+                    && src_y < self.height as f32
+                {
+                    dst.pixels[y * dst.width as usize + x] =
+                        bilinear_interpolate(self, src_x, src_y).into();
+                    // } else {
+                    //     dst.pixels[y * dst.width as usize + x] = egui::Color32::TRANSPARENT;
+                }
+            }
+        }
+    }
+
+    pub fn sample_subimage_into(
+        &self,
+        dst: &mut PixelBuffer,
+        dst_offset: [f32; 2],
+        dst_scale: [f32; 2],
+        src_offset: [u32; 2],
+        src_size: [u32; 2],
+    ) {
+        let start_x = ((0.0 - dst_offset[0]) / dst_scale[0]).ceil() as usize;
+        let start_y = ((0.0 - dst_offset[1]) / dst_scale[1]).ceil() as usize;
+        let end_x = (((src_size[0] as f32 - dst_offset[0]) / dst_scale[0]).min(dst.width as f32))
+            .floor() as usize;
+        let end_y = (((src_size[1] as f32 - dst_offset[1]) / dst_scale[1]).min(dst.height as f32))
+            .floor() as usize;
+
+        for y in start_y..end_y {
+            for x in start_x..end_x {
+                let src_x = (x as f32 - dst_offset[0]) / dst_scale[0] + src_offset[0] as f32;
+                let src_y = (y as f32 - dst_offset[1]) / dst_scale[1] + src_offset[1] as f32;
+
+                if src_x >= src_offset[0] as f32
+                    && src_x < (src_offset[0] + src_size[0]) as f32
+                    && src_y >= src_offset[1] as f32
+                    && src_y < (src_offset[1] + src_size[1]) as f32
+                {
+                    dst.pixels[y * dst.width as usize + x] =
+                        bilinear_interpolate_offset(self, src_x, src_y, src_offset, src_size)
+                            .into();
+                    // } else {
+                    //     dst.pixels[y * dst.width as usize + x] = egui::Color32::TRANSPARENT;
+                }
+            }
+        }
+    }
+}
+
+impl PixelBuffer {
+    pub fn new_color(width: u32, height: u32, color: egui::Color32) -> Self {
         Self {
             width,
             height,
@@ -431,16 +496,16 @@ impl PixelBuffer {
         }
     }
 
-    fn new(width: u32, height: u32) -> Self {
+    pub fn new(width: u32, height: u32) -> Self {
         Self::new_color(width, height, egui::Color32::TRANSPARENT)
     }
 
-    fn blit_from_buffer(&mut self, dst_offset: impl Into<[i32; 2]>, src: &Self) {
+    pub fn blit_from_buffer(&mut self, dst_offset: impl Into<[i32; 2]>, src: &Self) {
         let src_size = [src.width, src.height];
         self.blit_from_slice(dst_offset, src_size, &src.pixels);
     }
 
-    fn blit_from_slice(
+    pub fn blit_from_slice(
         &mut self,
         dst_offset: impl Into<[i32; 2]>,
         src_size: impl Into<[u32; 2]>,
@@ -494,6 +559,74 @@ impl PixelBuffer {
             dst_slice.copy_from_slice(src_slice);
         }
     }
+}
+
+fn bilinear_interpolate(src: &PixelBuffer, x: f32, y: f32) -> egui::Rgba {
+    bilinear_interpolate_offset(src, x, y, [0, 0], [src.width, src.height])
+}
+
+fn bilinear_interpolate_offset(
+    src: &PixelBuffer,
+    x: f32,
+    y: f32,
+    src_offset: [u32; 2],
+    src_size: [u32; 2],
+) -> egui::Rgba {
+    let x_floor = x.floor() as usize;
+    let y_floor = y.floor() as usize;
+    let x_ceil = x.ceil() as usize;
+    let y_ceil = y.ceil() as usize;
+
+    // Adjust coordinates for src_offset
+    let x_floor = x_floor + src_offset[0] as usize;
+    let x_ceil = x_ceil + src_offset[0] as usize;
+    let y_floor = y_floor + src_offset[1] as usize;
+    let y_ceil = y_ceil + src_offset[1] as usize;
+
+    // Clamp coordinates to src_size
+    let x_floor = x_floor.min(src_offset[0] as usize + src_size[0] as usize - 1);
+    let x_ceil = x_ceil.min(src_offset[0] as usize + src_size[0] as usize - 1);
+    let y_floor = y_floor.min(src_offset[1] as usize + src_size[1] as usize - 1);
+    let y_ceil = y_ceil.min(src_offset[1] as usize + src_size[1] as usize - 1);
+
+    // Bilinear interpolation logic (unchanged)
+    // ...
+    let s_width = src.width as usize;
+    let s_height = src.height as usize;
+
+    let t = x - x.floor();
+    let u = y - y.floor();
+
+    if x_floor >= s_width || y_floor >= s_height || x_ceil >= s_width || y_ceil >= s_height {
+        return egui::Color32::TRANSPARENT.into();
+    }
+
+    let p00: egui::Rgba = src.pixels[y_floor * s_width + x_floor].into();
+    let p10: egui::Rgba = src.pixels[y_floor * s_width + x_ceil].into();
+    let p01: egui::Rgba = src.pixels[y_ceil * s_width + x_floor].into();
+    let p11: egui::Rgba = src.pixels[y_ceil * s_width + x_ceil].into();
+
+    // Interpolate rows
+    let p0 = [
+        p00[0] + t * (p10[0] - p00[0]),
+        p00[1] + t * (p10[1] - p00[1]),
+        p00[2] + t * (p10[2] - p00[2]),
+        p00[3] + t * (p10[3] - p00[3]),
+    ];
+    let p1 = [
+        p01[0] + t * (p11[0] - p01[0]),
+        p01[1] + t * (p11[1] - p01[1]),
+        p01[2] + t * (p11[2] - p01[2]),
+        p01[3] + t * (p11[3] - p01[3]),
+    ];
+
+    // Interpolate columns
+    egui::Rgba::from_rgba_premultiplied(
+        p0[0] + u * (p1[0] - p0[0]),
+        p0[1] + u * (p1[1] - p0[1]),
+        p0[2] + u * (p1[2] - p0[2]),
+        p0[3] + u * (p1[3] - p0[3]),
+    )
 }
 
 #[cfg(test)]
