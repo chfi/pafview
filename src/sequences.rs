@@ -47,6 +47,11 @@ impl Sequences {
         &self.sequence_names
     }
 
+    pub fn get_bytes(&self, seq: SeqId) -> Option<&[u8]> {
+        let seq = self.sequences.get(&seq)?.seq.as_ref()?;
+        Some(seq.as_slice())
+    }
+
     pub fn from_paf<'a>(
         lines: impl IntoIterator<Item = &'a crate::PafLine<&'a str>>,
     ) -> Option<Self> {

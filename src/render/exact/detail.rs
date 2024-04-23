@@ -11,16 +11,19 @@
 //
 
 use rustc_hash::FxHashMap;
-use ultraviolet::UVec2;
+use ultraviolet::{DVec2, UVec2};
 
-use crate::{CigarIndex, CigarIter, CigarOp};
+use crate::{sequences::SeqId, CigarIndex, CigarIter, CigarOp};
 
 use super::PixelBuffer;
+
+const TILE_BUFFER_SIZE: usize = 32;
+const TILE_BUFFER_SIZE_F: f32 = TILE_BUFFER_SIZE as f32;
 
 fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer> {
     let fonts = egui::text::Fonts::new(2.0, 512, egui::FontDefinitions::default());
 
-    let tile_width = 16.0;
+    let tile_width = TILE_BUFFER_SIZE;
     let tile_height = tile_width;
 
     let gtca_galley = fonts.layout(
@@ -142,6 +145,7 @@ fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuff
     tiles
 }
 
+/*
 fn build_detail_texture() -> Option<Vec<egui::Color32>> {
     let fonts = egui::text::Fonts::new(2.0, 512, egui::FontDefinitions::default());
 
@@ -271,6 +275,7 @@ fn build_detail_texture() -> Option<Vec<egui::Color32>> {
 
     Some(pixels)
 }
+*/
 
 fn cigar_color_def(op: CigarOp) -> egui::Color32 {
     match op {
@@ -288,16 +293,140 @@ pub fn draw_alignments(
     sequences: &crate::sequences::Sequences,
     grid: &crate::AlignmentGrid,
     view: &crate::view::View,
+    tile_buffers: &FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>,
     canvas_size: impl Into<UVec2>,
     // canvas: &mut PixelBuffer,
 ) -> PixelBuffer {
     let canvas_size = canvas_size.into();
+    let screen_dims = [canvas_size.x as f32, canvas_size.y as f32];
 
-    let mut pixels = PixelBuffer::new(canvas_size.x, canvas_size.y);
+    // using the AlignmentGrid, find the alignments that overlap the view
+    // (in 99% of cases this will only be one, but that 1% still can matter)
+    let x_tiles = grid
+        .x_axis
+        .tiles_covered_by_range(view.x_range())
+        .unwrap()
+        .collect::<Vec<_>>();
+    let y_tiles = grid
+        .y_axis
+        .tiles_covered_by_range(view.y_range())
+        .unwrap()
+        .collect::<Vec<_>>();
 
-    //
+    // for each overlapping alignment,
+    //   find the local target & query ranges
+    //   compute the corresponding pixel rectangle ("subcanvas") in the output canvas
+    //   step through (using AlignmentIter) the local target range,
+    //     for each op, find the corresponding pixel rectangle in the subcanvas,
+    //       & the source tile using the op type & sequence nucleotides,
+    //       then copy into final canvas using `sample_subimage_into`
 
-    pixels
+    fn clamped_range(
+        axis: &crate::grid::GridAxis,
+        seq_id: SeqId,
+        view_range: std::ops::RangeInclusive<f64>,
+    ) -> Option<std::ops::Range<u64>> {
+        // let clamped_range = |axis: &crate::grid::GridAxis,
+        //                      seq_id: SeqId,
+        //                      view_range: std::ops::RangeInclusive<f64>| {
+        let range = axis.sequence_axis_range(seq_id)?;
+        let start = range.start.max(*view_range.start() as u64);
+        let end = range.end.min(*view_range.end() as u64).max(start);
+
+        let start = start - range.start;
+        let end = end - range.start;
+        Some(start..end)
+    };
+
+    let map_to_point = |target_id: SeqId, query_id: SeqId, target: u64, query: u64| {
+        let x = grid
+            .x_axis
+            .axis_local_to_global_exact(target_id, target)
+            .unwrap();
+        let y = grid
+            .y_axis
+            .axis_local_to_global_exact(query_id, query)
+            .unwrap();
+
+        DVec2::new(x as f64, y as f64)
+    };
+
+
+    let sequence_getter = |t_id: SeqId, q_id: SeqId| {
+        let target_seq = sequences.get_bytes(t_id);
+        let query_seq = sequences.get_bytes(q_id);
+        move |op: CigarOp, target: usize, query: usize| {
+            let t_seq = op.consumes_target().then_some(()).and(
+                target_seq
+                    .and_then(|seq| seq.get(target).copied())
+                    .map(|c| c as char),
+            );
+            let q_seq = op.consumes_query().then_some(()).and(
+                query_seq
+                    .and_then(|seq| seq.get(query).copied())
+                    .map(|c| c as char),
+            );
+            [t_seq, q_seq]
+        }
+    };
+
+    let mut dst_pixels = PixelBuffer::new(canvas_size.x, canvas_size.y);
+
+    for &target_id in &x_tiles {
+        for &query_id in &y_tiles {
+            let Some(alignment) = alignments.pairs.get(&(target_id, query_id)) else {
+                continue;
+            };
+
+            // clamped ranges + pixel ranges
+            let clamped_target = clamped_range(&grid.x_axis, target_id, view.x_range()).unwrap();
+            let clamped_query = clamped_range(&grid.y_axis, query_id, view.y_range()).unwrap();
+
+            // world coordinates of the visible screen rectangle corresponding to this alignment
+            let world_min = map_to_point(
+                target_id,
+                query_id,
+                clamped_target.start,
+                clamped_query.start,
+            );
+            let world_max =
+                map_to_point(target_id, query_id, clamped_target.end, clamped_query.end);
+
+            let screen_min = view.map_world_to_screen(screen_dims, world_min);
+            let screen_max = view.map_world_to_screen(screen_dims, world_max);
+
+            let seqs = sequence_getter(target_id, query_id);
+
+            for item in alignment.iter_target_range(clamped_target) {
+                let op = item.op;
+                let count = item.op_count;
+
+                for [tgt, qry] in item {
+                    let nucls = seqs(op, tgt, qry);
+
+                    let Some(tile) = tile_buffers.get(&(op, nucls)) else {
+                        continue;
+                    };
+
+                    let dst_offset = screen_min;
+                    let dst_size = screen_max - screen_min;
+                    // let src_offset = todo!();
+                    // let src_size = todo!();
+                    tile.sample_subimage_into(
+                        &mut dst_pixels,
+                        dst_offset.into(),
+                        dst_size.into(),
+                        [0, 0],
+                        [TILE_BUFFER_SIZE as u32, TILE_BUFFER_SIZE as u32],
+                        // src_offset,
+                        // src_size,
+                    );
+                }
+            }
+        }
+    }
+
+    dst_pixels
 }
 
 fn draw_cigar_section(

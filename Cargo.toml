@@ -9,6 +9,7 @@ edition = "2021"
 anyhow = "1.0.80"
 bimap = "0.6.3"
 bytemuck = { version = "1.14.3", features = ["derive"] }
+clap = { version = "4.5.4", features = ["derive"] }
 egui = { version = "0.27.2", features = ["mint"] }
 egui-wgpu = { version = "0.27.2", features = ["winit", "wayland", "x11"] }
 egui-winit = "0.27.2"

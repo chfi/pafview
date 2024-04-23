@@ -451,11 +451,15 @@ impl PixelBuffer {
         }
     }
 
+    /*
     pub fn sample_subimage_into(
         &self,
         dst: &mut PixelBuffer,
+        // pixels
         dst_offset: [f32; 2],
+        // normalized
         dst_scale: [f32; 2],
+        // pixels
         src_offset: [u32; 2],
         src_size: [u32; 2],
     ) {
@@ -482,6 +486,58 @@ impl PixelBuffer {
                     // } else {
                     //     dst.pixels[y * dst.width as usize + x] = egui::Color32::TRANSPARENT;
                 }
+            }
+        }
+    }
+    */
+}
+impl PixelBuffer {
+    pub fn sample_subimage_into(
+        &self,
+        dst: &mut PixelBuffer,
+        dst_offset: [f32; 2],
+        dst_size: [f32; 2],
+        src_offset: [u32; 2],
+        src_size: [u32; 2],
+    ) {
+        // Calculate scale factors based on the size ratios
+        let scale_x = dst_size[0] / src_size[0] as f32;
+        let scale_y = dst_size[1] / src_size[1] as f32;
+
+        // Calculate the area in the destination buffer affected by the operation
+        let start_x = dst_offset[0].ceil() as usize;
+        let start_y = dst_offset[1].ceil() as usize;
+        let end_x = ((dst_offset[0] + dst_size[0]).min(dst.width as f32)).floor() as usize;
+        let end_y = ((dst_offset[1] + dst_size[1]).min(dst.height as f32)).floor() as usize;
+
+        // Iterate over the calculated destination bounds
+        for y in start_y..end_y {
+            for x in start_x..end_x {
+                // Calculate corresponding source coordinates
+                let src_x = (x as f32 - dst_offset[0]) / scale_x + src_offset[0] as f32;
+                let src_y = (y as f32 - dst_offset[1]) / scale_y + src_offset[1] as f32;
+
+                // Only proceed if within bounds of the source subimage
+                if src_x >= src_offset[0] as f32
+                    && src_x < (src_offset[0] + src_size[0]) as f32
+                    && src_y >= src_offset[1] as f32
+                    && src_y < (src_offset[1] + src_size[1]) as f32
+                {
+                    dst.pixels[y * dst.width as usize + x] =
+                        bilinear_interpolate_offset(self, src_x, src_y, src_offset, src_size)
+                            .into();
+                    // } else {
+                    //     dst.pixels[y * dst.width as usize + x] = egui::Color32::TRANSPARENT;
+                }
+                /*
+                {
+
+                    dst.pixels[y * dst.width + x] =
+                        bilinear_interpolate(self, src_x, src_y, src_offset, src_size);
+                } else {
+                    dst.pixels[y * dst.width + x] = [0.0, 0.0, 0.0, 0.0]; // Use a background color or transparency
+                }
+                    */
             }
         }
     }

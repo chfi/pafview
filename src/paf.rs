@@ -100,7 +100,7 @@ impl<'cg> AlignmentIter<'cg> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AlignmentIterItem {
     // op_ix: usize,
     pub op: CigarOp,
@@ -118,6 +118,42 @@ impl AlignmentIterItem {
 
     pub fn query_seq_range(&self) -> &std::ops::Range<u64> {
         &self.query_range
+    }
+
+    // pub fn iter_seqs<'seq>(
+    //     &self,
+    //     target_seq: Option<&'seq [u8]>,
+    //     query_seq: Option<&'seq [u8]>,
+    // ) -> impl Iterator<Item = [(u64, Option<char>); 2]> + 'seq + '_ {
+    //     match self.op {
+    //         CigarOp::Eq => todo!(),
+    //         CigarOp::X => todo!(),
+    //         CigarOp::I => todo!(),
+    //         CigarOp::D => todo!(),
+    //         CigarOp::M => todo!(),
+    //     }
+    // }
+    // ) -> impl Iterator<Item = ([u64; 2], [Option<char>; 2]
+}
+
+/// Steps through the alignment operation one bp at a time, outputting
+/// the target and query sequence offsets at each point
+impl Iterator for AlignmentIterItem {
+    type Item = [usize; 2];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.op_count == 0 {
+            return None;
+        }
+        let next_tgt = self.target_range.next()?;
+
+        let next_qry = if self.query_rev {
+            self.query_range.next_back()?
+        } else {
+            self.query_range.next()?
+        };
+        self.op_count -= 1;
+        Some([next_tgt as usize, next_qry as usize])
     }
 }
 
@@ -169,12 +205,12 @@ impl Alignment {
         }
     }
 
-    // pub fn iter_target_range<'cg>(
-    //     &'cg self,
-    //     target_range: std::ops::Range<u64>,
-    // ) -> AlignmentIter<'cg> {
-    //     AlignmentIter::new(&self, target_range)
-    // }
+    pub fn iter_target_range<'cg>(
+        &'cg self,
+        target_range: std::ops::Range<u64>,
+    ) -> AlignmentIter<'cg> {
+        AlignmentIter::new(&self, target_range)
+    }
 }
 
 pub struct Alignments {

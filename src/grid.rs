@@ -248,6 +248,17 @@ impl GridAxis {
         Some((seq_id, v))
     }
 
+    pub fn axis_local_to_global_exact(&self, seq_id: SeqId, t: u64) -> Option<u64> {
+        let ix = *self.seq_index_map.get(&seq_id)?;
+        let offset = self.seq_offsets.get(ix)?;
+        let len = self.seq_lens.get(ix)?;
+        if t > offset + len {
+            // maybe allow this? not sure if it matters
+            return None;
+        }
+        Some(offset + t)
+    }
+
     /// Maps a point in [0, 1] inside a grid "row" to a point in the global grid offset
     pub fn axis_local_to_global(&self, seq_id: SeqId, t: f64) -> Option<f64> {
         if t < 0.0 || t > 1.0 {
