@@ -311,6 +311,22 @@ impl EguiRenderer {
         self.state.on_window_event(window, event)
     }
 
+    pub fn initialize(
+        &mut self,
+        //
+        window: &Window,
+    ) {
+        // self.context.run(raw_
+        let raw_input = self.state.take_egui_input(&window);
+        self.context.begin_frame(raw_input);
+        let full_output = self.context.end_frame();
+        // let full_output = self.context.run(raw_input, |ui| {
+        // run_ui(&self.context);
+        // });
+        self.state
+            .handle_platform_output(&window, full_output.platform_output);
+    }
+
     pub fn draw(
         &mut self,
         device: &Device,
@@ -409,10 +425,9 @@ pub struct PafRenderer {
 
     pub line_width: f32,
 
-    match_vertices: wgpu::Buffer,
-    match_colors: wgpu::Buffer,
-    match_instances: std::ops::Range<u32>,
-
+    // match_vertices: wgpu::Buffer,
+    // match_colors: wgpu::Buffer,
+    // match_instances: std::ops::Range<u32>,
     grid_data: Option<(wgpu::Buffer, wgpu::Buffer, std::ops::Range<u32>)>,
 
     active_task: Option<PafDrawTask>,
@@ -439,9 +454,9 @@ impl PafRenderer {
         device: &wgpu::Device,
         swapchain_format: wgpu::TextureFormat,
         msaa_samples: u32,
-        match_vertices: wgpu::Buffer,
-        match_colors: wgpu::Buffer,
-        match_instances: std::ops::Range<u32>,
+        // match_vertices: wgpu::Buffer,
+        // match_colors: wgpu::Buffer,
+        // match_instances: std::ops::Range<u32>,
     ) -> Self {
         log::warn!("initializing PafRenderer");
         let line_pipeline = LinePipeline::new(&device, Self::COLOR_FORMAT, msaa_samples);
@@ -484,10 +499,9 @@ impl PafRenderer {
 
             line_width: 5.0,
 
-            match_vertices,
-            match_colors,
-            match_instances,
-
+            // match_vertices,
+            // match_colors,
+            // match_instances,
             grid_data: None,
 
             active_task: None,

@@ -20,8 +20,10 @@ use super::PixelBuffer;
 const TILE_BUFFER_SIZE: usize = 32;
 const TILE_BUFFER_SIZE_F: f32 = TILE_BUFFER_SIZE as f32;
 
-fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer> {
-    let fonts = egui::text::Fonts::new(2.0, 512, egui::FontDefinitions::default());
+pub type TileBuffers = FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>;
+
+pub(super) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer> {
+    let fonts = egui::text::Fonts::new(1.0, 1024, egui::FontDefinitions::default());
 
     let tile_width = TILE_BUFFER_SIZE;
     let tile_height = tile_width;
@@ -52,7 +54,7 @@ fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuff
         .copied()
         .collect::<Vec<_>>();
 
-    fonts.begin_frame(1.0, 512);
+    fonts.begin_frame(1.0, 1024);
     let font_img = fonts.image();
     // let gtca_small_img
 
@@ -277,26 +279,15 @@ fn build_detail_texture() -> Option<Vec<egui::Color32>> {
 }
 */
 
-fn cigar_color_def(op: CigarOp) -> egui::Color32 {
-    match op {
-        CigarOp::M => egui::Color32::BLACK,
-        CigarOp::X => egui::Color32::RED,
-        CigarOp::Eq => egui::Color32::GREEN,
-        CigarOp::D => egui::Color32::BLUE,
-        CigarOp::I => egui::Color32::BLUE,
-        _ => egui::Color32::TRANSPARENT,
-    }
-}
-
 pub fn draw_alignments(
-    alignments: &crate::paf::Alignments,
+    tile_buffers: &FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>,
     sequences: &crate::sequences::Sequences,
     grid: &crate::AlignmentGrid,
+    alignments: &crate::paf::Alignments,
     view: &crate::view::View,
-    tile_buffers: &FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>,
     canvas_size: impl Into<UVec2>,
     // canvas: &mut PixelBuffer,
-) -> PixelBuffer {
+) -> Option<PixelBuffer> {
     let canvas_size = canvas_size.into();
     let screen_dims = [canvas_size.x as f32, canvas_size.y as f32];
 
@@ -304,13 +295,11 @@ pub fn draw_alignments(
     // (in 99% of cases this will only be one, but that 1% still can matter)
     let x_tiles = grid
         .x_axis
-        .tiles_covered_by_range(view.x_range())
-        .unwrap()
+        .tiles_covered_by_range(view.x_range())?
         .collect::<Vec<_>>();
     let y_tiles = grid
         .y_axis
-        .tiles_covered_by_range(view.y_range())
-        .unwrap()
+        .tiles_covered_by_range(view.y_range())?
         .collect::<Vec<_>>();
 
     // for each overlapping alignment,
@@ -336,7 +325,7 @@ pub fn draw_alignments(
         let start = start - range.start;
         let end = end - range.start;
         Some(start..end)
-    };
+    }
 
     let map_to_point = |target_id: SeqId, query_id: SeqId, target: u64, query: u64| {
         let x = grid
@@ -350,7 +339,6 @@ pub fn draw_alignments(
 
         DVec2::new(x as f64, y as f64)
     };
-
 
     let sequence_getter = |t_id: SeqId, q_id: SeqId| {
         let target_seq = sequences.get_bytes(t_id);
@@ -399,7 +387,7 @@ pub fn draw_alignments(
 
             for item in alignment.iter_target_range(clamped_target) {
                 let op = item.op;
-                let count = item.op_count;
+                // let count = item.op_count;
 
                 for [tgt, qry] in item {
                     let nucls = seqs(op, tgt, qry);
@@ -426,7 +414,7 @@ pub fn draw_alignments(
         }
     }
 
-    dst_pixels
+    Some(dst_pixels)
 }
 
 fn draw_cigar_section(

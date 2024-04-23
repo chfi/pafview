@@ -12,7 +12,19 @@ pub mod detail;
 
 #[derive(Default)]
 pub struct CpuViewRasterizerEgui {
+    tile_buffers: detail::TileBuffers,
+
     pub(super) last_wgpu_texture: Option<(wgpu::Texture, wgpu::TextureView)>,
+}
+
+impl CpuViewRasterizerEgui {
+    pub fn initialize() -> Self {
+        let tile_buffers = detail::build_op_pixel_buffers();
+        Self {
+            tile_buffers,
+            last_wgpu_texture: None,
+        }
+    }
 }
 
 pub(super) struct CpuRasterizerBindGroups {
@@ -91,7 +103,19 @@ impl CpuViewRasterizerEgui {
             unreachable!();
         };
 
-        if let Some(pixels) = draw_exact_to_cpu_buffer(app, window_dims, view) {
+        let sequences = &app.sequences;
+        let grid = &app.alignment_grid;
+        let alignments = &app.alignments;
+
+        // if let Some(pixels) = draw_exact_to_cpu_buffer(app, window_dims, view) {
+        if let Some(pixels) = detail::draw_alignments(
+            &self.tile_buffers,
+            sequences,
+            grid,
+            alignments,
+            view,
+            window_dims,
+        ) {
             let extent = wgpu::Extent3d {
                 width: pixels.width,
                 height: pixels.height,
@@ -118,16 +142,7 @@ impl CpuViewRasterizerEgui {
     }
 }
 
-fn draw_to_pixel_buffer<'a>(
-    cigars: impl IntoIterator<Item = &'a crate::cigar::CigarIndex>,
-    sequences: Option<&FxHashMap<usize, Vec<u8>>>,
-    grid: &crate::grid::AlignmentGrid,
-    canvas_size: impl Into<UVec2>,
-    view: &crate::view::View,
-) -> Option<PixelBuffer> {
-    None
-}
-
+/*
 fn draw_exact_to_cpu_buffer(
     app: &crate::PafViewerApp,
     canvas_size: impl Into<UVec2>,
@@ -246,6 +261,7 @@ fn draw_exact_to_cpu_buffer(
 
     Some(px_buffer)
 }
+*/
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 struct RenderParams {

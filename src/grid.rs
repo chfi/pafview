@@ -101,6 +101,10 @@ pub struct GridAxis {
 }
 
 impl GridAxis {
+    pub fn tile_count(&self) -> usize {
+        self.seq_order.len()
+    }
+
     pub fn axis_range_into_global(
         &self,
         axis_range: &AxisRange,

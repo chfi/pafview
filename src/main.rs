@@ -100,13 +100,15 @@ pub fn main() -> anyhow::Result<()> {
 
     // TODO replace PafInput everywhere...
 
+    let seq_names = sequences.names().clone();
+
     let app = PafViewerApp {
         alignments,
-        alignment_grid: todo!(),
+        alignment_grid,
         sequences,
-        paf_input: todo!(),
-        seq_names: todo!(),
-        annotations: todo!(),
+        // paf_input: todo!(),
+        seq_names,
+        annotations: AnnotationStore::default(),
     };
 
     start_window(app);
@@ -340,27 +342,11 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
     let swapchain_format = swapchain_capabilities.formats[0];
 
     let (grid_buffer, grid_color_buffer, grid_instances) = {
-        let input = &app.paf_input;
-        let instances = input.targets.len() + input.queries.len() + 4;
-        let mut lines: Vec<LineVertex> = Vec::with_capacity(instances);
-
-        let mut targets_sort = input
-            .targets
-            .iter()
-            .enumerate()
-            .map(|(i, a)| (i, a.len))
-            .collect::<Vec<_>>();
-        let mut queries_sort = input
-            .queries
-            .iter()
-            .enumerate()
-            .map(|(i, a)| (i, a.len))
-            .collect::<Vec<_>>();
-        targets_sort.sort_by_key(|(_, l)| *l);
-        queries_sort.sort_by_key(|(_, l)| *l);
-
+        // let input = &app.paf_input;
         let x_axis = &app.alignment_grid.x_axis;
         let y_axis = &app.alignment_grid.y_axis;
+        let instances = x_axis.tile_count() + y_axis.tile_count() + 4;
+        let mut lines: Vec<LineVertex> = Vec::with_capacity(instances);
 
         let x_max = x_axis.total_len as f32;
         let y_max = y_axis.total_len as f32;
@@ -411,6 +397,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
         (buffer, color_buffer, 0..instances as u32)
     };
 
+    /*
     let (match_buffer, match_color_buffer, match_instances) = {
         let input = &app.paf_input;
         let instance_count = input.total_matches();
@@ -456,6 +443,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
         (buffer, color_buffer, 0..instance_count as u32)
     };
+    */
 
     let mut app_view = View {
         x_min: 0.0,
@@ -473,25 +461,33 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
         &device,
         config.format,
         sample_count,
-        match_buffer,
-        match_color_buffer,
-        match_instances,
+        // match_buffer,
+        // match_color_buffer,
+        // match_instances,
     );
 
-    let match_draw_data = render::batch::MatchDrawBatchData::from_paf_input(
+    let match_draw_data = render::batch::MatchDrawBatchData::from_alignments(
         &device,
         &paf_renderer.line_pipeline.bind_group_layout_1,
         &app.alignment_grid,
-        &app.paf_input,
+        &app.alignments,
     );
 
     paf_renderer.set_grid(Some((grid_buffer, grid_color_buffer, grid_instances)));
 
-    let mut cpu_rasterizer = exact::CpuViewRasterizerEgui::default();
+    let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
+    // egui_renderer.initialize(&window);
+
+    // egui_renderer.context.run(
+    // egui_renderer.context
+
+    // let mut cpu_rasterizer = egui_renderer.context.fonts(|fonts| {
+    //
+    //     exact::CpuViewRasterizerEgui::initialize(fonts)
+    // });
+    let mut cpu_rasterizer = exact::CpuViewRasterizerEgui::initialize();
 
     let mut window_states = AppWindowStates::new(&app.annotations);
-
-    let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
 
     let mut annot_gui_handler = AnnotationGuiHandler::default();
 
@@ -600,6 +596,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 return;
                             }
 
+                            /*
                             // if event.state
                             let [w, h]: [u32; 2] = window.inner_size().into();
                             let path = "screenshot.png";
@@ -609,6 +606,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 Ok(_) => log::info!("wrote screenshot to {path}"),
                                 Err(e) => log::info!("error writing screenshot: {e:?}"),
                             }
+                            */
                         }
                     }
                     WindowEvent::MouseWheel { delta, phase, .. } => match delta {
@@ -746,14 +744,14 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                     &mut window_states,
                                 );
 
-                                gui::view_controls(
-                                    ctx,
-                                    &app.alignment_grid,
-                                    &app.seq_names,
-                                    &app.paf_input,
-                                    &mut app_view,
-                                    &mut window_states,
-                                );
+                                // gui::view_controls(
+                                //     ctx,
+                                //     &app.alignment_grid,
+                                //     &app.seq_names,
+                                //     &app.paf_input,
+                                //     &mut app_view,
+                                //     &mut window_states,
+                                // );
 
                                 annot_gui_handler.show_annotation_list(
                                     ctx,
@@ -928,8 +926,7 @@ struct PafViewerApp {
     alignment_grid: AlignmentGrid,
     sequences: Sequences,
 
-    paf_input: PafInput,
-
+    // paf_input: PafInput,
     #[deprecated]
     seq_names: Arc<bimap::BiMap<String, SeqId>>,
     annotations: AnnotationStore,
