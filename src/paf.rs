@@ -70,6 +70,7 @@ pub struct Alignment {
     pub location: AlignmentLocation,
     pub cigar: CigarIndex,
     // pub cigar_op_vertices: Vec<[DVec2; 2]>,
+    pub cigar_op_line_vertices: Vec<[DVec2; 2]>,
 }
 
 pub struct AlignmentIter<'cg> {
@@ -136,27 +137,6 @@ impl AlignmentIterItem {
     // ) -> impl Iterator<Item = ([u64; 2], [Option<char>; 2]
 }
 
-/// Steps through the alignment operation one bp at a time, outputting
-/// the target and query sequence offsets at each point
-impl Iterator for AlignmentIterItem {
-    type Item = [usize; 2];
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.op_count == 0 {
-            return None;
-        }
-        let next_tgt = self.target_range.next()?;
-
-        let next_qry = if self.query_rev {
-            self.query_range.next_back()?
-        } else {
-            self.query_range.next()?
-        };
-        self.op_count -= 1;
-        Some([next_tgt as usize, next_qry as usize])
-    }
-}
-
 impl<'cg> Iterator for AlignmentIter<'cg> {
     type Item = AlignmentIterItem;
 
@@ -179,29 +159,106 @@ impl<'cg> Iterator for AlignmentIter<'cg> {
     }
 }
 
+/// Steps through the alignment operation one bp at a time, outputting
+/// the target and query sequence offsets at each point
+impl Iterator for AlignmentIterItem {
+    type Item = [usize; 2];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.op_count == 0 {
+            return None;
+        }
+        let next_tgt = self.target_range.next()?;
+
+        let next_qry = if self.query_rev {
+            self.query_range.next_back()?
+        } else {
+            self.query_range.next()?
+        };
+        self.op_count -= 1;
+        Some([next_tgt as usize, next_qry as usize])
+    }
+}
+
 impl Alignment {
     pub fn new(seq_names: &bimap::BiMap<String, SeqId>, paf_line: PafLine<&'_ str>) -> Self {
-        let cigar = CigarIndex::from_paf_line(&paf_line);
-
         let target_id = *seq_names.get_by_left(paf_line.tgt_name).unwrap();
         let query_id = *seq_names.get_by_left(paf_line.query_name).unwrap();
 
         let target_range = paf_line.tgt_seq_start..paf_line.tgt_seq_end;
         let query_range = paf_line.query_seq_start..paf_line.query_seq_end;
 
+        let query_strand = if paf_line.strand_rev {
+            Strand::Reverse
+        } else {
+            Strand::Forward
+        };
+
         let location = AlignmentLocation {
             target_range,
             query_range,
-            query_strand: cigar.query_strand,
+            query_strand,
             target_total_len: paf_line.tgt_seq_len,
             query_total_len: paf_line.query_seq_len,
         };
+
+        // let packed_cigar = Cigar::parse_str(&paf_line.cigar);
+
+        // let cigar_index = CigarIndex::from_cigar_(packed_cigar, location);
+        let cigar_index = CigarIndex::from_paf_line(&paf_line);
+
+        let mut op_line_vertices = Vec::new();
+
+        let offsets_iter = std::iter::zip(
+            &cigar_index.op_target_offsets,
+            &cigar_index.op_query_offsets,
+        );
+
+        let ops_iter = std::iter::zip(cigar_index.cigar.iter(), offsets_iter);
+
+        for ((op, count), (&tgt_cg, &qry_cg)) in ops_iter {
+            // tgt_cg and qry_cg are offsets from the start of the cigar
+
+            let (tgt_end, qry_end) = match op {
+                CigarOp::Eq | CigarOp::X | CigarOp::M => {
+                    //
+                    (tgt_cg + count as u64, qry_cg + count as u64)
+                }
+                CigarOp::I => {
+                    //
+                    (tgt_cg, qry_cg + count as u64)
+                }
+                CigarOp::D => {
+                    //
+                    (tgt_cg + count as u64, qry_cg)
+                }
+            };
+
+            let tgt_range = location.map_from_local_target_range(tgt_cg..tgt_end);
+            let qry_range = location.map_from_local_query_range(qry_cg..qry_end);
+
+            let from = DVec2::new(tgt_range.start as f64, qry_range.start as f64);
+            let to = DVec2::new(tgt_range.end as f64, qry_range.end as f64);
+
+            op_line_vertices.push([from, to]);
+
+            // match op {
+            //     CigarOp::Eq | CigarOp:: => todo!(),
+            //     CigarOp::X => todo!(),
+            //     CigarOp::I => todo!(),
+            //     CigarOp::D => todo!(),
+            //     CigarOp::M => todo!(),
+            // }
+
+            //
+        }
 
         Self {
             target_id,
             query_id,
             location,
-            cigar,
+            cigar: cigar_index,
+            cigar_op_line_vertices: op_line_vertices,
         }
     }
 

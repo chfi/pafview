@@ -25,8 +25,7 @@ pub type TileBuffers = FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>;
 pub(super) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer> {
     let fonts = egui::text::Fonts::new(1.0, 1024, egui::FontDefinitions::default());
 
-    let tile_width = TILE_BUFFER_SIZE;
-    let tile_height = tile_width;
+    let tile_size = TILE_BUFFER_SIZE as u32;
 
     let gtca_galley = fonts.layout(
         "GTCA".into(),
@@ -86,8 +85,6 @@ pub(super) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
 
     use CigarOp as Cg;
     let mut tiles = FxHashMap::default();
-
-    let tile_size = 32;
 
     // add individual target/query bps for I & D
     // add both bp pairs for M/=/X
@@ -277,28 +274,78 @@ pub fn draw_alignments(
 
             let seqs = sequence_getter(target_id, query_id);
 
+            let (_, local_t_start) = grid
+                .x_axis
+                .global_to_axis_local(clamped_target.start as f64)
+                .unwrap();
+            // let local_t_end = grid.x_axis.global_to_axis_local(clamped_target.end as f64);
+
+            let (_, local_q_start) = grid
+                .y_axis
+                .global_to_axis_local(clamped_query.start as f64)
+                .unwrap();
+            // let local_q_end = grid.y_axis.global_to_axis_local(clamped_query.end as f64);
+
+            // let local_t_start = local_t_start * alignment.location.target_total_len as f64;
+            // let local_q_start = local_q_start * alignment.location.query_total_len as f64;
+
+            println!("px_per_bp: {px_per_bp}");
+
+            let x_global_start = grid.x_axis.sequence_offset(target_id).unwrap();
+            let y_global_start = grid.y_axis.sequence_offset(query_id).unwrap();
+            let seq_global_offset = DVec2::new(x_global_start as f64, y_global_start as f64);
+
             let mut count = 0;
             for item in alignment.iter_target_range(clamped_target.clone()) {
                 count += 1;
                 let op = item.op;
                 // let count = item.op_count;
 
-                for [tgt, qry] in item {
+                let mut aabb_min = Vec2::broadcast(std::f32::MAX);
+                let mut aabb_max = Vec2::broadcast(std::f32::MIN);
+
+                for (i, [tgt, qry]) in item.enumerate() {
                     let nucls = seqs(op, tgt, qry);
 
-                    let x_start =
-                        screen_min.x + px_per_bp * (tgt as f32 - clamped_target.start as f32);
-                    let y_start =
-                        screen_min.y + px_per_bp * (qry as f32 - clamped_query.start as f32);
+                    if i == 0 {
+                        println!("[{tgt}, {qry}]");
+                    }
+                    // TODO the clamped ranges must be in local sequence space;
+                    // clamped_target and clamped_query are global u64s
+                    // let tgt_offset = tgt - clamped_target.start as usize;
+                    // let qry_offset = qry - clamped_query.start as usize;
+
+                    let dst_offset = view.map_world_to_screen(
+                        screen_dims,
+                        seq_global_offset + [tgt as f64, qry as f64].into(),
+                    );
+
+                    aabb_min = aabb_min.min_by_component(dst_offset);
+                    aabb_max = aabb_max.max_by_component(dst_offset);
+
+                    // let x_start = screen_min.x + px_per_bp * (tgt as f32 - local_t_start as f32);
+                    // let y_start = screen_min.y + px_per_bp * (qry as f32 - local_q_start as f32);
+                    // let x_start = screen_min.x;
+                    // let y_start = screen_min.y;
 
                     // let y_start = qry - clamped_range.start;
                     // let dst_offset =
-                    let dst_offset = Vec2::new(x_start, y_start);
+                    // let dst_offset = Vec2::new(x_start, y_start);
 
                     let Some(tile) = tile_buffers.get(&(op, nucls)) else {
                         log::error!("Did not find tile for ({op:?}, {nucls:?}");
                         continue;
                     };
+
+                    // println!("sampling to {dst_offset:?} with size {dst_size:?}");
+
+                    // let tile = tile_buffers
+                    //     .get(&(CigarOp::X, [Some('A'), Some('G')]))
+                    //     .unwrap();
+                    // let dst_offset = Vec2::new(100.0, 100.0);
+                    let dst_size = Vec2::new(50.0, 50.0);
+
+                    // println!("tgt & qry offsets: {tgt_offset}, {qry_offset}");
                     // println!("  [{tgt}, {qry}] - dst_offset: {dst_offset:?}");
                     // let dst_size = Vec2::new(px_per_bp, px_per_bp);
                     // let dst_offset = screen_min;
@@ -315,6 +362,11 @@ pub fn draw_alignments(
                         // src_size,
                     );
                 }
+
+                println!("AABB: {aabb_min:?}\t{aabb_max:?}");
+            }
+            if count > 0 {
+                println!("local_t_start: {local_t_start}\tlocal_q_start: {local_q_start}");
             }
 
             println!("drew {count} items");
@@ -323,86 +375,3 @@ pub fn draw_alignments(
 
     Some(dst_pixels)
 }
-
-fn draw_cigar_section(
-    alignment: &crate::paf::Alignment,
-    target_seq: Option<&[u8]>,
-    query_seq: Option<&[u8]>,
-    view: &crate::view::View,
-    // canvas corresponding to the whole view
-    canvas: &mut PixelBuffer,
-) {
-    // derive target & query range from view & alignment
-    // let cg_iter = cigar.iter_target_range(target_range.clone());
-
-    todo!();
-}
-
-/*
-pub fn draw_subsection(
-    target_seq: &[u8],
-    query_seq: &[u8],
-    match_data: &crate::ProcessedCigar,
-    target_range: std::ops::Range<u64>,
-    query_range: std::ops::Range<u64>,
-    canvas_size: UVec2,
-    canvas_data: &mut Vec<egui::Color32>,
-) {
-    let size = (canvas_size.x * canvas_size.y) as usize;
-    canvas_data.clear();
-    canvas_data.resize(size, egui::Color32::WHITE);
-
-    // TODO doesn't take strand into account yet
-    let match_iter = MatchOpIter::from_range(
-        &match_data.match_offsets,
-        &match_data.match_cigar_index,
-        &match_data.cigar,
-        target_range.clone(),
-    );
-
-    let tgt_len = target_range.end - target_range.start;
-    let bp_width = canvas_size.x as f64 / tgt_len as f64;
-
-    let qry_len = query_range.end - query_range.start;
-    let bp_height = canvas_size.y as f64 / qry_len as f64;
-
-    for ([target_pos, query_pos], cg_ix) in match_iter {
-        let cg_op = match_data.cigar[cg_ix].0;
-        let is_match = cg_op.is_match();
-
-        let color = if is_match {
-            egui::Color32::BLACK
-        } else {
-            egui::Color32::RED
-        };
-
-        let Some(target_offset) = target_pos.checked_sub(target_range.start) else {
-            continue;
-        };
-        let Some(query_offset) = query_pos.checked_sub(query_range.start) else {
-            continue;
-        };
-
-        let x0 = target_offset as f64 * bp_width;
-        let x1 = (1 + target_offset) as f64 * bp_width;
-
-        let y0 = query_offset as f64 * bp_height;
-        let y1 = (1 + query_offset) as f64 * bp_height;
-
-        let x = 0.5 * (x0 + x1);
-        let y = 0.5 * (y0 + y1);
-
-        for x in (x0.floor() as usize)..(x1.floor() as usize) {
-            for y in (y0.floor() as usize)..(y1.floor() as usize) {
-                let y = (canvas_size.y as usize)
-                    .checked_sub(y + 1)
-                    .unwrap_or_default();
-                let ix = x + y * canvas_size.x as usize;
-                if x < canvas_size.x as usize && y < canvas_size.y as usize {
-                    canvas_data.get_mut(ix).map(|px| *px = color);
-                }
-            }
-        }
-    }
-}
-*/

@@ -129,8 +129,7 @@ impl MatchDrawBatchData {
 
             // for (&[from, to], &is_match) in alignment.cigar.op_line_vertices.iter()
             for (&[from, to], (op, _count)) in alignment
-                .cigar
-                .op_line_vertices
+                .cigar_op_line_vertices
                 .iter()
                 .zip(alignment.cigar.cigar.iter())
             {
