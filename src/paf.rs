@@ -202,9 +202,6 @@ impl Alignment {
             query_total_len: paf_line.query_seq_len,
         };
 
-        // let packed_cigar = Cigar::parse_str(&paf_line.cigar);
-
-        // let cigar_index = CigarIndex::from_cigar_(packed_cigar, location);
         let cigar_index = CigarIndex::from_paf_line(&paf_line);
 
         let mut op_line_vertices = Vec::new();
@@ -237,8 +234,12 @@ impl Alignment {
             let tgt_range = location.map_from_local_target_range(tgt_cg..tgt_end);
             let qry_range = location.map_from_local_query_range(qry_cg..qry_end);
 
-            let from = DVec2::new(tgt_range.start as f64, qry_range.start as f64);
-            let to = DVec2::new(tgt_range.end as f64, qry_range.end as f64);
+            let mut from = DVec2::new(tgt_range.start as f64, qry_range.start as f64);
+            let mut to = DVec2::new(tgt_range.end as f64, qry_range.end as f64);
+
+            if location.query_strand.is_rev() {
+                std::mem::swap(&mut from.y, &mut to.y);
+            }
 
             op_line_vertices.push([from, to]);
 
