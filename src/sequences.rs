@@ -5,36 +5,6 @@ use rustc_hash::FxHashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SeqId(pub usize);
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct SequenceData {
-    name: String,
-    len: u64,
-
-    // TODO maybe Box<dyn AsRef<[u8]>>
-    seq: Option<Vec<u8>>,
-}
-
-impl SequenceData {
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn len(&self) -> u64 {
-        debug_assert_eq!(
-            self.seq
-                .as_ref()
-                .map(|seq| seq.len() as u64)
-                .unwrap_or(self.len),
-            self.len
-        );
-        self.len
-    }
-
-    pub fn seq(&self) -> Option<&[u8]> {
-        self.seq.as_ref().map(|seq| seq.as_slice())
-    }
-}
-
 pub struct Sequences {
     sequence_names: Arc<bimap::BiMap<String, SeqId>>,
 
@@ -115,11 +85,44 @@ impl Sequences {
                 len: seq.len() as u64,
                 seq: Some(seq),
             };
+
+            seq_names.insert(seq_data.name.clone(), id);
+            sequences.insert(id, seq_data);
         }
 
         Ok(Sequences {
             sequence_names: Arc::new(seq_names),
             sequences,
         })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SequenceData {
+    name: String,
+    len: u64,
+
+    // TODO maybe Box<dyn AsRef<[u8]>>
+    seq: Option<Vec<u8>>,
+}
+
+impl SequenceData {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn len(&self) -> u64 {
+        debug_assert_eq!(
+            self.seq
+                .as_ref()
+                .map(|seq| seq.len() as u64)
+                .unwrap_or(self.len),
+            self.len
+        );
+        self.len
+    }
+
+    pub fn seq(&self) -> Option<&[u8]> {
+        self.seq.as_ref().map(|seq| seq.as_slice())
     }
 }
