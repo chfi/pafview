@@ -47,6 +47,10 @@ impl Sequences {
         &self.sequence_names
     }
 
+    pub fn len(&self) -> usize {
+        self.sequence_names.len()
+    }
+
     pub fn get_bytes(&self, seq: SeqId) -> Option<&[u8]> {
         let seq = self.sequences.get(&seq)?.seq.as_ref()?;
         Some(seq.as_slice())

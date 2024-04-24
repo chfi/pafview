@@ -229,6 +229,7 @@ pub fn load_input_files(
     for line in reader.lines() {
         lines.push(line?);
     }
+    println!("parsing {} lines", lines.len());
     let paf_lines = lines
         .iter()
         .filter_map(|s| parse_paf_line(s.split('\t')))
@@ -239,6 +240,8 @@ pub fn load_input_files(
     } else {
         Sequences::from_paf(&paf_lines).unwrap()
     };
+
+    println!("using {} sequences", sequences.len());
 
     let alignments = Alignments::from_paf_lines(&sequences, paf_lines);
 

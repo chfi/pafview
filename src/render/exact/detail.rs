@@ -11,7 +11,7 @@
 //
 
 use rustc_hash::FxHashMap;
-use ultraviolet::{DVec2, UVec2};
+use ultraviolet::{DVec2, UVec2, Vec2};
 
 use crate::{sequences::SeqId, CigarIndex, CigarIter, CigarOp};
 
@@ -90,8 +90,18 @@ pub(super) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
     let tile_size = 32;
 
     // add individual target/query bps for I & D
-
     // add both bp pairs for M/=/X
+
+    for (op, bg_color) in [
+        (Cg::M, egui::Color32::BLACK),
+        (Cg::Eq, egui::Color32::BLUE), // testing
+        (Cg::X, egui::Color32::RED),
+        (Cg::I, egui::Color32::GREEN),  // testing
+        (Cg::D, egui::Color32::YELLOW), // testing
+    ] {
+        let buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
+        tiles.insert((op, [None, None]), buffer);
+    }
 
     let nucleotides = ['G', 'T', 'C', 'A'];
 
@@ -358,7 +368,8 @@ pub fn draw_alignments(
         }
     };
 
-    let mut dst_pixels = PixelBuffer::new(canvas_size.x, canvas_size.y);
+    // println!("drawing alignments!");
+    let mut dst_pixels = PixelBuffer::new_color(canvas_size.x, canvas_size.y, egui::Color32::WHITE);
 
     for &target_id in &x_tiles {
         for &query_id in &y_tiles {
@@ -380,24 +391,50 @@ pub fn draw_alignments(
             let world_max =
                 map_to_point(target_id, query_id, clamped_target.end, clamped_query.end);
 
-            let screen_min = view.map_world_to_screen(screen_dims, world_min);
-            let screen_max = view.map_world_to_screen(screen_dims, world_max);
+            let s0 = view.map_world_to_screen(screen_dims, world_min);
+            let s1 = view.map_world_to_screen(screen_dims, world_max);
+
+            let screen_max = s0.max_by_component(s1);
+            let screen_min = s0.min_by_component(s1);
+
+            println!(
+                "drawing ({}, {}) to rect ({screen_min:?}, {screen_max:?})",
+                target_id.0, query_id.0
+            );
+
+            let screen_size = screen_max - screen_min;
+            let px_per_bp = screen_size.x / (clamped_target.end - clamped_target.start) as f32;
+
+            let dst_size = Vec2::new(px_per_bp, px_per_bp);
 
             let seqs = sequence_getter(target_id, query_id);
 
-            for item in alignment.iter_target_range(clamped_target) {
+            let mut count = 0;
+            for item in alignment.iter_target_range(clamped_target.clone()) {
+                count += 1;
                 let op = item.op;
                 // let count = item.op_count;
 
                 for [tgt, qry] in item {
                     let nucls = seqs(op, tgt, qry);
 
+                    let x_start =
+                        screen_min.x + px_per_bp * (tgt as f32 - clamped_target.start as f32);
+                    let y_start =
+                        screen_min.y + px_per_bp * (qry as f32 - clamped_query.start as f32);
+
+                    // let y_start = qry - clamped_range.start;
+                    // let dst_offset =
+                    let dst_offset = Vec2::new(x_start, y_start);
+
                     let Some(tile) = tile_buffers.get(&(op, nucls)) else {
+                        log::error!("Did not find tile for ({op:?}, {nucls:?}");
                         continue;
                     };
-
-                    let dst_offset = screen_min;
-                    let dst_size = screen_max - screen_min;
+                    // println!("  [{tgt}, {qry}] - dst_offset: {dst_offset:?}");
+                    // let dst_size = Vec2::new(px_per_bp, px_per_bp);
+                    // let dst_offset = screen_min;
+                    // let dst_size = screen_max - screen_min;
                     // let src_offset = todo!();
                     // let src_size = todo!();
                     tile.sample_subimage_into(
@@ -411,6 +448,8 @@ pub fn draw_alignments(
                     );
                 }
             }
+
+            println!("drew {count} items");
         }
     }
 

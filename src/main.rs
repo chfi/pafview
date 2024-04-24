@@ -80,17 +80,36 @@ pub fn main() -> anyhow::Result<()> {
     // Load PAF and optional FASTA
     let (alignments, sequences) = crate::paf::load_input_files(&args.paf, args.fasta)?;
 
+    println!("drawing {} alignments", alignments.pairs.len());
+
     // construct AlignmentGrid
-    let targets = alignments
+    let mut targets = alignments
         .pairs
         .values()
-        .map(|al| (al.target_id, al.location.target_total_len));
+        .map(|al| (al.target_id, al.location.target_total_len))
+        .collect::<Vec<_>>();
+    targets.sort_by_key(|(_, l)| *l);
+    targets.dedup_by_key(|(id, _)| *id);
     let x_axis = grid::GridAxis::from_index_and_lengths(targets);
-    let queries = alignments
+    let mut queries = alignments
         .pairs
         .values()
-        .map(|al| (al.target_id, al.location.target_total_len));
+        .map(|al| (al.query_id, al.location.query_total_len))
+        .collect::<Vec<_>>();
+    queries.sort_by_key(|(_, l)| *l);
+    queries.dedup_by_key(|(id, _)| *id);
     let y_axis = grid::GridAxis::from_index_and_lengths(queries);
+
+    println!(
+        "X axis {} tiles, total len {}",
+        x_axis.tile_count(),
+        x_axis.total_len
+    );
+    println!(
+        "Y axis {} tiles, total len {}",
+        y_axis.tile_count(),
+        y_axis.total_len
+    );
 
     let alignment_grid = AlignmentGrid {
         x_axis,
