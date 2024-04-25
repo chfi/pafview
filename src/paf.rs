@@ -89,7 +89,21 @@ impl<'cg> AlignmentIter<'cg> {
         target_range: std::ops::Range<u64>,
     ) -> Self {
         // let c
-        let cigar_iter = alignment.cigar.iter_target_range(target_range);
+
+        // the iterator on CigarIndex takes a range within the alignment,
+        // while AlignmentIter takes a range within the entire sequence,
+        // so we need to offset/clip it
+
+        let start = target_range
+            .start
+            .checked_sub(alignment.location.target_range.start)
+            .unwrap_or_default();
+        let end = target_range
+            .end
+            .checked_sub(alignment.location.target_range.start)
+            .unwrap_or_default();
+
+        let cigar_iter = alignment.cigar.iter_target_range(start..end);
 
         Self {
             cigar_iter,

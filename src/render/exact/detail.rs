@@ -233,14 +233,28 @@ pub fn draw_alignments(
         }
     };
 
+    let color_buffers = [
+        egui::Color32::RED,
+        egui::Color32::GREEN,
+        egui::Color32::BLUE,
+        egui::Color32::GOLD,
+    ]
+    .into_iter()
+    .map(|color| PixelBuffer::new_color(32, 32, color))
+    .collect::<Vec<_>>();
     // println!("drawing alignments!");
     let mut dst_pixels = PixelBuffer::new_color(canvas_size.x, canvas_size.y, egui::Color32::WHITE);
+
+    let mut tile_i = 0;
 
     for &target_id in &x_tiles {
         for &query_id in &y_tiles {
             let Some(alignment) = alignments.pairs.get(&(target_id, query_id)) else {
                 continue;
             };
+
+            let this_tile = tile_i;
+            tile_i += 1;
 
             // clamped ranges + pixel ranges
             let clamped_target = clamped_range(&grid.x_axis, target_id, view.x_range()).unwrap();
@@ -289,36 +303,91 @@ pub fn draw_alignments(
             // let local_t_start = local_t_start * alignment.location.target_total_len as f64;
             // let local_q_start = local_q_start * alignment.location.query_total_len as f64;
 
-            println!("px_per_bp: {px_per_bp}");
+            // println!("px_per_bp: {px_per_bp}");
 
             let x_global_start = grid.x_axis.sequence_offset(target_id).unwrap();
             let y_global_start = grid.y_axis.sequence_offset(query_id).unwrap();
             let seq_global_offset = DVec2::new(x_global_start as f64, y_global_start as f64);
 
+            println!("seq global offset: {seq_global_offset:?}");
+
+            /*
+            // testing/debug bits
+
+            let dst_offset = view.map_world_to_screen(screen_dims, seq_global_offset);
+            // view.map_world_to_screen(screen_dims, seq_global_offset + [300.0, 300.0].into());
+
+            // let src_tile = &color_buffers[this_tile % color_buffers.len()];
+            // src_tile.sample_subimage_into(
+            //     // dst, dst_offset, dst_size, src_offset, src_size)
+            //     &mut dst_pixels,
+            //     dst_offset.into(),
+            //     Vec2::broadcast(32.0).into(),
+            //     // dst_offset.into(),
+            //     // dst_size.into(),
+            //     [0, 0],
+            //     [32, 32],
+            //     // src_offset,
+            //     // src_size,
+            // );
+
+            for (src_tile, offset) in std::iter::zip(
+                color_buffers.iter().cycle(),
+                [
+                    [0.0, 0.0],
+                    [300.0, 0.0],
+                    [0.0, 300.0],
+                    [500.0, 500.],
+                    [0.0, -400.0],
+                ],
+            ) {
+                let dst_offset =
+                    view.map_world_to_screen(screen_dims, seq_global_offset + offset.into());
+                src_tile.sample_subimage_into(
+                    // dst, dst_offset, dst_size, src_offset, src_size)
+                    &mut dst_pixels,
+                    dst_offset.into(),
+                    Vec2::broadcast(32.0).into(),
+                    // dst_offset.into(),
+                    // dst_size.into(),
+                    [0, 0],
+                    [32, 32],
+                    // src_offset,
+                    // src_size,
+                );
+            }
+            */
+
+            // end testing/debug bits
+
+            println!("clamped_target: {clamped_target:?}");
             let mut count = 0;
             for item in alignment.iter_target_range(clamped_target.clone()) {
                 count += 1;
                 let op = item.op;
                 // let count = item.op_count;
 
-                let mut aabb_min = Vec2::broadcast(std::f32::MAX);
-                let mut aabb_max = Vec2::broadcast(std::f32::MIN);
+                let mut aabb_min = Vec2::broadcast(std::f32::INFINITY);
+                let mut aabb_max = Vec2::broadcast(std::f32::NEG_INFINITY);
 
                 for (i, [tgt, qry]) in item.enumerate() {
                     let nucls = seqs(op, tgt, qry);
 
-                    if i == 0 {
-                        println!("[{tgt}, {qry}]");
-                    }
                     // TODO the clamped ranges must be in local sequence space;
                     // clamped_target and clamped_query are global u64s
                     // let tgt_offset = tgt - clamped_target.start as usize;
                     // let qry_offset = qry - clamped_query.start as usize;
 
+                    let world_offset = seq_global_offset + [tgt as f64, qry as f64].into();
+
                     let dst_offset = view.map_world_to_screen(
                         screen_dims,
-                        seq_global_offset + [tgt as f64, qry as f64].into(),
+                        world_offset, // seq_global_offset + [tgt as f64, qry as f64].into(),
                     );
+                    // if i == 0 {
+                    //     println!("{seq_global_offset:?} + [{tgt}, {qry}] =>\t{dst_offset:?}");
+                    //     println!("{world_offset:?}");
+                    // }
 
                     aabb_min = aabb_min.min_by_component(dst_offset);
                     aabb_max = aabb_max.max_by_component(dst_offset);
@@ -363,10 +432,10 @@ pub fn draw_alignments(
                     );
                 }
 
-                println!("AABB: {aabb_min:?}\t{aabb_max:?}");
+                // println!("AABB: {aabb_min:?}\t{aabb_max:?}");
             }
             if count > 0 {
-                println!("local_t_start: {local_t_start}\tlocal_q_start: {local_q_start}");
+                // println!("local_t_start: {local_t_start}\tlocal_q_start: {local_q_start}");
             }
 
             println!("drew {count} items");
