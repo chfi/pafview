@@ -22,6 +22,35 @@ const TILE_BUFFER_SIZE_F: f32 = TILE_BUFFER_SIZE as f32;
 
 pub type TileBuffers = FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>;
 
+pub(crate) fn write_tile_buffer_test(
+    buffers: &FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>,
+) {
+    use CigarOp as Cg;
+
+    let ops = [Cg::M, Cg::Eq, Cg::X, Cg::I, Cg::D];
+
+    let nucls = [None, Some('G'), Some('T'), Some('C'), Some('A')];
+
+    let nucl_pairs = nucls
+        .iter()
+        .flat_map(|n1| nucls.iter().map(|n2| (*n1, *n2)))
+        .collect::<Vec<_>>();
+
+    // let get_slot = |op
+
+    // let (row_i, &op) in ops.iter().enumerate() {
+
+    //     let col_i
+    // }
+
+    // let nucl_pairs = nucls.iter().flat_map
+    //     |fst| {
+    //         nucls.iter().map(|snd| {
+    //             fst.and_then(|fst|
+    //         })
+    //     });
+}
+
 pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer> {
     // can be used as an atlas of 16x32 sprites, index into by subtracting ' ' from a
     // printable/"normal" ascii byte
@@ -31,17 +60,21 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
     // let font_bitmap = lodepng::decode32_file("./spleen_font.png").unwrap();
     println!("loaded font");
     let font_pixels = PixelBuffer {
-        width: font_bitmap.width,
-        height: font_bitmap.height,
+        width: font_bitmap.width as u32,
+        height: font_bitmap.height as u32,
         pixels: font_bitmap
             .buffer
             .into_iter()
             .map(|rgba| {
                 let [r, g, b, a]: [u8; 4] = rgba.into();
+                let a = a.min(r).min(g).min(b);
                 egui::Color32::from_rgba_premultiplied(r, g, b, a)
             })
             .collect::<Vec<_>>(),
     };
+
+    let top_left = font_pixels.pixels[0];
+    println!("pixel at [0, 0]: {:?}", top_left.to_array());
 
     println!(
         "created font pixel buffer with dimensions {}x{}",
@@ -60,43 +93,76 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
 
     // pixels.write_png_file("cigar_X_GT_buffer.png").unwrap();
 
+    fn over(below: egui::Color32, above: egui::Color32) -> egui::Color32 {
+        use ultraviolet as uv;
+
+        if above.a() < std::u8::MAX {
+            let [br, bg, bb, ba] = below.to_normalized_gamma_f32();
+            let [ar, ag, ab, aa] = above.to_normalized_gamma_f32();
+
+            let rgb = uv::Vec3::new(ar, ag, ab) + uv::Vec3::new(br, bg, bb) * (1.0 - aa);
+            let alpha = aa + ba * (1.0 - aa);
+            egui::Rgba::from_rgba_premultiplied(rgb.x, rgb.y, rgb.z, alpha).into()
+        } else {
+            above
+        }
+    }
+
+    let over_with_color = |color: egui::Color32| {
+        move |below: egui::Color32, above: egui::Color32| -> egui::Color32 {
+            use ultraviolet as uv;
+
+            if above.a() < std::u8::MAX {
+                let [br, bg, bb, ba] = below.to_normalized_gamma_f32();
+                let [ar, ag, ab, aa] = color.to_normalized_gamma_f32();
+
+                let rgb = uv::Vec3::new(ar, ag, ab) + uv::Vec3::new(br, bg, bb) * (1.0 - aa);
+                let alpha = aa + ba * (1.0 - aa);
+                egui::Rgba::from_rgba_premultiplied(rgb.x, rgb.y, rgb.z, alpha).into()
+            } else {
+                above
+            }
+        }
+    };
+
     let draw_char = |dst: &mut PixelBuffer, ch: char, dst_offset: [f32; 2], dst_size: [f32; 2]| {
         let ix = (ch as u8 - b' ') as u32;
         let src_offset = [ix * 16, 0];
         let src_size = [16, 32];
-        font_pixels.sample_subimage_into(dst, dst_offset, dst_size, src_offset, src_size);
+        font_pixels.sample_subimage_nn_into_with(
+            dst,
+            dst_offset,
+            dst_size,
+            src_offset,
+            src_size,
+            over_with_color(egui::Color32::BLACK),
+        );
+        // font_pixels.sample_subimage_nn_into(dst, dst_offset, dst_size, src_offset, src_size);
     };
-
-    // draw_char(&mut test_buffer, 'G', );
-    let test_draw_char =
-        |dst: &mut PixelBuffer, ch: char, dst_offset: [f32; 2], dst_size: [f32; 2]| {
-            let ix = (ch as u8 - b' ') as u32;
-            println!("drawing '{ch}' ({}) with index {ix}", ch as u8);
-            let src_offset = [ix * 16, 0];
-            let src_size = [16, 32];
-            font_pixels.sample_subimage_into(dst, dst_offset, dst_size, src_offset, src_size);
-        };
 
     // test_draw_char(&mut test_buffer, '!', [10.0, 10.0], [16.0, 32.0]);
 
-    font_pixels.sample_subimage_into(
+    font_pixels.sample_subimage_nn_into_with(
         &mut test_buffer,
         [5.0, 200.0],
         [48.0 * 16.0, 32.0],
         [0, 0],
         [48 * 16, 32],
+        over_with_color(egui::Color32::BLACK),
     );
 
     for i in 0..16 {
         let src_orig = UVec2::new(0, 0);
         let src_delta = UVec2::new(16 * i as u32, 0);
-        font_pixels.sample_subimage_into(
+        font_pixels.sample_subimage_nn_into_with(
             &mut test_buffer,
             [5.0, 250.0 + 40.0 * i as f32],
             [16.0 * 16.0, 32.0],
             // [2 * i as u32, 0],
             (src_orig + src_delta).into(),
             [16 * 16, 32],
+            |below, above| above,
+            // over_with_color(egui::Color32::RED),
         );
     }
 
@@ -110,7 +176,7 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
         println!("{i:3} -> [{dst_offset:?}]\t{src_offset:?}");
         // let src_size = [3 * 160, 32];
         let src_size = [32, 32];
-        font_pixels.sample_subimage_into(
+        font_pixels.sample_subimage_nn_into(
             &mut test_buffer,
             dst_offset,
             dst_size,
@@ -177,8 +243,8 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
     // let gtca_small_img
 
     let font_buffer = PixelBuffer {
-        width: font_img.width(),
-        height: font_img.height(),
+        width: font_img.width() as u32,
+        height: font_img.height() as u32,
         pixels: font_img.srgba_pixels(None).collect::<Vec<_>>(),
     };
 
@@ -228,8 +294,15 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
         for (nucl_i, &nucl) in nucleotides.iter().enumerate() {
             let mut buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
             let (offset, size) = get_nucl_i(nucl_i);
-            font_buffer.sample_subimage_into(&mut buffer, [0.0, 0.0], [32.0, 32.0], offset, size);
-            // draw_char(&mut buffer, nucl, [0.0, 0.0], [16.0, 32.0]);
+            draw_char(&mut buffer, nucl, [0.0, 0.0], [16.0, 32.0]);
+
+            // font_buffer.sample_subimage_nn_into(
+            //     &mut buffer,
+            //     [0.0, 0.0],
+            //     [32.0, 32.0],
+            //     offset,
+            //     size,
+            // );
 
             if op == Cg::I {
                 tiles.insert((Cg::I, [None, Some(nucl)]), buffer);
@@ -257,21 +330,21 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
                 //     println!("[{query}, {target}] => [({q_offset:?}, {t_offset:?}), ({q_size:?}, {t_size:?})]");
                 // }
 
-                font_buffer.sample_subimage_into(
-                    &mut buffer,
-                    [0.0, 0.0],
-                    [16.0, 16.0],
-                    q_offset,
-                    q_size,
-                );
+                // font_buffer.sample_subimage_nn_into(
+                //     &mut buffer,
+                //     [0.0, 0.0],
+                //     [16.0, 16.0],
+                //     q_offset,
+                //     q_size,
+                // );
 
-                font_buffer.sample_subimage_into(
-                    &mut buffer,
-                    [tile_size as f32 * 0.5, tile_size as f32 * 0.5],
-                    [16.0, 16.0],
-                    t_offset,
-                    t_size,
-                );
+                // font_buffer.sample_subimage_nn_into(
+                //     &mut buffer,
+                //     [tile_size as f32 * 0.5, tile_size as f32 * 0.5],
+                //     [16.0, 16.0],
+                //     t_offset,
+                //     t_size,
+                // );
 
                 tiles.insert((op, [Some(target), Some(query)]), buffer);
             }
@@ -523,7 +596,7 @@ pub fn draw_alignments(
                         continue;
                     };
 
-                    tile.sample_subimage_into(
+                    tile.sample_subimage_nn_into(
                         &mut dst_pixels,
                         dst_offset.into(),
                         dst_size.into(),
