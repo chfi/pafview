@@ -24,6 +24,7 @@ use anyhow::anyhow;
 
 pub mod cigar;
 pub mod paf;
+pub mod pixels;
 
 mod annotations;
 mod cli;
@@ -36,6 +37,7 @@ mod view;
 
 pub use cigar::*;
 pub use paf::{PafInput, PafLine};
+pub use pixels::*;
 use render::*;
 use view::View;
 

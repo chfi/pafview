@@ -15,7 +15,7 @@ use ultraviolet::{DVec2, UVec2, Vec2};
 
 use crate::{sequences::SeqId, CigarIndex, CigarIter, CigarOp};
 
-use super::PixelBuffer;
+use crate::PixelBuffer;
 
 const TILE_BUFFER_SIZE: usize = 32;
 const TILE_BUFFER_SIZE_F: f32 = TILE_BUFFER_SIZE as f32;
@@ -31,8 +31,8 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
     // let font_bitmap = lodepng::decode32_file("./spleen_font.png").unwrap();
     println!("loaded font");
     let font_pixels = PixelBuffer {
-        width: font_bitmap.width as u32,
-        height: font_bitmap.height as u32,
+        width: font_bitmap.width,
+        height: font_bitmap.height,
         pixels: font_bitmap
             .buffer
             .into_iter()
@@ -177,8 +177,8 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
     // let gtca_small_img
 
     let font_buffer = PixelBuffer {
-        width: font_img.width() as u32,
-        height: font_img.height() as u32,
+        width: font_img.width(),
+        height: font_img.height(),
         pixels: font_img.srgba_pixels(None).collect::<Vec<_>>(),
     };
 
@@ -228,8 +228,8 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
         for (nucl_i, &nucl) in nucleotides.iter().enumerate() {
             let mut buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
             let (offset, size) = get_nucl_i(nucl_i);
-            // font_buffer.sample_subimage_into(&mut buffer, [0.0, 0.0], [32.0, 32.0], offset, size);
-            draw_char(&mut buffer, nucl, [0.0, 0.0], [16.0, 32.0]);
+            font_buffer.sample_subimage_into(&mut buffer, [0.0, 0.0], [32.0, 32.0], offset, size);
+            // draw_char(&mut buffer, nucl, [0.0, 0.0], [16.0, 32.0]);
 
             if op == Cg::I {
                 tiles.insert((Cg::I, [None, Some(nucl)]), buffer);
@@ -250,7 +250,6 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
                 draw_char(&mut buffer, query, [0.0, 0.0], [8.0, 16.0]);
                 draw_char(&mut buffer, query, [15.0, 15.0], [8.0, 16.0]);
 
-                /*
                 let (q_offset, q_size) = get_small_nucl_i(qi);
                 let (t_offset, t_size) = get_small_nucl_i(ti);
 
@@ -273,7 +272,6 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
                     t_offset,
                     t_size,
                 );
-                */
 
                 tiles.insert((op, [Some(target), Some(query)]), buffer);
             }
@@ -383,7 +381,7 @@ pub fn draw_alignments(
 
     let mut tile_i = 0;
 
-    let tile = super::create_test_pattern_buffer(64, 64);
+    // let tile = super::create_test_pattern_buffer(64, 64);
 
     for &target_id in &x_tiles {
         for &query_id in &y_tiles {
@@ -520,10 +518,10 @@ pub fn draw_alignments(
                     //     .get(&(CigarOp::X, [Some('G'), Some('T')]))
                     //     .unwrap();
 
-                    // let Some(tile) = tile_buffers.get(&(op, nucls)) else {
-                    //     log::error!("Did not find tile for ({op:?}, {nucls:?}");
-                    //     continue;
-                    // };
+                    let Some(tile) = tile_buffers.get(&(op, nucls)) else {
+                        log::error!("Did not find tile for ({op:?}, {nucls:?}");
+                        continue;
+                    };
 
                     tile.sample_subimage_into(
                         &mut dst_pixels,
