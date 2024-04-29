@@ -22,7 +22,126 @@ const TILE_BUFFER_SIZE_F: f32 = TILE_BUFFER_SIZE as f32;
 
 pub type TileBuffers = FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>;
 
-pub(super) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer> {
+pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer> {
+    // can be used as an atlas of 16x32 sprites, index into by subtracting ' ' from a
+    // printable/"normal" ascii byte
+    let font_bitmap =
+        // lodepng::decode32(include_bytes!("../../../assets/spleen_font/32x64.png")).unwrap();
+    lodepng::decode32(include_bytes!("../../../assets/spleen_font/16x32.png")).unwrap();
+    // let font_bitmap = lodepng::decode32_file("./spleen_font.png").unwrap();
+    println!("loaded font");
+    let font_pixels = PixelBuffer {
+        width: font_bitmap.width as u32,
+        height: font_bitmap.height as u32,
+        pixels: font_bitmap
+            .buffer
+            .into_iter()
+            .map(|rgba| {
+                let [r, g, b, a]: [u8; 4] = rgba.into();
+                egui::Color32::from_rgba_premultiplied(r, g, b, a)
+            })
+            .collect::<Vec<_>>(),
+    };
+
+    println!(
+        "created font pixel buffer with dimensions {}x{}",
+        font_pixels.width, font_pixels.height
+    );
+
+    let mut test_buffer = PixelBuffer::new_color(800, 1000, egui::Color32::WHITE);
+
+    // lodepng::encode32_file(
+    //     "spleen_font_iso.png",
+    //     &font_pixels.pixels,
+    //     font_pixels.width as usize,
+    //     font_pixels.height as usize,
+    // )
+    // .unwrap();
+
+    // pixels.write_png_file("cigar_X_GT_buffer.png").unwrap();
+
+    let draw_char = |dst: &mut PixelBuffer, ch: char, dst_offset: [f32; 2], dst_size: [f32; 2]| {
+        let ix = (ch as u8 - b' ') as u32;
+        let src_offset = [ix * 16, 0];
+        let src_size = [16, 32];
+        font_pixels.sample_subimage_into(dst, dst_offset, dst_size, src_offset, src_size);
+    };
+
+    // draw_char(&mut test_buffer, 'G', );
+    let test_draw_char =
+        |dst: &mut PixelBuffer, ch: char, dst_offset: [f32; 2], dst_size: [f32; 2]| {
+            let ix = (ch as u8 - b' ') as u32;
+            println!("drawing '{ch}' ({}) with index {ix}", ch as u8);
+            let src_offset = [ix * 16, 0];
+            let src_size = [16, 32];
+            font_pixels.sample_subimage_into(dst, dst_offset, dst_size, src_offset, src_size);
+        };
+
+    // test_draw_char(&mut test_buffer, '!', [10.0, 10.0], [16.0, 32.0]);
+
+    font_pixels.sample_subimage_into(
+        &mut test_buffer,
+        [5.0, 200.0],
+        [48.0 * 16.0, 32.0],
+        [0, 0],
+        [48 * 16, 32],
+    );
+
+    for i in 0..16 {
+        let src_orig = UVec2::new(0, 0);
+        let src_delta = UVec2::new(16 * i as u32, 0);
+        font_pixels.sample_subimage_into(
+            &mut test_buffer,
+            [5.0, 250.0 + 40.0 * i as f32],
+            [16.0 * 16.0, 32.0],
+            // [2 * i as u32, 0],
+            (src_orig + src_delta).into(),
+            [16 * 16, 32],
+        );
+    }
+
+    let mut col = 0;
+    let mut row = 0;
+    for i in 0..(1520 / 16) {
+        let dst_offset = [col as f32 * 20.0 + 5.0, row as f32 * 45.0 + 10.0];
+        // let dst_size = [2. * 160.0, 32.0];
+        let dst_size = [16.0, 32.0];
+        let src_offset = [32 + i as u32 * 16, 0];
+        println!("{i:3} -> [{dst_offset:?}]\t{src_offset:?}");
+        // let src_size = [3 * 160, 32];
+        let src_size = [32, 32];
+        font_pixels.sample_subimage_into(
+            &mut test_buffer,
+            dst_offset,
+            dst_size,
+            src_offset,
+            src_size,
+        );
+        col += 1;
+        if col == 30 {
+            row += 1;
+            col = 0;
+        }
+    }
+    /*
+    for i in 0..10 {
+        let dst_offset = [5.0, i as f32 * 45.0 + 10.0];
+        let dst_size = [2. * 160.0, 32.0];
+        // let src_offset = [48 + i as u32 * 16, 0];
+        let src_offset = [96 + i as u32 * 4, 0];
+        let src_size = [3 * 160, 32];
+        font_pixels.sample_subimage_into(
+            &mut test_buffer,
+            dst_offset,
+            dst_size,
+            src_offset,
+            src_size,
+        );
+    }
+    */
+
+    test_buffer.write_png_file("test_buffer.png").unwrap();
+
     let fonts = egui::text::Fonts::new(1.0, 1024, egui::FontDefinitions::default());
 
     let tile_size = TILE_BUFFER_SIZE as u32;
@@ -109,7 +228,8 @@ pub(super) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
         for (nucl_i, &nucl) in nucleotides.iter().enumerate() {
             let mut buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
             let (offset, size) = get_nucl_i(nucl_i);
-            font_buffer.sample_subimage_into(&mut buffer, [0.0, 0.0], [1.0, 1.0], offset, size);
+            // font_buffer.sample_subimage_into(&mut buffer, [0.0, 0.0], [32.0, 32.0], offset, size);
+            draw_char(&mut buffer, nucl, [0.0, 0.0], [16.0, 32.0]);
 
             if op == Cg::I {
                 tiles.insert((Cg::I, [None, Some(nucl)]), buffer);
@@ -127,13 +247,21 @@ pub(super) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
             for (ti, &target) in nucleotides.iter().enumerate() {
                 let mut buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
 
+                draw_char(&mut buffer, query, [0.0, 0.0], [8.0, 16.0]);
+                draw_char(&mut buffer, query, [15.0, 15.0], [8.0, 16.0]);
+
+                /*
                 let (q_offset, q_size) = get_small_nucl_i(qi);
                 let (t_offset, t_size) = get_small_nucl_i(ti);
+
+                // if op == Cg::X {
+                //     println!("[{query}, {target}] => [({q_offset:?}, {t_offset:?}), ({q_size:?}, {t_size:?})]");
+                // }
 
                 font_buffer.sample_subimage_into(
                     &mut buffer,
                     [0.0, 0.0],
-                    [1.0, 1.0],
+                    [16.0, 16.0],
                     q_offset,
                     q_size,
                 );
@@ -141,14 +269,22 @@ pub(super) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
                 font_buffer.sample_subimage_into(
                     &mut buffer,
                     [tile_size as f32 * 0.5, tile_size as f32 * 0.5],
-                    [1.0, 1.0],
+                    [16.0, 16.0],
                     t_offset,
                     t_size,
                 );
+                */
 
                 tiles.insert((op, [Some(target), Some(query)]), buffer);
             }
         }
+    }
+
+    font_buffer.write_png_file("font_pixel_buffer.png").unwrap();
+
+    if let Some(pixels) = tiles.get(&(CigarOp::X, [Some('G'), Some('T')])) {
+        println!("writing cigar X 'GT' buffer");
+        pixels.write_png_file("cigar_X_GT_buffer.png").unwrap();
     }
 
     tiles
@@ -233,19 +369,21 @@ pub fn draw_alignments(
         }
     };
 
-    let color_buffers = [
-        egui::Color32::RED,
-        egui::Color32::GREEN,
-        egui::Color32::BLUE,
-        egui::Color32::GOLD,
-    ]
-    .into_iter()
-    .map(|color| PixelBuffer::new_color(32, 32, color))
-    .collect::<Vec<_>>();
+    // let color_buffers = [
+    //     egui::Color32::RED,
+    //     egui::Color32::GREEN,
+    //     egui::Color32::BLUE,
+    //     egui::Color32::GOLD,
+    // ]
+    // .into_iter()
+    // .map(|color| PixelBuffer::new_color(32, 32, color))
+    // .collect::<Vec<_>>();
     // println!("drawing alignments!");
     let mut dst_pixels = PixelBuffer::new_color(canvas_size.x, canvas_size.y, egui::Color32::WHITE);
 
     let mut tile_i = 0;
+
+    let tile = super::create_test_pattern_buffer(64, 64);
 
     for &target_id in &x_tiles {
         for &query_id in &y_tiles {
@@ -288,22 +426,16 @@ pub fn draw_alignments(
 
             let seqs = sequence_getter(target_id, query_id);
 
-            let (_, local_t_start) = grid
-                .x_axis
-                .global_to_axis_local(clamped_target.start as f64)
-                .unwrap();
-            // let local_t_end = grid.x_axis.global_to_axis_local(clamped_target.end as f64);
+            // let (_, local_t_start) = grid
+            //     .x_axis
+            //     .global_to_axis_local(clamped_target.start as f64)
+            //     .unwrap();
+            // // let local_t_end = grid.x_axis.global_to_axis_local(clamped_target.end as f64);
 
-            let (_, local_q_start) = grid
-                .y_axis
-                .global_to_axis_local(clamped_query.start as f64)
-                .unwrap();
-            // let local_q_end = grid.y_axis.global_to_axis_local(clamped_query.end as f64);
-
-            // let local_t_start = local_t_start * alignment.location.target_total_len as f64;
-            // let local_q_start = local_q_start * alignment.location.query_total_len as f64;
-
-            // println!("px_per_bp: {px_per_bp}");
+            // let (_, local_q_start) = grid
+            //     .y_axis
+            //     .global_to_axis_local(clamped_query.start as f64)
+            //     .unwrap();
 
             let x_global_start = grid.x_axis.sequence_offset(target_id).unwrap();
             let y_global_start = grid.y_axis.sequence_offset(query_id).unwrap();
@@ -360,7 +492,6 @@ pub fn draw_alignments(
 
             // end testing/debug bits
 
-            println!("clamped_target: {clamped_target:?}");
             let mut count = 0;
             for item in alignment.iter_target_range(clamped_target.clone()) {
                 count += 1;
@@ -370,7 +501,7 @@ pub fn draw_alignments(
                 let mut aabb_min = Vec2::broadcast(std::f32::INFINITY);
                 let mut aabb_max = Vec2::broadcast(std::f32::NEG_INFINITY);
 
-                for (i, [tgt, qry]) in item.enumerate() {
+                for (_i, [tgt, qry]) in item.enumerate() {
                     let nucls = seqs(op, tgt, qry);
 
                     // TODO the clamped ranges must be in local sequence space;
@@ -384,61 +515,26 @@ pub fn draw_alignments(
                         screen_dims,
                         world_offset, // seq_global_offset + [tgt as f64, qry as f64].into(),
                     );
-                    // if i == 0 {
-                    //     println!("{seq_global_offset:?} + [{tgt}, {qry}] =>\t{dst_offset:?}");
-                    //     println!("{world_offset:?}");
-                    // }
-
-                    aabb_min = aabb_min.min_by_component(dst_offset);
-                    aabb_max = aabb_max.max_by_component(dst_offset);
-
-                    // let x_start = screen_min.x + px_per_bp * (tgt as f32 - local_t_start as f32);
-                    // let y_start = screen_min.y + px_per_bp * (qry as f32 - local_q_start as f32);
-                    // let x_start = screen_min.x;
-                    // let y_start = screen_min.y;
-
-                    // let y_start = qry - clamped_range.start;
-                    // let dst_offset =
-                    // let dst_offset = Vec2::new(x_start, y_start);
-
-                    let Some(tile) = tile_buffers.get(&(op, nucls)) else {
-                        log::error!("Did not find tile for ({op:?}, {nucls:?}");
-                        continue;
-                    };
-
-                    // println!("sampling to {dst_offset:?} with size {dst_size:?}");
 
                     // let tile = tile_buffers
-                    //     .get(&(CigarOp::X, [Some('A'), Some('G')]))
+                    //     .get(&(CigarOp::X, [Some('G'), Some('T')]))
                     //     .unwrap();
-                    // let dst_offset = Vec2::new(100.0, 100.0);
-                    let dst_size = Vec2::new(50.0, 50.0);
 
-                    // println!("tgt & qry offsets: {tgt_offset}, {qry_offset}");
-                    // println!("  [{tgt}, {qry}] - dst_offset: {dst_offset:?}");
-                    // let dst_size = Vec2::new(px_per_bp, px_per_bp);
-                    // let dst_offset = screen_min;
-                    // let dst_size = screen_max - screen_min;
-                    // let src_offset = todo!();
-                    // let src_size = todo!();
+                    // let Some(tile) = tile_buffers.get(&(op, nucls)) else {
+                    //     log::error!("Did not find tile for ({op:?}, {nucls:?}");
+                    //     continue;
+                    // };
+
                     tile.sample_subimage_into(
                         &mut dst_pixels,
                         dst_offset.into(),
                         dst_size.into(),
                         [0, 0],
-                        [TILE_BUFFER_SIZE as u32, TILE_BUFFER_SIZE as u32],
-                        // src_offset,
-                        // src_size,
+                        // [TILE_BUFFER_SIZE as u32, TILE_BUFFER_SIZE as u32],
+                        [10, 10],
                     );
                 }
-
-                // println!("AABB: {aabb_min:?}\t{aabb_max:?}");
             }
-            if count > 0 {
-                // println!("local_t_start: {local_t_start}\tlocal_q_start: {local_q_start}");
-            }
-
-            println!("drew {count} items");
         }
     }
 

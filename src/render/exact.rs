@@ -270,168 +270,6 @@ struct RenderParams {
     canvas_size: UVec2,
 }
 
-pub fn draw_subsection(
-    match_data: &crate::ProcessedCigar,
-    target_range: std::ops::Range<u64>,
-    query_range: std::ops::Range<u64>,
-    canvas_size: UVec2,
-    canvas_data: &mut Vec<egui::Color32>,
-) {
-    let size = (canvas_size.x * canvas_size.y) as usize;
-    canvas_data.clear();
-    canvas_data.resize(size, egui::Color32::WHITE);
-
-    // TODO doesn't take strand into account yet
-    let match_iter = MatchOpIter::from_range(
-        &match_data.match_offsets,
-        &match_data.match_cigar_index,
-        &match_data.cigar,
-        target_range.clone(),
-        match_data.strand_rev,
-    );
-
-    let tgt_len = target_range.end - target_range.start;
-    let bp_width = canvas_size.x as f64 / tgt_len as f64;
-
-    let qry_len = query_range.end - query_range.start;
-    let bp_height = canvas_size.y as f64 / qry_len as f64;
-
-    for ([target_pos, query_pos], cg_ix) in match_iter {
-        let cg_op = match_data.cigar[cg_ix].0;
-        let is_match = cg_op.is_match();
-
-        let color = if is_match {
-            egui::Color32::BLACK
-        } else {
-            egui::Color32::RED
-        };
-
-        let Some(target_offset) = target_pos.checked_sub(target_range.start) else {
-            continue;
-        };
-        let Some(query_offset) = query_pos.checked_sub(query_range.start) else {
-            continue;
-        };
-
-        let x0 = target_offset as f64 * bp_width;
-        let x1 = (1 + target_offset) as f64 * bp_width;
-
-        let y0 = query_offset as f64 * bp_height;
-        let y1 = (1 + query_offset) as f64 * bp_height;
-
-        let x = 0.5 * (x0 + x1);
-        let y = 0.5 * (y0 + y1);
-
-        for x in (x0.floor() as usize)..(x1.floor() as usize) {
-            for y in (y0.floor() as usize)..(y1.floor() as usize) {
-                let y = (canvas_size.y as usize)
-                    .checked_sub(y + 1)
-                    .unwrap_or_default();
-                let ix = x + y * canvas_size.x as usize;
-                if x < canvas_size.x as usize && y < canvas_size.y as usize {
-                    canvas_data.get_mut(ix).map(|px| *px = color);
-                }
-            }
-        }
-    }
-}
-
-struct MatchOpIter<'a> {
-    match_offsets: &'a [[u64; 2]],
-    match_cg_ix: &'a [usize],
-    cigar: &'a [(CigarOp, u64)],
-
-    target_range: std::ops::Range<u64>,
-
-    index: usize,
-    // current_match: Option<(usize, [u64; 2], bool)>,
-    current_match: Option<(CigarOp, usize, std::ops::Range<u64>, [u64; 2])>,
-    // current_match: Option<(std::ops::Range<u64>, [u64; 2], bool, bool)>,
-    reverse: bool,
-    done: bool,
-}
-
-impl<'a> MatchOpIter<'a> {
-    fn from_range(
-        match_offsets: &'a [[u64; 2]],
-        match_cg_ix: &'a [usize],
-        cigar: &'a [(CigarOp, u64)],
-        target_range: std::ops::Range<u64>,
-        reverse: bool,
-    ) -> Self {
-        // let t_start = if reverse {
-        //     todo!();
-        // } else {
-        //     let t_start = match_offsets.partition_point(|[t, _]| *t < target_range.start);
-        //     t_start.checked_sub(1).unwrap_or_default()
-        // };
-
-        let t_start = match_offsets.partition_point(|[t, _]| *t < target_range.start);
-        let t_start = t_start.checked_sub(1).unwrap_or_default();
-
-        let q_start = todo!();
-
-        Self {
-            // data: match_data,
-            match_offsets,
-            match_cg_ix,
-            cigar,
-
-            target_range,
-
-            index: t_start,
-            current_match: None,
-
-            reverse,
-            done: false,
-        }
-    }
-}
-
-impl<'a> Iterator for MatchOpIter<'a> {
-    // outputs each individual match/mismatch op's position along the
-    // target and query
-    type Item = ([u64; 2], usize);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.done {
-            return None;
-        }
-
-        if self.current_match.is_none() {
-            if self.index >= self.match_offsets.len() {
-                return None;
-            }
-            let ix = self.index;
-            self.index += 1;
-            let cg_ix = self.match_cg_ix[ix];
-            let (op, count) = self.cigar[cg_ix];
-            let range = 0..count;
-            let origin = self.match_offsets[ix];
-            self.current_match = Some((op, cg_ix, range, origin));
-        }
-
-        if let Some((op, cg_ix, mut range, origin @ [tgt, qry])) = self.current_match.take() {
-            let next_offset = range.next()?;
-
-            if tgt + next_offset > self.target_range.end {
-                self.done = true;
-            }
-
-            if !range.is_empty() {
-                self.current_match = Some((op, cg_ix, range, origin));
-            }
-
-            let pos = [tgt + next_offset, qry + next_offset];
-            let out = (pos, cg_ix);
-
-            return Some(out);
-        }
-
-        None
-    }
-}
-
 pub struct PixelBuffer {
     pub width: u32,
     pub height: u32,
@@ -508,7 +346,156 @@ impl PixelBuffer {
     */
 }
 impl PixelBuffer {
+    // nearest neighbor
+
     pub fn sample_subimage_into(
+        &self,
+        dst: &mut PixelBuffer,
+        dst_offset: [f32; 2],
+        dst_size: [f32; 2],
+        src_offset: [u32; 2],
+        src_size: [u32; 2],
+    ) {
+        // self.sample_subimage_into_bilerp(dst, dst_offset, dst_size, src_offset, src_size)
+        // self.sample_subimage_into_nn(dst, dst_offset, dst_size, src_offset, src_size)
+        self.sample_subimage_into_test(dst, dst_offset, dst_size, src_offset, src_size)
+    }
+
+    pub fn sample_subimage_into_test(
+        &self,
+        dst: &mut PixelBuffer,
+        dst_offset: [f32; 2],
+        dst_size: [f32; 2],
+        src_offset: [u32; 2],
+        src_size: [u32; 2],
+    ) {
+        // self.sample_subimage_into_bilerp(dst, dst_offset, dst_size, src_offset, src_size)
+        // self.sample_subimage_into_nn(dst, dst_offset, dst_size, src_offset, src_size)
+
+        let [x0, y0] = dst_offset;
+        let [dw, dh] = dst_size;
+
+        // let dst_x0 = dst_offset[0].floor();
+
+        let dst_x0 = x0.floor();
+        let dst_y0 = y0.floor();
+
+        let dst_x1 = (x0 + dw).ceil();
+        let dst_y1 = (y0 + dh).ceil();
+
+        let dst_x_range = (dst_x0 as usize)..(dst_x1 as usize);
+        let dst_y_range = (dst_y0 as usize)..(dst_y1 as usize);
+
+        let src_w = src_size[0] as f32;
+        let src_h = src_size[1] as f32;
+
+        for (y_i, dst_y) in dst_y_range.enumerate() {
+            // let src_v = dst_y as f32 / dh;
+            let y_t = (y_i as f32) / (dst_y1 - dst_y0);
+            let src_y = src_offset[1] as usize + (y_t * src_h).round() as usize;
+
+            // let src_v = dst_y as f32 / (dst_y1 - dst_y0);
+            // let src_y = src_offset[1] as usize + (src_v * src_h).round() as usize;
+
+            for (x_i, dst_x) in dst_x_range.clone().enumerate() {
+                let x_t = (x_i as f32) / (dst_x1 - dst_x0);
+                let src_x = src_offset[0] as usize + (x_t * src_w).round() as usize;
+                // let src_u = dst_x as f32 / dw;
+                // let src_u = dst_x as f32 / (dst_x1 - dst_x0);
+                // let src_x = src_offset[0] as usize + (src_u * src_w).round() as usize;
+
+                let src_i = self.width as usize * src_y + src_x;
+                //
+                let dst_i = dst.width as usize * dst_y + dst_x;
+
+                let src_px = if let Some(src_px) = self.pixels.get(src_i) {
+                    *src_px
+                } else {
+                    egui::Color32::RED
+                };
+
+                if let Some(dst_px) = dst.pixels.get_mut(dst_i) {
+                    // *dst_px = egui::Color32::RED;
+                    *dst_px = src_px;
+                }
+            }
+        }
+
+        /*
+        for dst_y in dst_y_range {
+            let src_v = dst_y as f32 / dst_h;
+            let src_y = src_offset[1] as usize + (src_v * src_h).round() as usize;
+
+            // let sy = ((dst_y as f32) / dst_h).round() as usize;
+
+            for dst_x in dst_x_range.clone() {
+                let dst_i = dst.width as usize * dst_y + dst_x;
+
+                let src_u = dst_x as f32 / dst_w;
+                let src_x = src_offset[0] as usize + (src_u * src_w).round() as usize;
+                // let sx = ((dst_x as f32) / dst_w).round() as usize;
+
+                let src_i = self.width as usize * src_y + src_x;
+
+                let src_px = self.pixels.get(src_i);
+                let dst_px = dst.pixels.get_mut(dst_i);
+
+                if let (Some(src_px), Some(dst_px)) = (src_px, dst_px) {
+                    *dst_px = *src_px;
+                }
+            }
+        }
+        */
+    }
+
+    pub fn sample_subimage_into_nn(
+        &self,
+        dst: &mut PixelBuffer,
+        dst_offset: [f32; 2],
+        dst_size: [f32; 2],
+        src_offset: [u32; 2],
+        src_size: [u32; 2],
+    ) {
+        let dst_x0 = dst_offset[0].floor();
+        let dst_y0 = dst_offset[1].floor();
+
+        let dst_x1 = (dst_offset[0] + dst_size[0]).ceil();
+        let dst_y1 = (dst_offset[1] + dst_size[1]).ceil();
+
+        let dst_x_range = (dst_x0 as usize)..(dst_x1 as usize);
+        let dst_y_range = (dst_y0 as usize)..(dst_y1 as usize);
+
+        let [dst_w, dst_h] = dst_size;
+
+        let src_w = src_size[0] as f32;
+        let src_h = src_size[1] as f32;
+
+        for dst_y in dst_y_range {
+            let src_v = dst_y as f32 / dst_h;
+            let src_y = src_offset[1] as usize + (src_v * src_h).round() as usize;
+
+            // let sy = ((dst_y as f32) / dst_h).round() as usize;
+
+            for dst_x in dst_x_range.clone() {
+                let dst_i = dst.width as usize * dst_y + dst_x;
+
+                let src_u = dst_x as f32 / dst_w;
+                let src_x = src_offset[0] as usize + (src_u * src_w).round() as usize;
+                // let sx = ((dst_x as f32) / dst_w).round() as usize;
+
+                let src_i = self.width as usize * src_y + src_x;
+
+                let src_px = self.pixels.get(src_i);
+                let dst_px = dst.pixels.get_mut(dst_i);
+
+                if let (Some(src_px), Some(dst_px)) = (src_px, dst_px) {
+                    *dst_px = *src_px;
+                }
+            }
+        }
+    }
+
+    pub fn sample_subimage_into_bilerp(
         &self,
         dst: &mut PixelBuffer,
         dst_offset: [f32; 2],
@@ -525,6 +512,11 @@ impl PixelBuffer {
         let start_y = dst_offset[1].ceil() as usize;
         let end_x = ((dst_offset[0] + dst_size[0]).min(dst.width as f32)).floor() as usize;
         let end_y = ((dst_offset[1] + dst_size[1]).min(dst.height as f32)).floor() as usize;
+
+        println!("dst: ({dst_offset:?}, {dst_size:?}), src: ({src_offset:?}, {src_size:?}) => \t x: {:?}, y: {:?}",
+                 start_y..end_y,
+                 start_x..end_x,
+                 );
 
         // Iterate over the calculated destination bounds
         for y in start_y..end_y {
@@ -544,6 +536,11 @@ impl PixelBuffer {
                             .into();
                     // } else {
                     //     dst.pixels[y * dst.width as usize + x] = egui::Color32::TRANSPARENT;
+                } else {
+                    if let Some(v) = dst.pixels.get_mut(y * dst.width as usize + x) {
+                        *v = egui::Color32::RED;
+                        // .into();
+                    }
                 }
                 /*
                 {
@@ -633,6 +630,16 @@ impl PixelBuffer {
     }
 }
 
+impl PixelBuffer {
+    pub fn write_png_file(&self, path: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
+        let pixels: &[u8] = bytemuck::cast_slice(&self.pixels);
+
+        lodepng::encode32_file(path, pixels, self.width as usize, self.height as usize)?;
+
+        Ok(())
+    }
+}
+
 fn bilinear_interpolate(src: &PixelBuffer, x: f32, y: f32) -> egui::Rgba {
     bilinear_interpolate_offset(src, x, y, [0, 0], [src.width, src.height])
 }
@@ -668,9 +675,11 @@ fn bilinear_interpolate_offset(
 
     let t = x - x.floor();
     let u = y - y.floor();
+    // let t = x - x_floor as f32;
+    // let u = y - y_floor as f32;
 
     if x_floor >= s_width || y_floor >= s_height || x_ceil >= s_width || y_ceil >= s_height {
-        return egui::Color32::TRANSPARENT.into();
+        return egui::Color32::RED.into();
     }
 
     let p00: egui::Rgba = src.pixels[y_floor * s_width + x_floor].into();
@@ -692,6 +701,8 @@ fn bilinear_interpolate_offset(
         p01[3] + t * (p11[3] - p01[3]),
     ];
 
+    // let r =
+
     // Interpolate columns
     egui::Rgba::from_rgba_premultiplied(
         p0[0] + u * (p1[0] - p0[0]),
@@ -701,8 +712,50 @@ fn bilinear_interpolate_offset(
     )
 }
 
+pub(crate) fn create_test_pattern_buffer(width: u32, height: u32) -> PixelBuffer {
+    let mut pixels = Vec::with_capacity((width * height) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            let r = (x % 10) as f32 / 10.0;
+            let g = (y % 10) as f32 / 10.0;
+
+            let color = egui::Rgba::from_rgba_premultiplied(r, g, 0.5, 1.0);
+            pixels.push(color.into());
+        }
+    }
+    PixelBuffer {
+        width,
+        height,
+        pixels,
+    }
+}
+
+// Helper function to create a test image buffer with identifiable patterns
+pub(crate) fn create_test_buffer(width: u32, height: u32) -> PixelBuffer {
+    let mut pixels = Vec::with_capacity((width * height) as usize);
+    for y in 0..height {
+        for x in 0..width {
+            // Create a simple gradient pattern
+            let color = egui::Rgba::from_rgba_premultiplied(
+                x as f32 / width as f32,
+                y as f32 / height as f32,
+                0.5,
+                1.0,
+            );
+            pixels.push(color.into());
+        }
+    }
+    PixelBuffer {
+        width,
+        height,
+        pixels,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+    use std::hash::Hash;
 
     use ultraviolet::DVec2;
 
@@ -747,28 +800,6 @@ mod tests {
     }
 
     #[test]
-    fn test_match_op_iter() {
-        let cigar = test_cigar();
-        let (offsets, cg_ix) = cigar_offsets(&cigar);
-
-        let len = cigar.iter().map(|(_, c)| *c).sum::<u64>();
-
-        let iter = MatchOpIter::from_range(&offsets, &cg_ix, &cigar, 0..len, false);
-
-        for ([tgt, qry], is_match) in iter {
-            println!("[{tgt:3}, {qry:3}] - {is_match}");
-        }
-
-        println!();
-
-        let iter = MatchOpIter::from_range(&offsets, &cg_ix, &cigar, 15..40, false);
-
-        for ([tgt, qry], is_match) in iter {
-            println!("[{tgt:3}, {qry:3}] - {is_match}");
-        }
-    }
-
-    #[test]
     fn test_pixel_buffer_blit() {
         let mut buf = PixelBuffer::new(48, 48);
 
@@ -798,6 +829,80 @@ mod tests {
         assert_eq!(reds, 4 * 8);
         assert_eq!(greens, 8 * 8);
         assert_eq!(blues, 8 * 5);
+    }
+
+    #[test]
+    fn test_exact_copy() {
+        let src = create_test_buffer(10, 10);
+        let mut dst = create_test_buffer(10, 10); // Destination buffer of the same size
+
+        src.sample_subimage_into(&mut dst, [0.0, 0.0], [10.0, 10.0], [0, 0], [10, 10]);
+
+        for (src_pixel, dst_pixel) in src.pixels.iter().zip(dst.pixels.iter()) {
+            assert_eq!(
+                src_pixel, dst_pixel,
+                "Pixels must be identical for exact copy"
+            );
+        }
+    }
+
+    #[test]
+    fn test_scaling_down() {
+        let src = create_test_buffer(10, 10);
+        let mut dst = create_test_buffer(5, 5); // Smaller destination buffer
+
+        src.sample_subimage_into(&mut dst, [0.0, 0.0], [5.0, 5.0], [0, 0], [10, 10]);
+
+        // Simple check: corners of dst should match corners of src
+        assert_eq!(dst.pixels[0], src.pixels[0], "Top-left corner should match");
+        assert_eq!(
+            dst.pixels[4], src.pixels[9],
+            "Top-right corner should match"
+        );
+        assert_eq!(
+            dst.pixels[20], src.pixels[90],
+            "Bottom-left corner should match"
+        );
+        assert_eq!(
+            dst.pixels[24], src.pixels[99],
+            "Bottom-right corner should match"
+        );
+    }
+
+    #[test]
+    fn test_subimage_extraction() {
+        let src = create_test_buffer(10, 10);
+        let mut dst = create_test_buffer(5, 5); // Destination buffer for subimage
+
+        // Extract a central 5x5 block from src
+        src.sample_subimage_into(&mut dst, [0.0, 0.0], [5.0, 5.0], [3, 3], [5, 5]);
+
+        // Check if the center of src is now the entirety of dst
+        for (y, dst_pixel) in dst.pixels.iter().enumerate() {
+            let src_pixel = src.pixels[(y + 3) * 10 + 3]; // Corresponding src pixel
+            assert_eq!(
+                dst_pixel, &src_pixel,
+                "Pixels should match extracted subimage"
+            );
+        }
+    }
+
+    #[test]
+    fn test_edge_clipping() {
+        let src = create_test_buffer(10, 10);
+        let mut dst = create_test_buffer(5, 5); // Smaller buffer for testing edge clipping
+
+        // Attempt to sample beyond the bounds of src
+        src.sample_subimage_into(&mut dst, [0.0, 0.0], [5.0, 5.0], [8, 8], [10, 10]);
+
+        // Check if the out-of-bounds areas are set to a default clear color
+        for dst_pixel in dst.pixels.iter() {
+            assert_eq!(
+                dst_pixel.to_array(),
+                [0, 0, 0, 0],
+                "Out-of-bounds pixels should be clear"
+            );
+        }
     }
 
     #[allow(dead_code)]
