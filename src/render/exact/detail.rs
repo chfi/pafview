@@ -117,9 +117,21 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
         }
     };
 
-    let draw_char = |dst: &mut PixelBuffer, ch: char, dst_offset: [f32; 2], dst_size: [f32; 2]| {
+    let draw_char = |dst: &mut PixelBuffer,
+                     dst_offset: [f32; 2],
+                     dst_size: [f32; 2],
+                     ch: char,
+                     bg: egui::Color32,
+                     fg: egui::Color32| {
         let ix = (ch as u8 - b' ') as u32;
-        let src_offset = [ix * 16, 0];
+
+        let y = if dst_offset[1] < 0.0 {
+            dst_offset[1].abs().round() as u32
+        } else {
+            0
+        };
+
+        let src_offset = [ix * 16, y];
         let src_size = [16, 32];
         png_font_pixels.sample_subimage_nn_into_with(
             dst,
@@ -127,7 +139,7 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
             dst_size,
             src_offset,
             src_size,
-            masked(egui::Color32::WHITE, egui::Color32::BLACK),
+            masked(bg, fg),
         );
     };
 
@@ -142,40 +154,23 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
 
     {
         let uv = gtca_glyphs[0].uv_rect;
-        // uv.min.
         let [u0, v0] = uv.min;
         let [u1, v1] = uv.max;
         let tl = [u0 as u32, v0 as u32];
         let size = [(u1 - u0) as u32, (v1 - v0) as u32];
-        // let tl = [uv.min[0] as f32, uv.min[1] as f32];
-        // uv.
         egui_font_buffer.sample_subimage_nn_into_with(
             &mut test_buffer,
             [800.0, 800.0],
-            // [5.0, 250.0 + 40.0 * i as f32],
             [64.0, 64.0],
             tl,
             size,
-            |below, above| above,
-            // over_with_color(egui::Color32::RED),
-            // [2 * i as u32, 0],
-            // (src_orig + src_delta).into(),
-            // [16 * 16, 32],
+            masked(egui::Color32::WHITE, egui::Color32::BLACK),
         );
     }
 
     for i in 0..16 {
         let src_orig = UVec2::new(0, 0);
         let src_delta = UVec2::new(16 * i as u32, 0);
-
-        // egui_font_buffer.sample_subimage_nn_into(
-        //     &mut test_buffer,
-        //     [5.0, 250.0 + 40.0 * i as f32],
-        //     [16.0 * 16.0, 32.0],
-        //     // [2 * i as u32, 0],
-        //     (src_orig + src_delta).into(),
-        //     [16 * 16, 32],
-        // );
 
         png_font_pixels.sample_subimage_nn_into_with(
             &mut test_buffer,
@@ -184,8 +179,7 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
             // [2 * i as u32, 0],
             (src_orig + src_delta).into(),
             [16 * 16, 32],
-            |below, above| above,
-            // over_with_color(egui::Color32::RED),
+            masked(egui::Color32::WHITE, egui::Color32::BLACK),
         );
     }
 
@@ -199,12 +193,13 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
         println!("{i:3} -> [{dst_offset:?}]\t{src_offset:?}");
         // let src_size = [3 * 160, 32];
         let src_size = [32, 32];
-        png_font_pixels.sample_subimage_nn_into(
+        png_font_pixels.sample_subimage_nn_into_with(
             &mut test_buffer,
             dst_offset,
             dst_size,
             src_offset,
             src_size,
+            masked(egui::Color32::RED, egui::Color32::BLACK),
         );
         col += 1;
         if col == 30 {
@@ -270,22 +265,27 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
 
     let nucleotides = ['G', 'T', 'C', 'A'];
 
+    // let char_width = TILE_BUFFER_SIZE_F * 0.5;
+
     for (op, bg_color) in [
         (Cg::I, egui::Color32::GREEN),
         (Cg::D, egui::Color32::YELLOW), // testing
     ] {
         for (nucl_i, &nucl) in nucleotides.iter().enumerate() {
             let mut buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
-            let (offset, size) = get_nucl_i(nucl_i);
-            draw_char(&mut buffer, nucl, [0.0, 0.0], [16.0, 32.0]);
+            // let (offset, size) = get_nucl_i(nucl_i);
 
-            // font_buffer.sample_subimage_nn_into(
-            //     &mut buffer,
-            //     [0.0, 0.0],
-            //     [32.0, 32.0],
-            //     offset,
-            //     size,
-            // );
+            let fg_color = egui::Color32::BLACK;
+
+            let x = TILE_BUFFER_SIZE_F * 0.25;
+            draw_char(
+                &mut buffer,
+                [x, 0.0],
+                [16.0, 32.0],
+                nucl,
+                bg_color,
+                fg_color,
+            );
 
             if op == Cg::I {
                 tiles.insert((Cg::I, [None, Some(nucl)]), buffer);
@@ -303,31 +303,29 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
             for (ti, &target) in nucleotides.iter().enumerate() {
                 let mut buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
 
-                draw_char(&mut buffer, query, [0.0, 0.0], [8.0, 16.0]);
-                draw_char(&mut buffer, query, [15.0, 15.0], [8.0, 16.0]);
+                let fg_color = egui::Color32::WHITE;
 
-                let (q_offset, q_size) = get_small_nucl_i(qi);
-                let (t_offset, t_size) = get_small_nucl_i(ti);
+                let x0 = 0.0;
+                let y0 = -4.0;
+                let x1 = TILE_BUFFER_SIZE_F / 2.0;
+                let y1 = TILE_BUFFER_SIZE_F / 8.0;
 
-                // if op == Cg::X {
-                //     println!("[{query}, {target}] => [({q_offset:?}, {t_offset:?}), ({q_size:?}, {t_size:?})]");
-                // }
-
-                // font_buffer.sample_subimage_nn_into(
-                //     &mut buffer,
-                //     [0.0, 0.0],
-                //     [16.0, 16.0],
-                //     q_offset,
-                //     q_size,
-                // );
-
-                // font_buffer.sample_subimage_nn_into(
-                //     &mut buffer,
-                //     [tile_size as f32 * 0.5, tile_size as f32 * 0.5],
-                //     [16.0, 16.0],
-                //     t_offset,
-                //     t_size,
-                // );
+                draw_char(
+                    &mut buffer,
+                    [x0, y0],
+                    [16.0, 32.0],
+                    query,
+                    bg_color,
+                    fg_color,
+                );
+                draw_char(
+                    &mut buffer,
+                    [x1, y1],
+                    [16.0, 32.0],
+                    target,
+                    bg_color,
+                    fg_color,
+                );
 
                 tiles.insert((op, [Some(target), Some(query)]), buffer);
             }
@@ -341,6 +339,11 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
     if let Some(pixels) = tiles.get(&(CigarOp::X, [Some('G'), Some('T')])) {
         println!("writing cigar X 'GT' buffer");
         pixels.write_png_file("cigar_X_GT_buffer.png").unwrap();
+    }
+
+    if let Some(pixels) = tiles.get(&(CigarOp::I, [None, Some('G')])) {
+        println!("writing cigar I 'G' buffer");
+        pixels.write_png_file("cigar_I_G_buffer.png").unwrap();
     }
 
     tiles
@@ -470,10 +473,10 @@ pub fn draw_alignments(
             let screen_max = s0.max_by_component(s1);
             let screen_min = s0.min_by_component(s1);
 
-            println!(
-                "drawing ({}, {}) to rect ({screen_min:?}, {screen_max:?})",
-                target_id.0, query_id.0
-            );
+            // println!(
+            //     "drawing ({}, {}) to rect ({screen_min:?}, {screen_max:?})",
+            //     target_id.0, query_id.0
+            // );
 
             let screen_size = screen_max - screen_min;
             let px_per_bp = screen_size.x / (clamped_target.end - clamped_target.start) as f32;
@@ -497,7 +500,7 @@ pub fn draw_alignments(
             let y_global_start = grid.y_axis.sequence_offset(query_id).unwrap();
             let seq_global_offset = DVec2::new(x_global_start as f64, y_global_start as f64);
 
-            println!("seq global offset: {seq_global_offset:?}");
+            // println!("seq global offset: {seq_global_offset:?}");
 
             /*
             // testing/debug bits
@@ -586,8 +589,8 @@ pub fn draw_alignments(
                         dst_offset.into(),
                         dst_size.into(),
                         [0, 0],
-                        // [TILE_BUFFER_SIZE as u32, TILE_BUFFER_SIZE as u32],
-                        [10, 10],
+                        [TILE_BUFFER_SIZE as u32, TILE_BUFFER_SIZE as u32],
+                        // [10, 10],
                     );
                 }
             }
