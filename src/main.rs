@@ -508,10 +508,12 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
     let event_loop_proxy = event_loop.create_proxy();
 
-    if let Some(bed_path) = std::env::args().nth(2) {
-        if let Ok(path) = std::path::PathBuf::from_str(&bed_path) {
-            event_loop_proxy.send_event(AppEvent::LoadAnnotationFile { path });
-        }
+    let args = crate::cli::Cli::parse();
+
+    if let Some(bed_path) = &args.bed {
+        event_loop_proxy.send_event(AppEvent::LoadAnnotationFile {
+            path: bed_path.into(),
+        });
     }
 
     // TODO build this on a separate thread
