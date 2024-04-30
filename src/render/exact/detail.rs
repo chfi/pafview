@@ -22,35 +22,6 @@ const TILE_BUFFER_SIZE_F: f32 = TILE_BUFFER_SIZE as f32;
 
 pub type TileBuffers = FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>;
 
-pub(crate) fn write_tile_buffer_test(
-    buffers: &FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>,
-) {
-    use CigarOp as Cg;
-
-    let ops = [Cg::M, Cg::Eq, Cg::X, Cg::I, Cg::D];
-
-    let nucls = [None, Some('G'), Some('T'), Some('C'), Some('A')];
-
-    let nucl_pairs = nucls
-        .iter()
-        .flat_map(|n1| nucls.iter().map(|n2| (*n1, *n2)))
-        .collect::<Vec<_>>();
-
-    // let get_slot = |op
-
-    // let (row_i, &op) in ops.iter().enumerate() {
-
-    //     let col_i
-    // }
-
-    // let nucl_pairs = nucls.iter().flat_map
-    //     |fst| {
-    //         nucls.iter().map(|snd| {
-    //             fst.and_then(|fst|
-    //         })
-    //     });
-}
-
 pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer> {
     // can be used as an atlas of 16x32 sprites, index into by subtracting ' ' from a
     // printable/"normal" ascii byte
@@ -59,7 +30,7 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
     lodepng::decode32(include_bytes!("../../../assets/spleen_font/16x32.png")).unwrap();
     // let font_bitmap = lodepng::decode32_file("./spleen_font.png").unwrap();
     println!("loaded font");
-    let font_pixels = PixelBuffer {
+    let png_font_pixels = PixelBuffer {
         width: font_bitmap.width as u32,
         height: font_bitmap.height as u32,
         pixels: font_bitmap
@@ -73,140 +44,10 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
             .collect::<Vec<_>>(),
     };
 
-    let top_left = font_pixels.pixels[0];
-    println!("pixel at [0, 0]: {:?}", top_left.to_array());
-
     println!(
         "created font pixel buffer with dimensions {}x{}",
-        font_pixels.width, font_pixels.height
+        png_font_pixels.width, png_font_pixels.height
     );
-
-    let mut test_buffer = PixelBuffer::new_color(800, 1000, egui::Color32::WHITE);
-
-    // lodepng::encode32_file(
-    //     "spleen_font_iso.png",
-    //     &font_pixels.pixels,
-    //     font_pixels.width as usize,
-    //     font_pixels.height as usize,
-    // )
-    // .unwrap();
-
-    // pixels.write_png_file("cigar_X_GT_buffer.png").unwrap();
-
-    fn over(below: egui::Color32, above: egui::Color32) -> egui::Color32 {
-        use ultraviolet as uv;
-
-        if above.a() < std::u8::MAX {
-            let [br, bg, bb, ba] = below.to_normalized_gamma_f32();
-            let [ar, ag, ab, aa] = above.to_normalized_gamma_f32();
-
-            let rgb = uv::Vec3::new(ar, ag, ab) + uv::Vec3::new(br, bg, bb) * (1.0 - aa);
-            let alpha = aa + ba * (1.0 - aa);
-            egui::Rgba::from_rgba_premultiplied(rgb.x, rgb.y, rgb.z, alpha).into()
-        } else {
-            above
-        }
-    }
-
-    let over_with_color = |color: egui::Color32| {
-        move |below: egui::Color32, above: egui::Color32| -> egui::Color32 {
-            use ultraviolet as uv;
-
-            if above.a() < std::u8::MAX {
-                let [br, bg, bb, ba] = below.to_normalized_gamma_f32();
-                let [ar, ag, ab, aa] = color.to_normalized_gamma_f32();
-
-                let rgb = uv::Vec3::new(ar, ag, ab) + uv::Vec3::new(br, bg, bb) * (1.0 - aa);
-                let alpha = aa + ba * (1.0 - aa);
-                egui::Rgba::from_rgba_premultiplied(rgb.x, rgb.y, rgb.z, alpha).into()
-            } else {
-                above
-            }
-        }
-    };
-
-    let draw_char = |dst: &mut PixelBuffer, ch: char, dst_offset: [f32; 2], dst_size: [f32; 2]| {
-        let ix = (ch as u8 - b' ') as u32;
-        let src_offset = [ix * 16, 0];
-        let src_size = [16, 32];
-        font_pixels.sample_subimage_nn_into_with(
-            dst,
-            dst_offset,
-            dst_size,
-            src_offset,
-            src_size,
-            over_with_color(egui::Color32::BLACK),
-        );
-        // font_pixels.sample_subimage_nn_into(dst, dst_offset, dst_size, src_offset, src_size);
-    };
-
-    // test_draw_char(&mut test_buffer, '!', [10.0, 10.0], [16.0, 32.0]);
-
-    font_pixels.sample_subimage_nn_into_with(
-        &mut test_buffer,
-        [5.0, 200.0],
-        [48.0 * 16.0, 32.0],
-        [0, 0],
-        [48 * 16, 32],
-        over_with_color(egui::Color32::BLACK),
-    );
-
-    for i in 0..16 {
-        let src_orig = UVec2::new(0, 0);
-        let src_delta = UVec2::new(16 * i as u32, 0);
-        font_pixels.sample_subimage_nn_into_with(
-            &mut test_buffer,
-            [5.0, 250.0 + 40.0 * i as f32],
-            [16.0 * 16.0, 32.0],
-            // [2 * i as u32, 0],
-            (src_orig + src_delta).into(),
-            [16 * 16, 32],
-            |below, above| above,
-            // over_with_color(egui::Color32::RED),
-        );
-    }
-
-    let mut col = 0;
-    let mut row = 0;
-    for i in 0..(1520 / 16) {
-        let dst_offset = [col as f32 * 20.0 + 5.0, row as f32 * 45.0 + 10.0];
-        // let dst_size = [2. * 160.0, 32.0];
-        let dst_size = [16.0, 32.0];
-        let src_offset = [32 + i as u32 * 16, 0];
-        println!("{i:3} -> [{dst_offset:?}]\t{src_offset:?}");
-        // let src_size = [3 * 160, 32];
-        let src_size = [32, 32];
-        font_pixels.sample_subimage_nn_into(
-            &mut test_buffer,
-            dst_offset,
-            dst_size,
-            src_offset,
-            src_size,
-        );
-        col += 1;
-        if col == 30 {
-            row += 1;
-            col = 0;
-        }
-    }
-    /*
-    for i in 0..10 {
-        let dst_offset = [5.0, i as f32 * 45.0 + 10.0];
-        let dst_size = [2. * 160.0, 32.0];
-        // let src_offset = [48 + i as u32 * 16, 0];
-        let src_offset = [96 + i as u32 * 4, 0];
-        let src_size = [3 * 160, 32];
-        font_pixels.sample_subimage_into(
-            &mut test_buffer,
-            dst_offset,
-            dst_size,
-            src_offset,
-            src_size,
-        );
-    }
-    */
-
-    test_buffer.write_png_file("test_buffer.png").unwrap();
 
     let fonts = egui::text::Fonts::new(1.0, 1024, egui::FontDefinitions::default());
 
@@ -242,11 +83,153 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
     let font_img = fonts.image();
     // let gtca_small_img
 
-    let font_buffer = PixelBuffer {
+    let egui_font_buffer = PixelBuffer {
         width: font_img.width() as u32,
         height: font_img.height() as u32,
         pixels: font_img.srgba_pixels(None).collect::<Vec<_>>(),
     };
+
+    let top_left = png_font_pixels.pixels[0];
+    println!(" PNG pixel at [0, 0]: {:?}", top_left.to_array());
+    let top_left = egui_font_buffer.pixels[egui_font_buffer.pixels.len() - 1];
+    println!("egui pixel at [0, 0]: {:?}", top_left.to_array());
+    println!("TRANSPARENT: {:?}", egui::Color32::TRANSPARENT.to_array());
+
+    let mut test_buffer = PixelBuffer::new_color(1000, 1000, egui::Color32::WHITE);
+
+    let over_with_color = |color: egui::Color32| {
+        move |below: egui::Color32, above: egui::Color32| -> egui::Color32 {
+            if above == egui::Color32::TRANSPARENT {
+                below
+            } else {
+                color
+            }
+        }
+    };
+
+    let masked = |bg: egui::Color32, fg: egui::Color32| {
+        move |below: egui::Color32, above: egui::Color32| -> egui::Color32 {
+            if above == egui::Color32::TRANSPARENT {
+                bg
+            } else {
+                fg
+            }
+        }
+    };
+
+    let draw_char = |dst: &mut PixelBuffer, ch: char, dst_offset: [f32; 2], dst_size: [f32; 2]| {
+        let ix = (ch as u8 - b' ') as u32;
+        let src_offset = [ix * 16, 0];
+        let src_size = [16, 32];
+        png_font_pixels.sample_subimage_nn_into_with(
+            dst,
+            dst_offset,
+            dst_size,
+            src_offset,
+            src_size,
+            masked(egui::Color32::WHITE, egui::Color32::BLACK),
+        );
+    };
+
+    png_font_pixels.sample_subimage_nn_into_with(
+        &mut test_buffer,
+        [5.0, 200.0],
+        [48.0 * 16.0, 32.0],
+        [0, 0],
+        [48 * 16, 32],
+        masked(egui::Color32::WHITE, egui::Color32::BLACK),
+    );
+
+    {
+        let uv = gtca_glyphs[0].uv_rect;
+        // uv.min.
+        let [u0, v0] = uv.min;
+        let [u1, v1] = uv.max;
+        let tl = [u0 as u32, v0 as u32];
+        let size = [(u1 - u0) as u32, (v1 - v0) as u32];
+        // let tl = [uv.min[0] as f32, uv.min[1] as f32];
+        // uv.
+        egui_font_buffer.sample_subimage_nn_into_with(
+            &mut test_buffer,
+            [800.0, 800.0],
+            // [5.0, 250.0 + 40.0 * i as f32],
+            [64.0, 64.0],
+            tl,
+            size,
+            |below, above| above,
+            // over_with_color(egui::Color32::RED),
+            // [2 * i as u32, 0],
+            // (src_orig + src_delta).into(),
+            // [16 * 16, 32],
+        );
+    }
+
+    for i in 0..16 {
+        let src_orig = UVec2::new(0, 0);
+        let src_delta = UVec2::new(16 * i as u32, 0);
+
+        // egui_font_buffer.sample_subimage_nn_into(
+        //     &mut test_buffer,
+        //     [5.0, 250.0 + 40.0 * i as f32],
+        //     [16.0 * 16.0, 32.0],
+        //     // [2 * i as u32, 0],
+        //     (src_orig + src_delta).into(),
+        //     [16 * 16, 32],
+        // );
+
+        png_font_pixels.sample_subimage_nn_into_with(
+            &mut test_buffer,
+            [5.0, 250.0 + 40.0 * i as f32],
+            [16.0 * 16.0, 32.0],
+            // [2 * i as u32, 0],
+            (src_orig + src_delta).into(),
+            [16 * 16, 32],
+            |below, above| above,
+            // over_with_color(egui::Color32::RED),
+        );
+    }
+
+    let mut col = 0;
+    let mut row = 0;
+    for i in 0..(1520 / 16) {
+        let dst_offset = [col as f32 * 20.0 + 5.0, row as f32 * 45.0 + 10.0];
+        // let dst_size = [2. * 160.0, 32.0];
+        let dst_size = [16.0, 32.0];
+        let src_offset = [32 + i as u32 * 16, 0];
+        println!("{i:3} -> [{dst_offset:?}]\t{src_offset:?}");
+        // let src_size = [3 * 160, 32];
+        let src_size = [32, 32];
+        png_font_pixels.sample_subimage_nn_into(
+            &mut test_buffer,
+            dst_offset,
+            dst_size,
+            src_offset,
+            src_size,
+        );
+        col += 1;
+        if col == 30 {
+            row += 1;
+            col = 0;
+        }
+    }
+    /*
+    for i in 0..10 {
+        let dst_offset = [5.0, i as f32 * 45.0 + 10.0];
+        let dst_size = [2. * 160.0, 32.0];
+        // let src_offset = [48 + i as u32 * 16, 0];
+        let src_offset = [96 + i as u32 * 4, 0];
+        let src_size = [3 * 160, 32];
+        font_pixels.sample_subimage_into(
+            &mut test_buffer,
+            dst_offset,
+            dst_size,
+            src_offset,
+            src_size,
+        );
+    }
+    */
+
+    test_buffer.write_png_file("test_buffer.png").unwrap();
 
     let get_nucl_i = |ix: usize| {
         let g = gtca_glyphs[ix].uv_rect;
@@ -351,7 +334,9 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
         }
     }
 
-    font_buffer.write_png_file("font_pixel_buffer.png").unwrap();
+    egui_font_buffer
+        .write_png_file("font_pixel_buffer.png")
+        .unwrap();
 
     if let Some(pixels) = tiles.get(&(CigarOp::X, [Some('G'), Some('T')])) {
         println!("writing cigar X 'GT' buffer");
