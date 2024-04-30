@@ -42,46 +42,6 @@ impl PixelBuffer {
             }
         }
     }
-
-    /*
-    pub fn sample_subimage_into(
-        &self,
-        dst: &mut PixelBuffer,
-        // pixels
-        dst_offset: [f32; 2],
-        // normalized
-        dst_scale: [f32; 2],
-        // pixels
-        src_offset: [u32; 2],
-        src_size: [u32; 2],
-    ) {
-        let start_x = ((0.0 - dst_offset[0]) / dst_scale[0]).ceil() as usize;
-        let start_y = ((0.0 - dst_offset[1]) / dst_scale[1]).ceil() as usize;
-        let end_x = (((src_size[0] as f32 - dst_offset[0]) / dst_scale[0]).min(dst.width as f32))
-            .floor() as usize;
-        let end_y = (((src_size[1] as f32 - dst_offset[1]) / dst_scale[1]).min(dst.height as f32))
-            .floor() as usize;
-
-        for y in start_y..end_y {
-            for x in start_x..end_x {
-                let src_x = (x as f32 - dst_offset[0]) / dst_scale[0] + src_offset[0] as f32;
-                let src_y = (y as f32 - dst_offset[1]) / dst_scale[1] + src_offset[1] as f32;
-
-                if src_x >= src_offset[0] as f32
-                    && src_x < (src_offset[0] + src_size[0]) as f32
-                    && src_y >= src_offset[1] as f32
-                    && src_y < (src_offset[1] + src_size[1]) as f32
-                {
-                    dst.pixels[y * dst.width as usize + x] =
-                        bilinear_interpolate_offset(self, src_x, src_y, src_offset, src_size)
-                            .into();
-                    // } else {
-                    //     dst.pixels[y * dst.width as usize + x] = egui::Color32::TRANSPARENT;
-                }
-            }
-        }
-    }
-    */
 }
 impl PixelBuffer {
     // nearest neighbor
@@ -146,116 +106,6 @@ impl PixelBuffer {
     ) {
         self.sample_subimage_nn_into_with(dst, dst_offset, dst_size, src_offset, src_size, |_, c| c)
     }
-
-    /*
-    pub fn sample_subimage_into_test(
-        &self,
-        dst: &mut PixelBuffer,
-        dst_offset: [f32; 2],
-        dst_size: [f32; 2],
-        src_offset: [u32; 2],
-        src_size: [u32; 2],
-    ) {
-        // self.sample_subimage_into_bilerp(dst, dst_offset, dst_size, src_offset, src_size)
-        // self.sample_subimage_into_nn(dst, dst_offset, dst_size, src_offset, src_size)
-
-        let [x0, y0] = dst_offset;
-        let [dw, dh] = dst_size;
-
-        // let dst_x0 = dst_offset[0].floor();
-
-        let dst_x0 = x0.floor();
-        let dst_y0 = y0.floor();
-
-        let dst_x1 = (x0 + dw).ceil();
-        let dst_y1 = (y0 + dh).ceil();
-
-        let dst_x_range = (dst_x0 as usize)..(dst_x1 as usize);
-        let dst_y_range = (dst_y0 as usize)..(dst_y1 as usize);
-
-        let src_w = src_size[0] as f32;
-        let src_h = src_size[1] as f32;
-
-        for (y_i, dst_y) in dst_y_range.enumerate() {
-            // let src_v = dst_y as f32 / dh;
-            let y_t = (y_i as f32) / (dst_y1 - dst_y0);
-            let src_y = src_offset[1] as usize + (y_t * src_h).round() as usize;
-
-            // let src_v = dst_y as f32 / (dst_y1 - dst_y0);
-            // let src_y = src_offset[1] as usize + (src_v * src_h).round() as usize;
-
-            for (x_i, dst_x) in dst_x_range.clone().enumerate() {
-                let x_t = (x_i as f32) / (dst_x1 - dst_x0);
-                let src_x = src_offset[0] as usize + (x_t * src_w).round() as usize;
-                // let src_u = dst_x as f32 / dw;
-                // let src_u = dst_x as f32 / (dst_x1 - dst_x0);
-                // let src_x = src_offset[0] as usize + (src_u * src_w).round() as usize;
-
-                let src_i = self.width as usize * src_y + src_x;
-                //
-                let dst_i = dst.width as usize * dst_y + dst_x;
-
-                let src_px = if let Some(src_px) = self.pixels.get(src_i) {
-                    *src_px
-                } else {
-                    egui::Color32::RED
-                };
-
-                if let Some(dst_px) = dst.pixels.get_mut(dst_i) {
-                    // *dst_px = egui::Color32::RED;
-                    *dst_px = src_px;
-                }
-            }
-        }
-    }
-
-    pub fn sample_subimage_into_nn(
-        &self,
-        dst: &mut PixelBuffer,
-        dst_offset: [f32; 2],
-        dst_size: [f32; 2],
-        src_offset: [u32; 2],
-        src_size: [u32; 2],
-    ) {
-        let dst_x0 = dst_offset[0].floor();
-        let dst_y0 = dst_offset[1].floor();
-
-        let dst_x1 = (dst_offset[0] + dst_size[0]).ceil();
-        let dst_y1 = (dst_offset[1] + dst_size[1]).ceil();
-
-        let dst_x_range = (dst_x0 as usize)..(dst_x1 as usize);
-        let dst_y_range = (dst_y0 as usize)..(dst_y1 as usize);
-
-        let [dst_w, dst_h] = dst_size;
-
-        let src_w = src_size[0] as f32;
-        let src_h = src_size[1] as f32;
-
-        for dst_y in dst_y_range {
-            let src_v = dst_y as f32 / dst_h;
-            let src_y = src_offset[1] as usize + (src_v * src_h).round() as usize;
-
-            // let sy = ((dst_y as f32) / dst_h).round() as usize;
-
-            for dst_x in dst_x_range.clone() {
-                let dst_i = dst.width as usize * dst_y + dst_x;
-
-                let src_u = dst_x as f32 / dst_w;
-                let src_x = src_offset[0] as usize + (src_u * src_w).round() as usize;
-                // let sx = ((dst_x as f32) / dst_w).round() as usize;
-
-                let src_i = self.width as usize * src_y + src_x;
-
-                let src_px = self.pixels.get(src_i);
-                let dst_px = dst.pixels.get_mut(dst_i);
-
-                if let (Some(src_px), Some(dst_px)) = (src_px, dst_px) {
-                    *dst_px = *src_px;
-                }
-            }
-        }
-    }
-    */
 
     pub fn sample_subimage_into_bilerp(
         &self,
@@ -337,36 +187,6 @@ impl PixelBuffer {
         } else {
             self.pixels.get(x + y * self.width as usize).copied()
         }
-    }
-
-    pub fn sample_bilerp(&self, x: f32, y: f32) -> egui::Color32 {
-        let x0 = x.floor();
-        let x1 = x.ceil();
-        let y0 = y.floor();
-        let y1 = y.ceil();
-
-        let tx = x - x0;
-        let ty = y - y0;
-
-        let row_len = self.width as usize;
-
-        // if x < 0.0 || y < 0.0 || x as u32 >= self.width || y as u32 >= self.height {
-
-        // }
-
-        // let i00 = x0 as usize + y0 as usize * row_len;
-        // let i10 = i00 + 1;
-        // let i01 = i00 + row_len;
-        // let i11 = i01 + 1;
-
-        // let c00 = self.pixels[i00];
-
-        // let c00 = self.get(x0 as usize, y0 as usize);
-        // let c10 = self.get(x1 as usize, y0 as usize);
-        // let c01 = self.get(x0 as usize, y1 as usize);
-        // let c11 = self.get(x1 as usize, y1 as usize);
-
-        todo!();
     }
 
     pub fn blit_from_buffer(&mut self, dst_offset: impl Into<[i32; 2]>, src: &Self) {

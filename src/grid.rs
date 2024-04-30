@@ -3,7 +3,7 @@ use std::sync::Arc;
 use bimap::BiMap;
 use rustc_hash::FxHashMap;
 
-use crate::{sequences::SeqId, PafInput};
+use crate::sequences::SeqId;
 
 /// An `AlignmentGrid` defines the global position of the aligned sequence pairs
 #[derive(Debug)]

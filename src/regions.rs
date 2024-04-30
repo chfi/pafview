@@ -40,6 +40,7 @@ pub fn draw_rect_region(
     rect
 }
 
+/*
 pub fn paf_line_debug_aabbs(
     input: &crate::PafInput,
     ctx: &egui::Context,
@@ -83,6 +84,7 @@ pub fn paf_line_debug_aabbs(
         );
     }
 }
+*/
 
 #[derive(Default)]
 pub struct SelectionHandler {

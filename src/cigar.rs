@@ -409,22 +409,12 @@ impl CigarIndex {
         Some(start..end)
     }
 
-    // fn op_query_range(&self, op_ix: usize) -> Option<std::ops::Range<u64>> {
-    //     let fwd_range = self.op_query_range_fwd(op_ix)?;
-
-    //     let start = self.query_len - fwd_range.start;
-    //     let end = self.query_len - fwd_range.end;
-    //     Some(start..end)
-    // }
-
     pub fn target_and_query_len(&self) -> [u64; 2] {
         self.cigar.target_and_query_len()
     }
 
     pub fn from_cigar(
         cigar: Cigar,
-        // target_seq_id: usize,
-        // query_seq_id: usize,
         target_len: u64,
         query_len: u64,
         // NB & TODO: Strand here vestigial; op_line_vertices
@@ -432,8 +422,6 @@ impl CigarIndex {
         query_strand: Strand,
     ) -> Self {
         use CigarOp as Cg;
-
-        // let cigar = cigar.to_vec();
 
         let mut op_line_vertices = Vec::new();
         let mut op_target_offsets = Vec::new();
@@ -444,11 +432,6 @@ impl CigarIndex {
         // query offsets are always stored as 0-based & increasing,
         // even when reverse
         let mut query_offset = 0u64;
-
-        // let mut query_offset = match query_strand {
-        //     Strand::Forward => 0u64,
-        //     Strand::Reverse =>
-        // };
 
         for (op, count) in cigar.iter() {
             op_target_offsets.push(target_offset);
@@ -492,13 +475,10 @@ impl CigarIndex {
         }
         // debug_assert_eq!(target_offset, target_len);
         // debug_assert_eq!(query_offset, query_len);
-        //
         op_target_offsets.push(target_offset);
         op_query_offsets.push(query_offset);
 
         Self {
-            // target_seq_id,
-            // query_seq_id,
             query_strand,
             cigar,
             op_line_vertices,
@@ -536,93 +516,7 @@ impl CigarIndex {
         let query_len = paf_line.query_seq_end - paf_line.query_seq_start;
 
         Self::from_cigar_string(&paf_line.cigar, target_len, query_len, query_strand)
-
-        /*
-        use CigarOp as Cg;
-
-        let cigar = CigarOp::parse_str_into_vec(&paf_line.cigar);
-
-        let query_strand = if paf_line.strand_rev {
-            Strand::Reverse
-        } else {
-            Strand::Forward
-        };
-
-        let mut op_line_vertices = Vec::new();
-        let mut op_target_offsets = Vec::new();
-        let mut op_query_offsets = Vec::new();
-
-        let mut target_offset = 0u64;
-
-        // query offsets are always stored as 0-based & increasing,
-        // even when reverse
-        let mut query_offset = 0u64;
-
-        // let mut query_offset = match query_strand {
-        //     Strand::Forward => 0u64,
-        //     Strand::Reverse =>
-        // };
-
-        for &(op, count) in cigar.iter() {
-            op_target_offsets.push(target_offset);
-            op_query_offsets.push(query_offset);
-
-            match op {
-                Cg::M | Cg::X | Cg::Eq => {
-                    // output match line for high-scale view
-                    let x0 = target_offset as f64;
-                    let x1 = x0 + count as f64;
-
-                    let [y0, y1] = match query_strand {
-                        Strand::Forward => {
-                            let y0 = query_offset as f64;
-                            let y1 = y0 + count as f64;
-                            [y0, y1]
-                        }
-                        Strand::Reverse => {
-                            let query_len = paf_line.query_seq_len;
-                            let y0 = (query_len - query_offset) as f64;
-                            let y1 = y0 + count as f64;
-                            [y0, y1]
-                        }
-                    };
-
-                    op_line_vertices.push([[x0, y0].into(), [x1, y1].into()]);
-
-                    // increment target & query
-                    target_offset += count;
-                    query_offset += count;
-                }
-                Cg::D => {
-                    // increment target
-                    target_offset += count;
-                }
-                Cg::I => {
-                    // increment query
-                    query_offset += count;
-                }
-                _ => (),
-            }
-        }
-
-        //
-        op_target_offsets.push(target_offset);
-        op_query_offsets.push(query_offset);
-
-        Self {
-            target_seq_id,
-            query_seq_id,
-            query_strand,
-            ops: cigar,
-            op_line_vertices,
-            op_target_offsets,
-            op_query_offsets,
-            target_len: target_offset,
-            query_len: query_offset,
-        }
-        */
     }
-    //
 }
 
 impl ProcessedCigar {

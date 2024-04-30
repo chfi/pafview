@@ -10,7 +10,7 @@ use crate::{
     grid::{AlignmentGrid, AxisRange},
     gui::AppWindowStates,
     sequences::SeqId,
-    PafInput, PafViewerApp,
+    PafViewerApp,
 };
 
 use self::draw::AnnotShapeId;
@@ -577,6 +577,7 @@ pub fn string_hash_color(path_name: &str) -> [f32; 3] {
     [r_f, g_f, b_f]
 }
 
+/*
 pub fn find_matches_for_target_range(
     seq_names: &BiMap<String, SeqId>,
     input: &PafInput,
@@ -744,3 +745,4 @@ pub fn draw_annotation_test_window(
         d.insert_temp(id, annot_state);
     });
 }
+*/

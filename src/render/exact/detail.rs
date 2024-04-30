@@ -13,7 +13,7 @@
 use rustc_hash::FxHashMap;
 use ultraviolet::{DVec2, UVec2, Vec2};
 
-use crate::{sequences::SeqId, CigarIndex, CigarIter, CigarOp};
+use crate::{sequences::SeqId, CigarOp};
 
 use crate::PixelBuffer;
 
@@ -26,10 +26,8 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
     // can be used as an atlas of 16x32 sprites, index into by subtracting ' ' from a
     // printable/"normal" ascii byte
     let font_bitmap =
-        // lodepng::decode32(include_bytes!("../../../assets/spleen_font/32x64.png")).unwrap();
-    lodepng::decode32(include_bytes!("../../../assets/spleen_font/16x32.png")).unwrap();
-    // let font_bitmap = lodepng::decode32_file("./spleen_font.png").unwrap();
-    println!("loaded font");
+        lodepng::decode32(include_bytes!("../../../assets/spleen_font/16x32.png")).unwrap();
+
     let png_font_pixels = PixelBuffer {
         width: font_bitmap.width as u32,
         height: font_bitmap.height as u32,
@@ -44,71 +42,10 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
             .collect::<Vec<_>>(),
     };
 
-    println!(
-        "created font pixel buffer with dimensions {}x{}",
-        png_font_pixels.width, png_font_pixels.height
-    );
-
-    let fonts = egui::text::Fonts::new(1.0, 1024, egui::FontDefinitions::default());
-
     let tile_size = TILE_BUFFER_SIZE as u32;
 
-    let gtca_galley = fonts.layout(
-        "GTCA".into(),
-        egui::FontId::monospace(16.0),
-        egui::Color32::BLACK,
-        512.0,
-    );
-    let gtca_small_galley = fonts.layout(
-        "GTCA".into(),
-        egui::FontId::monospace(10.0),
-        egui::Color32::BLACK,
-        512.0,
-    );
-
-    let gtca_glyphs = gtca_galley.rows[0]
-        .glyphs
-        .iter()
-        .take(4)
-        .copied()
-        .collect::<Vec<_>>();
-    let gtca_small_glyphs = gtca_small_galley.rows[0]
-        .glyphs
-        .iter()
-        .take(4)
-        .copied()
-        .collect::<Vec<_>>();
-
-    fonts.begin_frame(1.0, 1024);
-    let font_img = fonts.image();
-    // let gtca_small_img
-
-    let egui_font_buffer = PixelBuffer {
-        width: font_img.width() as u32,
-        height: font_img.height() as u32,
-        pixels: font_img.srgba_pixels(None).collect::<Vec<_>>(),
-    };
-
-    let top_left = png_font_pixels.pixels[0];
-    println!(" PNG pixel at [0, 0]: {:?}", top_left.to_array());
-    let top_left = egui_font_buffer.pixels[egui_font_buffer.pixels.len() - 1];
-    println!("egui pixel at [0, 0]: {:?}", top_left.to_array());
-    println!("TRANSPARENT: {:?}", egui::Color32::TRANSPARENT.to_array());
-
-    let mut test_buffer = PixelBuffer::new_color(1000, 1000, egui::Color32::WHITE);
-
-    let over_with_color = |color: egui::Color32| {
-        move |below: egui::Color32, above: egui::Color32| -> egui::Color32 {
-            if above == egui::Color32::TRANSPARENT {
-                below
-            } else {
-                color
-            }
-        }
-    };
-
     let masked = |bg: egui::Color32, fg: egui::Color32| {
-        move |below: egui::Color32, above: egui::Color32| -> egui::Color32 {
+        move |_below: egui::Color32, above: egui::Color32| -> egui::Color32 {
             if above == egui::Color32::TRANSPARENT {
                 bg
             } else {
@@ -143,109 +80,6 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
         );
     };
 
-    png_font_pixels.sample_subimage_nn_into_with(
-        &mut test_buffer,
-        [5.0, 200.0],
-        [48.0 * 16.0, 32.0],
-        [0, 0],
-        [48 * 16, 32],
-        masked(egui::Color32::WHITE, egui::Color32::BLACK),
-    );
-
-    {
-        let uv = gtca_glyphs[0].uv_rect;
-        let [u0, v0] = uv.min;
-        let [u1, v1] = uv.max;
-        let tl = [u0 as u32, v0 as u32];
-        let size = [(u1 - u0) as u32, (v1 - v0) as u32];
-        egui_font_buffer.sample_subimage_nn_into_with(
-            &mut test_buffer,
-            [800.0, 800.0],
-            [64.0, 64.0],
-            tl,
-            size,
-            masked(egui::Color32::WHITE, egui::Color32::BLACK),
-        );
-    }
-
-    for i in 0..16 {
-        let src_orig = UVec2::new(0, 0);
-        let src_delta = UVec2::new(16 * i as u32, 0);
-
-        png_font_pixels.sample_subimage_nn_into_with(
-            &mut test_buffer,
-            [5.0, 250.0 + 40.0 * i as f32],
-            [16.0 * 16.0, 32.0],
-            // [2 * i as u32, 0],
-            (src_orig + src_delta).into(),
-            [16 * 16, 32],
-            masked(egui::Color32::WHITE, egui::Color32::BLACK),
-        );
-    }
-
-    let mut col = 0;
-    let mut row = 0;
-    for i in 0..(1520 / 16) {
-        let dst_offset = [col as f32 * 20.0 + 5.0, row as f32 * 45.0 + 10.0];
-        // let dst_size = [2. * 160.0, 32.0];
-        let dst_size = [16.0, 32.0];
-        let src_offset = [32 + i as u32 * 16, 0];
-        println!("{i:3} -> [{dst_offset:?}]\t{src_offset:?}");
-        // let src_size = [3 * 160, 32];
-        let src_size = [32, 32];
-        png_font_pixels.sample_subimage_nn_into_with(
-            &mut test_buffer,
-            dst_offset,
-            dst_size,
-            src_offset,
-            src_size,
-            masked(egui::Color32::RED, egui::Color32::BLACK),
-        );
-        col += 1;
-        if col == 30 {
-            row += 1;
-            col = 0;
-        }
-    }
-    /*
-    for i in 0..10 {
-        let dst_offset = [5.0, i as f32 * 45.0 + 10.0];
-        let dst_size = [2. * 160.0, 32.0];
-        // let src_offset = [48 + i as u32 * 16, 0];
-        let src_offset = [96 + i as u32 * 4, 0];
-        let src_size = [3 * 160, 32];
-        font_pixels.sample_subimage_into(
-            &mut test_buffer,
-            dst_offset,
-            dst_size,
-            src_offset,
-            src_size,
-        );
-    }
-    */
-
-    test_buffer.write_png_file("test_buffer.png").unwrap();
-
-    let get_nucl_i = |ix: usize| {
-        let g = gtca_glyphs[ix].uv_rect;
-        let src_offset = [g.min[0] as u32, g.min[1] as u32];
-        let src_size = [
-            g.max[0] as u32 - src_offset[0],
-            g.max[1] as u32 - src_offset[1],
-        ];
-        (src_offset, src_size)
-    };
-
-    let get_small_nucl_i = |ix: usize| {
-        let g = gtca_small_glyphs[ix].uv_rect;
-        let src_offset = [g.min[0] as u32, g.min[1] as u32];
-        let src_size = [
-            g.max[0] as u32 - src_offset[0],
-            g.max[1] as u32 - src_offset[1],
-        ];
-        (src_offset, src_size)
-    };
-
     use CigarOp as Cg;
     let mut tiles = FxHashMap::default();
 
@@ -265,15 +99,12 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
 
     let nucleotides = ['G', 'T', 'C', 'A'];
 
-    // let char_width = TILE_BUFFER_SIZE_F * 0.5;
-
     for (op, bg_color) in [
         (Cg::I, egui::Color32::GREEN),
         (Cg::D, egui::Color32::YELLOW), // testing
     ] {
-        for (nucl_i, &nucl) in nucleotides.iter().enumerate() {
+        for &nucl in nucleotides.iter() {
             let mut buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
-            // let (offset, size) = get_nucl_i(nucl_i);
 
             let fg_color = egui::Color32::BLACK;
 
@@ -294,13 +125,14 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
             }
         }
     }
+    // TODO Eq should show just one nucleotide
     for (op, bg_color) in [
         (Cg::M, egui::Color32::BLACK),
         (Cg::Eq, egui::Color32::BLUE), // testing
         (Cg::X, egui::Color32::RED),
     ] {
-        for (qi, &query) in nucleotides.iter().enumerate() {
-            for (ti, &target) in nucleotides.iter().enumerate() {
+        for &query in nucleotides.iter() {
+            for &target in nucleotides.iter() {
                 let mut buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
 
                 let fg_color = egui::Color32::WHITE;
@@ -330,20 +162,6 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
                 tiles.insert((op, [Some(target), Some(query)]), buffer);
             }
         }
-    }
-
-    egui_font_buffer
-        .write_png_file("font_pixel_buffer.png")
-        .unwrap();
-
-    if let Some(pixels) = tiles.get(&(CigarOp::X, [Some('G'), Some('T')])) {
-        println!("writing cigar X 'GT' buffer");
-        pixels.write_png_file("cigar_X_GT_buffer.png").unwrap();
-    }
-
-    if let Some(pixels) = tiles.get(&(CigarOp::I, [None, Some('G')])) {
-        println!("writing cigar I 'G' buffer");
-        pixels.write_png_file("cigar_I_G_buffer.png").unwrap();
     }
 
     tiles

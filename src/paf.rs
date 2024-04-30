@@ -392,29 +392,6 @@ fn parse_name_range<'a>(
     Some((name, len, start, end))
 }
 
-#[deprecated]
-pub struct PafInput {
-    // pub alignments: FxHashMap<(SeqId, SeqId), Alignment>,
-    // pub alignments: FxHashMap<(SeqId, SeqId), CigarIndex>,
-    pub queries: Vec<crate::AlignedSeq>,
-    pub targets: Vec<crate::AlignedSeq>,
-
-    // alignment_pairs: Vec<(
-    pub pair_line_ix: FxHashMap<(SeqId, SeqId), usize>,
-
-    // match_edges: Vec<[DVec2; 2]>,
-    pub processed_lines: Vec<ProcessedCigar>,
-}
-
-impl PafInput {
-    pub fn total_matches(&self) -> usize {
-        self.processed_lines
-            .iter()
-            .map(|l| l.match_edges.len())
-            .sum()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -452,10 +429,16 @@ mod tests {
                 query_strand: Strand::Reverse,
             },
             cigar: CigarIndex::from_cigar(cg_ops, target_len, query_len, Strand::Reverse),
+
+            cigar_op_line_vertices: Vec::new(), // not needed for testing
         };
 
         for item in AlignmentIter::new(&alignment, 0..30) {
             println!("{item:?}");
+
+            for step in item {
+                println!("{step:?}");
+            }
         }
     }
 }

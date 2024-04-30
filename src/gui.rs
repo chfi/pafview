@@ -3,13 +3,12 @@ use egui::{util::IdTypeMap, Color32, DragValue, FontId, Ui};
 use rustc_hash::FxHashMap;
 use ultraviolet::{Mat4, Vec2};
 
-use crate::{
-    annotations::AnnotationStore, sequences::SeqId, view::View, AlignedSeq, PafInput, PafViewerApp,
-};
+use crate::{annotations::AnnotationStore, sequences::SeqId, view::View, AlignedSeq, PafViewerApp};
 
 pub mod debug;
 pub mod regions;
 
+/*
 pub fn goto_range_controls(
     alignment_grid: &crate::grid::AlignmentGrid,
     seq_names: &BiMap<String, SeqId>,
@@ -105,7 +104,9 @@ pub fn goto_range_controls(
         data.insert_temp(query_id, query_buf);
     });
 }
+*/
 
+/*
 pub fn view_controls(
     ctx: &egui::Context,
     alignment_grid: &crate::grid::AlignmentGrid,
@@ -165,6 +166,7 @@ pub fn view_controls(
             }
         });
 }
+*/
 
 pub fn draw_ruler_h(
     painter: &egui::Painter,

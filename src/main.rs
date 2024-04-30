@@ -36,7 +36,7 @@ mod sequences;
 mod view;
 
 pub use cigar::*;
-pub use paf::{PafInput, PafLine};
+pub use paf::PafLine;
 pub use pixels::*;
 use render::*;
 use view::View;
@@ -54,16 +54,6 @@ pub struct AlignedSeq {
     // its start offset in the global all-to-all alignment matrix
     #[deprecated]
     offset: u64,
-}
-
-pub fn test_main() -> anyhow::Result<()> {
-    let mut args = std::env::args();
-    let paf_path = args.nth(1).ok_or(anyhow!("Path to PAF not provided"))?;
-
-    // let reader = std::fs::File::open(&
-    // let paf_input = PafInput::read_paf_file(&paf_path)?;
-
-    Ok(())
 }
 
 pub fn main() -> anyhow::Result<()> {
@@ -837,6 +827,7 @@ fn start_window(app: PafViewerApp) {
     }
 }
 
+/*
 pub fn write_png(
     input: &PafInput,
     view: &crate::view::View,
@@ -941,6 +932,7 @@ pub fn write_png(
 
     Ok(())
 }
+*/
 
 struct PafViewerApp {
     alignments: Alignments,
