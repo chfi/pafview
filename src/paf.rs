@@ -135,20 +135,13 @@ impl AlignmentIterItem {
         &self.query_range
     }
 
-    // pub fn iter_seqs<'seq>(
-    //     &self,
-    //     target_seq: Option<&'seq [u8]>,
-    //     query_seq: Option<&'seq [u8]>,
-    // ) -> impl Iterator<Item = [(u64, Option<char>); 2]> + 'seq + '_ {
-    //     match self.op {
-    //         CigarOp::Eq => todo!(),
-    //         CigarOp::X => todo!(),
-    //         CigarOp::I => todo!(),
-    //         CigarOp::D => todo!(),
-    //         CigarOp::M => todo!(),
-    //     }
-    // }
-    // ) -> impl Iterator<Item = ([u64; 2], [Option<char>; 2]
+    pub fn strand(&self) -> Strand {
+        if self.query_rev {
+            Strand::Reverse
+        } else {
+            Strand::Forward
+        }
+    }
 }
 
 impl<'cg> Iterator for AlignmentIter<'cg> {
@@ -182,12 +175,18 @@ impl Iterator for AlignmentIterItem {
         if self.op_count == 0 {
             return None;
         }
-        let next_tgt = self.target_range.next()?;
 
-        let next_qry = if self.query_rev {
-            self.query_range.next_back()?
+        let next_tgt = if self.op.consumes_target() {
+            self.target_range.next()?
         } else {
-            self.query_range.next()?
+            self.target_range.start
+        };
+
+        let next_qry = match (self.op.consumes_query(), self.strand()) {
+            (true, Strand::Forward) => self.query_range.next()?,
+            (true, Strand::Reverse) => self.query_range.next_back()?,
+            (false, Strand::Forward) => self.query_range.start,
+            (false, Strand::Reverse) => self.query_range.end,
         };
         self.op_count -= 1;
         Some([next_tgt as usize, next_qry as usize])
@@ -256,16 +255,6 @@ impl Alignment {
             }
 
             op_line_vertices.push([from, to]);
-
-            // match op {
-            //     CigarOp::Eq | CigarOp:: => todo!(),
-            //     CigarOp::X => todo!(),
-            //     CigarOp::I => todo!(),
-            //     CigarOp::D => todo!(),
-            //     CigarOp::M => todo!(),
-            // }
-
-            //
         }
 
         Self {
