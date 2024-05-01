@@ -133,6 +133,11 @@ impl MatchDrawBatchData {
                 .iter()
                 .zip(alignment.cigar.cigar.iter())
             {
+                use crate::CigarOp::{D, I};
+                if matches!(op, I | D) {
+                    continue;
+                }
+
                 let is_match = op.is_match();
                 let color = if is_match {
                     egui::Color32::BLACK
