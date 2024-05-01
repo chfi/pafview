@@ -97,7 +97,7 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
         tiles.insert((op, [None, None]), buffer);
     }
 
-    let nucleotides = ['G', 'T', 'C', 'A'];
+    let nucleotides = ['G', 'T', 'C', 'A', 'U', 'N'];
 
     for (op, bg_color) in [
         (Cg::I, egui::Color32::WHITE),
