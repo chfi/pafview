@@ -88,10 +88,10 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
 
     for (op, bg_color) in [
         (Cg::M, egui::Color32::BLACK),
-        (Cg::Eq, egui::Color32::BLUE), // testing
+        (Cg::Eq, egui::Color32::BLACK),
         (Cg::X, egui::Color32::RED),
-        (Cg::I, egui::Color32::GREEN),  // testing
-        (Cg::D, egui::Color32::YELLOW), // testing
+        (Cg::I, egui::Color32::WHITE),
+        (Cg::D, egui::Color32::WHITE),
     ] {
         let buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
         tiles.insert((op, [None, None]), buffer);
@@ -100,8 +100,8 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
     let nucleotides = ['G', 'T', 'C', 'A'];
 
     for (op, bg_color) in [
-        (Cg::I, egui::Color32::GREEN),
-        (Cg::D, egui::Color32::YELLOW), // testing
+        (Cg::I, egui::Color32::WHITE),
+        (Cg::D, egui::Color32::WHITE), // testing
     ] {
         for &nucl in nucleotides.iter() {
             let mut buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
@@ -125,10 +125,11 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
             }
         }
     }
+
     // TODO Eq should show just one nucleotide
     for (op, bg_color) in [
         (Cg::M, egui::Color32::BLACK),
-        (Cg::Eq, egui::Color32::BLUE), // testing
+        (Cg::Eq, egui::Color32::BLACK),
         (Cg::X, egui::Color32::RED),
     ] {
         for &query in nucleotides.iter() {
@@ -136,28 +137,44 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
                 let mut buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
 
                 let fg_color = egui::Color32::WHITE;
+                // let fg_color = if op == Cg::X {
+                //     egui::Color32::BLACK
+                // } else {
+                //     egui::Color32::WHITE
+                // };
 
                 let x0 = 0.0;
                 let y0 = -4.0;
                 let x1 = TILE_BUFFER_SIZE_F / 2.0;
                 let y1 = TILE_BUFFER_SIZE_F / 8.0;
 
-                draw_char(
-                    &mut buffer,
-                    [x0, y0],
-                    [16.0, 32.0],
-                    query,
-                    bg_color,
-                    fg_color,
-                );
-                draw_char(
-                    &mut buffer,
-                    [x1, y1],
-                    [16.0, 32.0],
-                    target,
-                    bg_color,
-                    fg_color,
-                );
+                if op == Cg::Eq {
+                    draw_char(
+                        &mut buffer,
+                        [TILE_BUFFER_SIZE_F * 0.25, 0.0],
+                        [16.0, 32.0],
+                        query,
+                        bg_color,
+                        fg_color,
+                    );
+                } else {
+                    draw_char(
+                        &mut buffer,
+                        [x0, y0],
+                        [16.0, 32.0],
+                        query,
+                        bg_color,
+                        fg_color,
+                    );
+                    draw_char(
+                        &mut buffer,
+                        [x1, y1],
+                        [16.0, 32.0],
+                        target,
+                        bg_color,
+                        fg_color,
+                    );
+                }
 
                 tiles.insert((op, [Some(target), Some(query)]), buffer);
             }
