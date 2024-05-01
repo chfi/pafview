@@ -188,66 +188,6 @@ impl PixelBuffer {
             self.pixels.get(x + y * self.width as usize).copied()
         }
     }
-
-    pub fn blit_from_buffer(&mut self, dst_offset: impl Into<[i32; 2]>, src: &Self) {
-        let src_size = [src.width, src.height];
-        self.blit_from_slice(dst_offset, src_size, &src.pixels);
-    }
-
-    pub fn blit_from_slice(
-        &mut self,
-        dst_offset: impl Into<[i32; 2]>,
-        src_size: impl Into<[u32; 2]>,
-        src: &[egui::Color32],
-    ) {
-        let [x0, y0] = dst_offset.into();
-        let [src_width, src_height] = src_size.into();
-        debug_assert!(src.len() == (src_width as usize * src_height as usize));
-
-        let (dst_vis_cols, src_vis_cols) = {
-            let dst_min = x0.max(0) as u32;
-            let dst_max = ((x0 + src_width as i32) as u32).min(self.width);
-
-            let src_min = (-y0).max(0) as u32;
-            let src_max = src_min + (dst_max - dst_min);
-
-            (dst_min..dst_max, src_min..src_max)
-        };
-
-        let (dst_vis_rows, src_vis_rows) = {
-            let dst_min = y0.max(0) as u32;
-            let dst_max = ((y0 + src_height as i32) as u32).min(self.height);
-
-            let src_min = (-y0).max(0) as u32;
-            let src_max = src_min + (dst_max - dst_min);
-
-            (dst_min..dst_max, src_min..src_max)
-        };
-
-        for (dst_row, src_row) in std::iter::zip(dst_vis_rows, src_vis_rows) {
-            // for dst_row in dst_vis_rows {
-            let col_start = dst_vis_cols.start;
-            let col_len = dst_vis_cols.end - col_start;
-
-            let dst_start = dst_row * self.width + col_start;
-            let dst_end = dst_start + col_len;
-            let dst_range = (dst_start as usize)..(dst_end as usize);
-
-            let dst_slice = &mut self.pixels[dst_range];
-
-            let col_start = src_vis_cols.start;
-            let col_end = src_vis_cols.end;
-            debug_assert_eq!(col_end - col_start, col_len);
-
-            let src_start = src_row * src_width + col_start;
-            let src_end = src_start + col_len;
-            let src_range = (src_start as usize)..(src_end as usize);
-
-            let src_slice = &src[src_range];
-
-            dst_slice.copy_from_slice(src_slice);
-        }
-    }
 }
 
 impl PixelBuffer {
@@ -380,38 +320,7 @@ mod tests {
 
     use ultraviolet::DVec2;
 
-    #[test]
-    fn test_pixel_buffer_blit() {
-        let mut buf = PixelBuffer::new(48, 48);
-
-        let red = PixelBuffer::new_color(8, 8, egui::Color32::RED);
-        let blue = PixelBuffer::new_color(16, 8, egui::Color32::BLUE);
-        let green = PixelBuffer::new_color(8, 16, egui::Color32::GREEN);
-
-        buf.blit_from_buffer([-4, 16], &red);
-        buf.blit_from_buffer([16, 40], &green);
-        buf.blit_from_buffer([40, -3], &blue);
-
-        let mut reds = 0;
-        let mut greens = 0;
-        let mut blues = 0;
-
-        for &px in buf.pixels.iter() {
-            if px == egui::Color32::RED {
-                reds += 1;
-            } else if px == egui::Color32::GREEN {
-                greens += 1;
-            } else if px == egui::Color32::BLUE {
-                blues += 1;
-            }
-        }
-
-        // debug_print_pixel_buffer(&buf);
-        assert_eq!(reds, 4 * 8);
-        assert_eq!(greens, 8 * 8);
-        assert_eq!(blues, 8 * 5);
-    }
-
+    /*
     #[test]
     fn test_exact_copy() {
         let src = create_test_buffer(10, 10);
@@ -514,4 +423,5 @@ mod tests {
 
         println!("{h_border}");
     }
+    */
 }

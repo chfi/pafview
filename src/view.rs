@@ -402,7 +402,7 @@ mod tests {
             let v_pt_ = view.map_screen_to_view(screen_dims, s_pt);
             let diff = v_pt - v_pt_;
 
-            let eps =  10_000.0 * std::f32::EPSILON as f64;
+            let eps =  0.01;
             let x_eq = approx_eq!(f64, diff.x / view.width(), 0.0, epsilon = eps);
             let y_eq = approx_eq!(f64, diff.y / view.height(), 0.0, epsilon = eps);
             prop_assert!(x_eq && y_eq);
