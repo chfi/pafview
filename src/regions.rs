@@ -40,6 +40,7 @@ pub fn draw_rect_region(
     rect
 }
 
+/*
 pub fn paf_line_debug_aabbs(
     input: &crate::PafInput,
     ctx: &egui::Context,
@@ -66,8 +67,8 @@ pub fn paf_line_debug_aabbs(
 
         if let Some(pos) = cursor {
             if rect.contains(pos) {
-                let tgt = &input.targets[line.target_id].name;
-                let qry = &input.queries[line.query_id].name;
+                let tgt = &input.targets[line.target_id.0].name;
+                let qry = &input.queries[line.query_id.0].name;
                 draw_text = Some((rect.left_bottom(), format!("{qry}/{tgt}")));
             }
         }
@@ -83,6 +84,7 @@ pub fn paf_line_debug_aabbs(
         );
     }
 }
+*/
 
 #[derive(Default)]
 pub struct SelectionHandler {

@@ -311,6 +311,22 @@ impl EguiRenderer {
         self.state.on_window_event(window, event)
     }
 
+    pub fn initialize(
+        &mut self,
+        //
+        window: &Window,
+    ) {
+        // self.context.run(raw_
+        let raw_input = self.state.take_egui_input(&window);
+        self.context.begin_frame(raw_input);
+        let full_output = self.context.end_frame();
+        // let full_output = self.context.run(raw_input, |ui| {
+        // run_ui(&self.context);
+        // });
+        self.state
+            .handle_platform_output(&window, full_output.platform_output);
+    }
+
     pub fn draw(
         &mut self,
         device: &Device,
@@ -409,10 +425,9 @@ pub struct PafRenderer {
 
     pub line_width: f32,
 
-    match_vertices: wgpu::Buffer,
-    match_colors: wgpu::Buffer,
-    match_instances: std::ops::Range<u32>,
-
+    // match_vertices: wgpu::Buffer,
+    // match_colors: wgpu::Buffer,
+    // match_instances: std::ops::Range<u32>,
     grid_data: Option<(wgpu::Buffer, wgpu::Buffer, std::ops::Range<u32>)>,
 
     active_task: Option<PafDrawTask>,
@@ -426,6 +441,8 @@ pub struct PafRenderer {
     // temporary (may be used for grid later still)
     identity_uniform: wgpu::Buffer,
     identity_bind_group: wgpu::BindGroup,
+
+    last_rendered_view: Option<crate::view::View>,
 }
 
 impl PafRenderer {
@@ -439,9 +456,9 @@ impl PafRenderer {
         device: &wgpu::Device,
         swapchain_format: wgpu::TextureFormat,
         msaa_samples: u32,
-        match_vertices: wgpu::Buffer,
-        match_colors: wgpu::Buffer,
-        match_instances: std::ops::Range<u32>,
+        // match_vertices: wgpu::Buffer,
+        // match_colors: wgpu::Buffer,
+        // match_instances: std::ops::Range<u32>,
     ) -> Self {
         log::warn!("initializing PafRenderer");
         let line_pipeline = LinePipeline::new(&device, Self::COLOR_FORMAT, msaa_samples);
@@ -484,10 +501,9 @@ impl PafRenderer {
 
             line_width: 5.0,
 
-            match_vertices,
-            match_colors,
-            match_instances,
-
+            // match_vertices,
+            // match_colors,
+            // match_instances,
             grid_data: None,
 
             active_task: None,
@@ -500,6 +516,8 @@ impl PafRenderer {
 
             identity_uniform,
             identity_bind_group,
+
+            last_rendered_view: None,
         }
     }
 
@@ -522,56 +540,41 @@ impl PafRenderer {
         swapchain_view: &TextureView,
         encoder: &mut CommandEncoder,
     ) {
+        let front_image_dims = self.draw_states[0]
+            .draw_set
+            .as_ref()
+            .map(|set| {
+                let size = set.framebuffers.color_texture.size();
+                [size.width, size.height]
+            })
+            .unwrap_or([0, 0]);
+
+        if self.last_rendered_view != Some(*view) || front_image_dims != window_dims {
+            self.last_rendered_view = Some(*view);
+
+            if view.bp_per_pixel(window_dims[0]) > Self::SCALE_LIMIT_BP_PER_PX {
+                self.submit_draw_matches(device, queue, match_data, view, window_dims);
+            } else {
+                cpu_rasterizer.draw_into_wgpu_texture(device, queue, window_dims, app, view);
+            }
+        }
+
         if view.bp_per_pixel(window_dims[0]) > Self::SCALE_LIMIT_BP_PER_PX {
-            self.submit_draw_matches(
-                device,
-                queue,
-                match_data,
-                view,
-                window_dims,
-                // self.match_instances.clone(),
-            );
             self.draw_front_image(device, queue, view, window_dims, swapchain_view, encoder);
         } else {
-            cpu_rasterizer.draw_into_wgpu_texture(device, queue, window_dims, app, view);
-
             let Some((_texture, texture_view)) = &cpu_rasterizer.last_wgpu_texture else {
                 return;
             };
-
-            // if self.exact_image_bind_groups.is_none() {
-            //     self.exact_image_bind_groups = Some(CpuRasterizerBindGroups::new(
-            //         device,
-            //         &self.image_renderer,
-            //         view,
-            //     ));
-            // }
 
             self.exact_image_bind_groups.create_bind_groups(
                 device,
                 &self.image_renderer,
                 texture_view,
             );
-            // self.imag
-
-            // let old_params = &set.params;
-            // let new_params = PafDrawParams::from_view_and_dims(view, window_dims);
             let bind_group = &mut self.exact_image_bind_groups.image_bind_groups[0];
             bind_group.update_uniform(queue);
             self.image_renderer
                 .draw(bind_group, swapchain_view, encoder);
-
-            // let need_new_bind_groups = let Some(bind_groups) = &self.exact_image_bind_groups {
-            //     bind_groups.texture_view_id != view.global_id()
-            // } else {
-            //     true
-            // };
-
-            // if need_new_bind_groups {
-            //     // self.exact_image_bind_groups = Some(
-            // }
-
-            // draw front image
         }
     }
 
@@ -598,9 +601,6 @@ impl PafRenderer {
                 &set.framebuffers.color_view,
             );
 
-            // let old_params = &set.params;
-            // let new_params = PafDrawParams::from_view_and_dims(view, window_dims);
-            // self.image_bind_groups[0].update_uniform(queue, old_params, &new_params);
             self.image_bind_groups[0].update_uniform(queue);
 
             self.image_renderer
@@ -615,8 +615,6 @@ impl PafRenderer {
         match_data: &batch::MatchDrawBatchData,
         view: &crate::view::View,
         window_dims: [u32; 2],
-        // instances: std::ops::Range<u32>,
-        // swapchain_view: &TextureView,
     ) {
         // if there's an active task and it has completed, swap it to the front
         let task_complete = self.active_task.as_ref().is_some_and(|t| t.is_complete());

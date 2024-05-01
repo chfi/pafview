@@ -4,8 +4,10 @@ use rustc_hash::FxHashMap;
 use ultraviolet::{Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
+use crate::sequences::SeqId;
+
 pub struct MatchDrawBatchData {
-    alignment_pair_index: FxHashMap<(usize, usize), usize>,
+    alignment_pair_index: FxHashMap<(SeqId, SeqId), usize>,
 
     buffers: DrawBatchBuffers,
 }
@@ -97,11 +99,12 @@ impl MatchDrawBatchData {
         }
     }
 
-    pub fn from_paf_input(
+    // pub fn from_paf_input(
+    pub fn from_alignments(
         device: &wgpu::Device,
         bind_group_layout: &wgpu::BindGroupLayout,
         alignment_grid: &crate::AlignmentGrid,
-        input: &crate::PafInput,
+        alignments: &crate::Alignments,
     ) -> Self {
         let mut buffers = DrawBatchBuffers::default();
 
@@ -110,24 +113,32 @@ impl MatchDrawBatchData {
 
         let mut alignment_pair_index = FxHashMap::default();
 
-        for (line_ix, input_line) in input.processed_lines.iter().enumerate() {
+        for (&(target_id, query_id), alignment) in alignments.pairs.iter() {
+            // for (line_ix, input_line) in input.processed_lines.iter().enumerate() {
             let buf_ix = buffers.vertex_pos_buffers.len();
 
-            let target_id = input_line.target_id;
-            let query_id = input_line.query_id;
+            // let target_id = input_line.target_id;
+            // let query_id = input_line.query_id;
 
             alignment_pair_index.insert((target_id, query_id), buf_ix);
 
             vertex_position_tmp.clear();
             vertex_color_tmp.clear();
 
-            let match_count = input_line.match_edges.len() as u32;
+            let match_count = alignment.cigar.op_line_vertices.len() as u32;
 
-            for (&[from, to], &is_match) in input_line
-                .match_edges
+            // for (&[from, to], &is_match) in alignment.cigar.op_line_vertices.iter()
+            for (&[from, to], (op, _count)) in alignment
+                .cigar_op_line_vertices
                 .iter()
-                .zip(&input_line.match_is_match)
+                .zip(alignment.cigar.cigar.iter())
             {
+                use crate::CigarOp::{D, I};
+                if matches!(op, I | D) {
+                    continue;
+                }
+
+                let is_match = op.is_match();
                 let color = if is_match {
                     egui::Color32::BLACK
                 } else {
@@ -159,11 +170,11 @@ impl MatchDrawBatchData {
 
             let x_offset = alignment_grid
                 .x_axis
-                .sequence_offset(input_line.target_id)
+                .sequence_offset(target_id)
                 .unwrap_or_default() as f32;
             let y_offset = alignment_grid
                 .y_axis
-                .sequence_offset(input_line.query_id)
+                .sequence_offset(query_id)
                 .unwrap_or_default() as f32;
 
             let pos_mat = Mat4::from_translation(Vec3::new(x_offset, y_offset, 0.0));

@@ -1,10 +1,13 @@
 use annotations::{draw::AnnotationPainter, AnnotationGuiHandler};
 use bimap::BiMap;
 use bytemuck::{Pod, Zeroable};
+use clap::Parser;
 use egui_wgpu::ScreenDescriptor;
 use grid::AlignmentGrid;
+use paf::Alignments;
 use regions::SelectionHandler;
 use rustc_hash::FxHashMap;
+use sequences::Sequences;
 use std::{borrow::Cow, str::FromStr, sync::Arc};
 use ultraviolet::{DVec2, Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
@@ -19,58 +22,31 @@ use std::io::prelude::*;
 
 use anyhow::anyhow;
 
-mod annotations;
 pub mod cigar;
+pub mod paf;
+pub mod pixels;
+
+mod annotations;
+mod cli;
 mod grid;
 mod gui;
 mod regions;
 mod render;
-mod spatial;
+mod sequences;
 mod view;
 
 pub use cigar::*;
+pub use paf::PafLine;
+pub use pixels::*;
 use render::*;
 use view::View;
 
-use crate::{annotations::AnnotationStore, gui::AppWindowStates};
-
-struct PafInput {
-    queries: Vec<AlignedSeq>,
-    targets: Vec<AlignedSeq>,
-
-    pair_line_ix: FxHashMap<(usize, usize), usize>,
-
-    // match_edges: Vec<[DVec2; 2]>,
-    processed_lines: Vec<ProcessedCigar>,
-}
-
-impl PafInput {
-    fn total_matches(&self) -> usize {
-        self.processed_lines
-            .iter()
-            .map(|l| l.match_edges.len())
-            .sum()
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct PafLine<S> {
-    query_name: S,
-    query_seq_len: u64,
-    query_seq_start: u64,
-    query_seq_end: u64,
-
-    tgt_name: S,
-    tgt_seq_len: u64,
-    tgt_seq_start: u64,
-    tgt_seq_end: u64,
-
-    strand_rev: bool,
-    cigar: S,
-}
+use crate::{
+    annotations::AnnotationStore, gui::AppWindowStates, paf::parse_paf_line, sequences::SeqId,
+};
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct AlignedSeq {
+pub struct AlignedSeq {
     // name of the given sequence
     name: String,
     // its length
@@ -80,41 +56,79 @@ struct AlignedSeq {
     offset: u64,
 }
 
-fn parse_paf_line<'a>(mut fields: impl Iterator<Item = &'a str>) -> Option<PafLine<&'a str>> {
-    let (query_name, query_seq_len, query_seq_start, query_seq_end) =
-        parse_name_range(&mut fields)?;
-    let strand = fields.next()?;
-    let (tgt_name, tgt_seq_len, tgt_seq_start, tgt_seq_end) = parse_name_range(&mut fields)?;
-
-    let cigar = fields.skip(3).find_map(|s| s.strip_prefix("cg:Z:"))?;
-
-    Some(PafLine {
-        query_name,
-        query_seq_len,
-        query_seq_start,
-        query_seq_end,
-
-        tgt_name,
-        tgt_seq_len,
-        tgt_seq_start,
-        tgt_seq_end,
-
-        strand_rev: strand == "-",
-        cigar,
-    })
-}
-
-fn parse_name_range<'a>(
-    mut fields: impl Iterator<Item = &'a str>,
-) -> Option<(&'a str, u64, u64, u64)> {
-    let name = fields.next()?;
-    let len = fields.next()?.parse().ok()?;
-    let start = fields.next()?.parse().ok()?;
-    let end = fields.next()?.parse().ok()?;
-    Some((name, len, start, end))
-}
-
 pub fn main() -> anyhow::Result<()> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        env_logger::init();
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        console_log::init().expect("could not initialize logger");
+    }
+
+    let args = crate::cli::Cli::parse();
+
+    // Load PAF and optional FASTA
+    let (alignments, sequences) = crate::paf::load_input_files(&args.paf, args.fasta)?;
+
+    println!("drawing {} alignments", alignments.pairs.len());
+
+    // construct AlignmentGrid
+    let mut targets = alignments
+        .pairs
+        .values()
+        .map(|al| (al.target_id, al.location.target_total_len))
+        .collect::<Vec<_>>();
+    targets.sort_by_key(|(_, l)| *l);
+    targets.dedup_by_key(|(id, _)| *id);
+    let x_axis = grid::GridAxis::from_index_and_lengths(targets);
+    let mut queries = alignments
+        .pairs
+        .values()
+        .map(|al| (al.query_id, al.location.query_total_len))
+        .collect::<Vec<_>>();
+    queries.sort_by_key(|(_, l)| *l);
+    queries.dedup_by_key(|(id, _)| *id);
+    let y_axis = grid::GridAxis::from_index_and_lengths(queries);
+
+    println!(
+        "X axis {} tiles, total len {}",
+        x_axis.tile_count(),
+        x_axis.total_len
+    );
+    println!(
+        "Y axis {} tiles, total len {}",
+        y_axis.tile_count(),
+        y_axis.total_len
+    );
+
+    let alignment_grid = AlignmentGrid {
+        x_axis,
+        y_axis,
+        sequence_names: sequences.names().clone(),
+    };
+
+    // TODO replace PafInput everywhere...
+
+    let seq_names = sequences.names().clone();
+
+    let app = PafViewerApp {
+        alignments,
+        alignment_grid,
+        sequences,
+        // paf_input: todo!(),
+        seq_names,
+        annotations: AnnotationStore::default(),
+    };
+
+    start_window(app);
+
+    Ok(())
+}
+
+/*
+pub fn old_main() -> anyhow::Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::init();
@@ -192,7 +206,7 @@ pub fn main() -> anyhow::Result<()> {
     let seq_names = target_names
         .iter()
         .chain(&query_names)
-        .map(|(n, i)| (n.clone(), *i))
+        .map(|(n, i)| (n.clone(), SeqId(*i)))
         .collect::<bimap::BiMap<_, _>>();
     let seq_names = Arc::new(seq_names);
 
@@ -277,6 +291,7 @@ pub fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
+*/
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd, Pod, Zeroable)]
 #[repr(C)]
@@ -338,27 +353,11 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
     let swapchain_format = swapchain_capabilities.formats[0];
 
     let (grid_buffer, grid_color_buffer, grid_instances) = {
-        let input = &app.paf_input;
-        let instances = input.targets.len() + input.queries.len() + 4;
-        let mut lines: Vec<LineVertex> = Vec::with_capacity(instances);
-
-        let mut targets_sort = input
-            .targets
-            .iter()
-            .enumerate()
-            .map(|(i, a)| (i, a.len))
-            .collect::<Vec<_>>();
-        let mut queries_sort = input
-            .queries
-            .iter()
-            .enumerate()
-            .map(|(i, a)| (i, a.len))
-            .collect::<Vec<_>>();
-        targets_sort.sort_by_key(|(_, l)| *l);
-        queries_sort.sort_by_key(|(_, l)| *l);
-
+        // let input = &app.paf_input;
         let x_axis = &app.alignment_grid.x_axis;
         let y_axis = &app.alignment_grid.y_axis;
+        let instances = x_axis.tile_count() + y_axis.tile_count() + 4;
+        let mut lines: Vec<LineVertex> = Vec::with_capacity(instances);
 
         let x_max = x_axis.total_len as f32;
         let y_max = y_axis.total_len as f32;
@@ -409,6 +408,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
         (buffer, color_buffer, 0..instances as u32)
     };
 
+    /*
     let (match_buffer, match_color_buffer, match_instances) = {
         let input = &app.paf_input;
         let instance_count = input.total_matches();
@@ -454,6 +454,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
         (buffer, color_buffer, 0..instance_count as u32)
     };
+    */
 
     let mut app_view = View {
         x_min: 0.0,
@@ -471,25 +472,33 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
         &device,
         config.format,
         sample_count,
-        match_buffer,
-        match_color_buffer,
-        match_instances,
+        // match_buffer,
+        // match_color_buffer,
+        // match_instances,
     );
 
-    let match_draw_data = render::batch::MatchDrawBatchData::from_paf_input(
+    let match_draw_data = render::batch::MatchDrawBatchData::from_alignments(
         &device,
         &paf_renderer.line_pipeline.bind_group_layout_1,
         &app.alignment_grid,
-        &app.paf_input,
+        &app.alignments,
     );
 
     paf_renderer.set_grid(Some((grid_buffer, grid_color_buffer, grid_instances)));
 
-    let mut cpu_rasterizer = exact::CpuViewRasterizerEgui::default();
+    let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
+    // egui_renderer.initialize(&window);
+
+    // egui_renderer.context.run(
+    // egui_renderer.context
+
+    // let mut cpu_rasterizer = egui_renderer.context.fonts(|fonts| {
+    //
+    //     exact::CpuViewRasterizerEgui::initialize(fonts)
+    // });
+    let mut cpu_rasterizer = exact::CpuViewRasterizerEgui::initialize();
 
     let mut window_states = AppWindowStates::new(&app.annotations);
-
-    let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
 
     let mut annot_gui_handler = AnnotationGuiHandler::default();
 
@@ -499,10 +508,12 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
     let event_loop_proxy = event_loop.create_proxy();
 
-    if let Some(bed_path) = std::env::args().nth(2) {
-        if let Ok(path) = std::path::PathBuf::from_str(&bed_path) {
-            event_loop_proxy.send_event(AppEvent::LoadAnnotationFile { path });
-        }
+    let args = crate::cli::Cli::parse();
+
+    if let Some(bed_path) = &args.bed {
+        event_loop_proxy.send_event(AppEvent::LoadAnnotationFile {
+            path: bed_path.into(),
+        });
     }
 
     // TODO build this on a separate thread
@@ -598,6 +609,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 return;
                             }
 
+                            /*
                             // if event.state
                             let [w, h]: [u32; 2] = window.inner_size().into();
                             let path = "screenshot.png";
@@ -607,6 +619,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 Ok(_) => log::info!("wrote screenshot to {path}"),
                                 Err(e) => log::info!("error writing screenshot: {e:?}"),
                             }
+                            */
                         }
                     }
                     WindowEvent::MouseWheel { delta, phase, .. } => match delta {
@@ -744,14 +757,14 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                     &mut window_states,
                                 );
 
-                                gui::view_controls(
-                                    ctx,
-                                    &app.alignment_grid,
-                                    &app.seq_names,
-                                    &app.paf_input,
-                                    &mut app_view,
-                                    &mut window_states,
-                                );
+                                // gui::view_controls(
+                                //     ctx,
+                                //     &app.alignment_grid,
+                                //     &app.seq_names,
+                                //     &app.paf_input,
+                                //     &mut app_view,
+                                //     &mut window_states,
+                                // );
 
                                 annot_gui_handler.show_annotation_list(
                                     ctx,
@@ -816,6 +829,7 @@ fn start_window(app: PafViewerApp) {
     }
 }
 
+/*
 pub fn write_png(
     input: &PafInput,
     view: &crate::view::View,
@@ -920,13 +934,15 @@ pub fn write_png(
 
     Ok(())
 }
+*/
 
 struct PafViewerApp {
+    alignments: Alignments,
     alignment_grid: AlignmentGrid,
+    sequences: Sequences,
 
-    paf_input: PafInput,
-
-    seq_names: Arc<bimap::BiMap<String, usize>>,
-
+    // paf_input: PafInput,
+    #[deprecated]
+    seq_names: Arc<bimap::BiMap<String, SeqId>>,
     annotations: AnnotationStore,
 }

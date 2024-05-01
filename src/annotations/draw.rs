@@ -10,7 +10,7 @@ use egui::Galley;
 use rustc_hash::FxHashMap;
 use ultraviolet::{DVec2, Vec2};
 
-use crate::{gui::AppWindowStates, PafInput, PafViewerApp};
+use crate::{gui::AppWindowStates, PafViewerApp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AnnotShapeId(usize);

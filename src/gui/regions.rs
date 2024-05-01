@@ -13,7 +13,7 @@ use crate::{
     grid::{AlignmentGrid, AxisRange},
     regions::SelectionTarget,
     view::View,
-    AlignedSeq, PafInput, PafViewerApp,
+    AlignedSeq, PafViewerApp,
 };
 
 use super::AppWindowStates;

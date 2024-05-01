@@ -5,11 +5,28 @@ use ultraviolet::UVec2;
 use crate::{
     cigar::{CigarOp, ProcessedCigar},
     grid::{AxisRange, GridAxis},
+    sequences::SeqId,
 };
+
+pub mod detail;
+
+use crate::PixelBuffer;
 
 #[derive(Default)]
 pub struct CpuViewRasterizerEgui {
+    tile_buffers: detail::TileBuffers,
+
     pub(super) last_wgpu_texture: Option<(wgpu::Texture, wgpu::TextureView)>,
+}
+
+impl CpuViewRasterizerEgui {
+    pub fn initialize() -> Self {
+        let tile_buffers = detail::build_op_pixel_buffers();
+        Self {
+            tile_buffers,
+            last_wgpu_texture: None,
+        }
+    }
 }
 
 pub(super) struct CpuRasterizerBindGroups {
@@ -88,10 +105,22 @@ impl CpuViewRasterizerEgui {
             unreachable!();
         };
 
-        if let Some(pixels) = draw_exact_to_cpu_buffer(app, window_dims, view) {
+        let sequences = &app.sequences;
+        let grid = &app.alignment_grid;
+        let alignments = &app.alignments;
+
+        // if let Some(pixels) = draw_exact_to_cpu_buffer(app, window_dims, view) {
+        if let Some(pixels) = detail::draw_alignments(
+            &self.tile_buffers,
+            sequences,
+            grid,
+            alignments,
+            view,
+            window_dims,
+        ) {
             let extent = wgpu::Extent3d {
-                width: pixels.width,
-                height: pixels.height,
+                width: pixels.width as u32,
+                height: pixels.height as u32,
                 depth_or_array_layers: 1,
             };
 
@@ -115,6 +144,7 @@ impl CpuViewRasterizerEgui {
     }
 }
 
+/*
 fn draw_exact_to_cpu_buffer(
     app: &crate::PafViewerApp,
     canvas_size: impl Into<UVec2>,
@@ -139,7 +169,7 @@ fn draw_exact_to_cpu_buffer(
     let y_axis = &app.alignment_grid.y_axis;
 
     let clamped_range = |axis: &GridAxis,
-                         seq_id: usize,
+                         seq_id: SeqId,
                          // range: std::ops::Range<u64>,
                          view_range: std::ops::RangeInclusive<f64>| {
         let range = axis.sequence_axis_range(seq_id)?;
@@ -161,7 +191,7 @@ fn draw_exact_to_cpu_buffer(
     // log::info!("x_tiles covered by {:?}: {}", view.x_range(), x_tiles.len());
     // log::info!("y_tiles covered by {:?}: {}", view.y_range(), y_tiles.len());
 
-    let mut tile_bufs: FxHashMap<(usize, usize), (Vec<egui::Color32>, UVec2, egui::Rect)> =
+    let mut tile_bufs: FxHashMap<(SeqId, SeqId), (Vec<egui::Color32>, UVec2, egui::Rect)> =
         FxHashMap::default();
 
     for target_id in x_tiles {
@@ -233,6 +263,7 @@ fn draw_exact_to_cpu_buffer(
 
     Some(px_buffer)
 }
+*/
 
 #[derive(Debug, Default, Clone, PartialEq, Eq, Hash)]
 struct RenderParams {
@@ -241,238 +272,10 @@ struct RenderParams {
     canvas_size: UVec2,
 }
 
-pub fn draw_subsection(
-    match_data: &crate::ProcessedCigar,
-    target_range: std::ops::Range<u64>,
-    query_range: std::ops::Range<u64>,
-    canvas_size: UVec2,
-    canvas_data: &mut Vec<egui::Color32>,
-) {
-    let size = (canvas_size.x * canvas_size.y) as usize;
-    canvas_data.clear();
-    canvas_data.resize(size, egui::Color32::WHITE);
-
-    // TODO doesn't take strand into account yet
-    let match_iter = MatchOpIter::from_range(
-        &match_data.match_offsets,
-        &match_data.match_cigar_index,
-        &match_data.cigar,
-        target_range.clone(),
-    );
-
-    let tgt_len = target_range.end - target_range.start;
-    let bp_width = canvas_size.x as f64 / tgt_len as f64;
-
-    let qry_len = query_range.end - query_range.start;
-    let bp_height = canvas_size.y as f64 / qry_len as f64;
-
-    for ([target_pos, query_pos], cg_ix) in match_iter {
-        let cg_op = match_data.cigar[cg_ix].0;
-        let is_match = cg_op.is_match();
-
-        let color = if is_match {
-            egui::Color32::BLACK
-        } else {
-            egui::Color32::RED
-        };
-
-        let Some(target_offset) = target_pos.checked_sub(target_range.start) else {
-            continue;
-        };
-        let Some(query_offset) = query_pos.checked_sub(query_range.start) else {
-            continue;
-        };
-
-        let x0 = target_offset as f64 * bp_width;
-        let x1 = (1 + target_offset) as f64 * bp_width;
-
-        let y0 = query_offset as f64 * bp_height;
-        let y1 = (1 + query_offset) as f64 * bp_height;
-
-        let x = 0.5 * (x0 + x1);
-        let y = 0.5 * (y0 + y1);
-
-        for x in (x0.floor() as usize)..(x1.floor() as usize) {
-            for y in (y0.floor() as usize)..(y1.floor() as usize) {
-                let y = (canvas_size.y as usize)
-                    .checked_sub(y + 1)
-                    .unwrap_or_default();
-                let ix = x + y * canvas_size.x as usize;
-                if x < canvas_size.x as usize && y < canvas_size.y as usize {
-                    canvas_data.get_mut(ix).map(|px| *px = color);
-                }
-            }
-        }
-    }
-}
-
-struct MatchOpIter<'a> {
-    match_offsets: &'a [[u64; 2]],
-    match_cg_ix: &'a [usize],
-    cigar: &'a [(CigarOp, u64)],
-
-    target_range: std::ops::Range<u64>,
-
-    index: usize,
-    // current_match: Option<(usize, [u64; 2], bool)>,
-    current_match: Option<(CigarOp, usize, std::ops::Range<u64>, [u64; 2])>,
-    // current_match: Option<(std::ops::Range<u64>, [u64; 2], bool, bool)>,
-    done: bool,
-}
-
-impl<'a> MatchOpIter<'a> {
-    fn from_range(
-        match_offsets: &'a [[u64; 2]],
-        match_cg_ix: &'a [usize],
-        cigar: &'a [(CigarOp, u64)],
-        target_range: std::ops::Range<u64>,
-    ) -> Self {
-        let t_start = match_offsets.partition_point(|[t, _]| *t < target_range.start);
-
-        let t_start = t_start.checked_sub(1).unwrap_or_default();
-
-        Self {
-            // data: match_data,
-            match_offsets,
-            match_cg_ix,
-            cigar,
-
-            target_range,
-
-            index: t_start,
-            current_match: None,
-
-            done: false,
-        }
-    }
-}
-
-impl<'a> Iterator for MatchOpIter<'a> {
-    // outputs each individual match/mismatch op's position along the
-    // target and query
-    type Item = ([u64; 2], usize);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.done {
-            return None;
-        }
-
-        if self.current_match.is_none() {
-            if self.index >= self.match_offsets.len() {
-                return None;
-            }
-            let ix = self.index;
-            self.index += 1;
-            let cg_ix = self.match_cg_ix[ix];
-            let (op, count) = self.cigar[cg_ix];
-            let range = 0..count;
-            let origin = self.match_offsets[ix];
-            self.current_match = Some((op, cg_ix, range, origin));
-        }
-
-        if let Some((op, cg_ix, mut range, origin @ [tgt, qry])) = self.current_match.take() {
-            let next_offset = range.next()?;
-
-            if tgt + next_offset > self.target_range.end {
-                self.done = true;
-            }
-
-            if !range.is_empty() {
-                self.current_match = Some((op, cg_ix, range, origin));
-            }
-
-            let pos = [tgt + next_offset, qry + next_offset];
-            let out = (pos, cg_ix);
-
-            return Some(out);
-        }
-
-        None
-    }
-}
-
-struct PixelBuffer {
-    width: u32,
-    height: u32,
-    pixels: Vec<egui::Color32>,
-}
-
-impl PixelBuffer {
-    fn new_color(width: u32, height: u32, color: egui::Color32) -> Self {
-        Self {
-            width,
-            height,
-            pixels: vec![color; (width * height) as usize],
-        }
-    }
-
-    fn new(width: u32, height: u32) -> Self {
-        Self::new_color(width, height, egui::Color32::TRANSPARENT)
-    }
-
-    fn blit_from_buffer(&mut self, dst_offset: impl Into<[i32; 2]>, src: &Self) {
-        let src_size = [src.width, src.height];
-        self.blit_from_slice(dst_offset, src_size, &src.pixels);
-    }
-
-    fn blit_from_slice(
-        &mut self,
-        dst_offset: impl Into<[i32; 2]>,
-        src_size: impl Into<[u32; 2]>,
-        src: &[egui::Color32],
-    ) {
-        let [x0, y0] = dst_offset.into();
-        let [src_width, src_height] = src_size.into();
-        debug_assert!(src.len() == (src_width as usize * src_height as usize));
-
-        let (dst_vis_cols, src_vis_cols) = {
-            let dst_min = x0.max(0) as u32;
-            let dst_max = ((x0 + src_width as i32) as u32).min(self.width);
-
-            let src_min = (-y0).max(0) as u32;
-            let src_max = src_min + (dst_max - dst_min);
-
-            (dst_min..dst_max, src_min..src_max)
-        };
-
-        let (dst_vis_rows, src_vis_rows) = {
-            let dst_min = y0.max(0) as u32;
-            let dst_max = ((y0 + src_height as i32) as u32).min(self.height);
-
-            let src_min = (-y0).max(0) as u32;
-            let src_max = src_min + (dst_max - dst_min);
-
-            (dst_min..dst_max, src_min..src_max)
-        };
-
-        for (dst_row, src_row) in std::iter::zip(dst_vis_rows, src_vis_rows) {
-            // for dst_row in dst_vis_rows {
-            let col_start = dst_vis_cols.start;
-            let col_len = dst_vis_cols.end - col_start;
-
-            let dst_start = dst_row * self.width + col_start;
-            let dst_end = dst_start + col_len;
-            let dst_range = (dst_start as usize)..(dst_end as usize);
-
-            let dst_slice = &mut self.pixels[dst_range];
-
-            let col_start = src_vis_cols.start;
-            let col_end = src_vis_cols.end;
-            debug_assert_eq!(col_end - col_start, col_len);
-
-            let src_start = src_row * src_width + col_start;
-            let src_end = src_start + col_len;
-            let src_range = (src_start as usize)..(src_end as usize);
-
-            let src_slice = &src[src_range];
-
-            dst_slice.copy_from_slice(src_slice);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
+
+    use std::hash::Hash;
 
     use ultraviolet::DVec2;
 
@@ -514,88 +317,5 @@ mod tests {
         }
 
         (offsets, indices)
-    }
-
-    #[test]
-    fn test_match_op_iter() {
-        let cigar = test_cigar();
-        let (offsets, cg_ix) = cigar_offsets(&cigar);
-
-        let len = cigar.iter().map(|(_, c)| *c).sum::<u64>();
-
-        let iter = MatchOpIter::from_range(&offsets, &cg_ix, &cigar, 0..len);
-
-        for ([tgt, qry], is_match) in iter {
-            println!("[{tgt:3}, {qry:3}] - {is_match}");
-        }
-
-        println!();
-
-        let iter = MatchOpIter::from_range(&offsets, &cg_ix, &cigar, 15..40);
-
-        for ([tgt, qry], is_match) in iter {
-            println!("[{tgt:3}, {qry:3}] - {is_match}");
-        }
-    }
-
-    #[test]
-    fn test_pixel_buffer_blit() {
-        let mut buf = PixelBuffer::new(48, 48);
-
-        let red = PixelBuffer::new_color(8, 8, egui::Color32::RED);
-        let blue = PixelBuffer::new_color(16, 8, egui::Color32::BLUE);
-        let green = PixelBuffer::new_color(8, 16, egui::Color32::GREEN);
-
-        buf.blit_from_buffer([-4, 16], &red);
-        buf.blit_from_buffer([16, 40], &green);
-        buf.blit_from_buffer([40, -3], &blue);
-
-        let mut reds = 0;
-        let mut greens = 0;
-        let mut blues = 0;
-
-        for &px in buf.pixels.iter() {
-            if px == egui::Color32::RED {
-                reds += 1;
-            } else if px == egui::Color32::GREEN {
-                greens += 1;
-            } else if px == egui::Color32::BLUE {
-                blues += 1;
-            }
-        }
-
-        // debug_print_pixel_buffer(&buf);
-        assert_eq!(reds, 4 * 8);
-        assert_eq!(greens, 8 * 8);
-        assert_eq!(blues, 8 * 5);
-    }
-
-    #[allow(dead_code)]
-    fn debug_print_pixel_buffer(buf: &PixelBuffer) {
-        let h_border = (0..buf.width + 2).map(|_| '-').collect::<String>();
-        println!("{h_border}");
-        for row in 0..buf.height {
-            print!("|");
-            for col in 0..buf.width {
-                let ix = (col + row * buf.width) as usize;
-
-                let px = &buf.pixels[ix];
-
-                if !px.is_opaque() {
-                    print!(" ");
-                } else if *px == egui::Color32::RED {
-                    print!("R");
-                } else if *px == egui::Color32::BLUE {
-                    print!("B");
-                } else if *px == egui::Color32::GREEN {
-                    print!("G");
-                } else {
-                    print!(" ");
-                }
-            }
-            println!("|");
-        }
-
-        println!("{h_border}");
     }
 }
