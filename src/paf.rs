@@ -278,25 +278,53 @@ pub struct Alignments {
     pub pairs: FxHashMap<(SeqId, SeqId), Alignment>,
 }
 
-pub fn load_input_files(
-    paf_path: impl AsRef<std::path::Path>,
-    fasta_path: Option<impl AsRef<std::path::Path>>,
-) -> anyhow::Result<(Alignments, Sequences)> {
+pub(crate) fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Sequences)> {
     use std::io::prelude::*;
 
-    let reader = std::fs::File::open(&paf_path).map(std::io::BufReader::new)?;
+    let reader = std::fs::File::open(&cli.paf).map(std::io::BufReader::new)?;
     let mut lines = Vec::new();
 
     for line in reader.lines() {
         lines.push(line?);
     }
+
+    let filter_line = {
+        let target_names = cli
+            .target_seqs
+            .as_ref()
+            .map(|names| names.iter().cloned().collect::<FxHashSet<_>>());
+
+        let query_names = cli
+            .query_seqs
+            .as_ref()
+            .map(|names| names.iter().cloned().collect::<FxHashSet<_>>());
+
+        move |paf_line: &PafLine<&str>| -> bool {
+            if let Some(targets) = &target_names {
+                if !targets.contains(paf_line.tgt_name) {
+                    return false;
+                }
+            }
+
+            if let Some(queries) = &query_names {
+                if !queries.contains(paf_line.query_name) {
+                    return false;
+                }
+            }
+
+            true
+        }
+    };
     println!("parsing {} lines", lines.len());
     let paf_lines = lines
         .iter()
-        .filter_map(|s| parse_paf_line(s.split('\t')))
+        .filter_map(|s| {
+            let line = parse_paf_line(s.split('\t'))?;
+            filter_line(&line).then_some(line)
+        })
         .collect::<Vec<_>>();
 
-    let sequences = if let Some(fasta_path) = fasta_path {
+    let sequences = if let Some(fasta_path) = &cli.fasta {
         Sequences::from_fasta(fasta_path)?
     } else {
         Sequences::from_paf(&paf_lines).unwrap()

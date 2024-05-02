@@ -70,7 +70,7 @@ pub fn main() -> anyhow::Result<()> {
     let args = crate::cli::Cli::parse();
 
     // Load PAF and optional FASTA
-    let (alignments, sequences) = crate::paf::load_input_files(&args.paf, args.fasta)?;
+    let (alignments, sequences) = crate::paf::load_input_files(&args)?;
 
     println!("drawing {} alignments", alignments.pairs.len());
 
@@ -82,6 +82,7 @@ pub fn main() -> anyhow::Result<()> {
         .collect::<Vec<_>>();
     targets.sort_by_key(|(_, l)| *l);
     targets.dedup_by_key(|(id, _)| *id);
+
     let x_axis = grid::GridAxis::from_index_and_lengths(targets);
     let mut queries = alignments
         .pairs
@@ -126,172 +127,6 @@ pub fn main() -> anyhow::Result<()> {
 
     Ok(())
 }
-
-/*
-pub fn old_main() -> anyhow::Result<()> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        env_logger::init();
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-        console_log::init().expect("could not initialize logger");
-    }
-
-    let mut args = std::env::args();
-    let paf_path = args.nth(1).ok_or(anyhow!("Path to PAF not provided"))?;
-
-    let bed_path = args.next();
-
-    // parse paf
-    let reader = std::fs::File::open(&paf_path).map(std::io::BufReader::new)?;
-
-    let mut target_names = FxHashMap::default();
-    let mut query_names = FxHashMap::default();
-
-    let mut targets = Vec::<AlignedSeq>::new();
-    let mut queries = Vec::<AlignedSeq>::new();
-
-    for line in reader.lines() {
-        let line = line?;
-        if let Some(paf_line) = parse_paf_line(line.split('\t')) {
-            let query_name = paf_line.query_name.to_string();
-            let target_name = paf_line.tgt_name.to_string();
-
-            if !query_names.contains_key(&query_name) {
-                query_names.insert(query_name.clone(), queries.len());
-                queries.push(AlignedSeq {
-                    name: query_name,
-                    len: paf_line.query_seq_len,
-                    ..AlignedSeq::default()
-                });
-            }
-
-            if !target_names.contains_key(&target_name) {
-                target_names.insert(target_name.clone(), targets.len());
-                targets.push(AlignedSeq {
-                    name: target_name,
-                    len: paf_line.tgt_seq_len,
-                    ..AlignedSeq::default()
-                });
-            }
-        }
-    }
-
-    targets.sort_by_key(|seq| std::cmp::Reverse(seq.len));
-    queries.sort_by_key(|seq| std::cmp::Reverse(seq.len));
-
-    let mut all_seqs = targets.iter().chain(&queries).cloned().collect::<Vec<_>>();
-    all_seqs.sort_by_cached_key(|seq| (std::cmp::Reverse(seq.len), seq.name.clone()));
-    all_seqs.dedup_by_key(|seq| (std::cmp::Reverse(seq.len), seq.name.clone()));
-
-    let process_aligned = |names: &mut FxHashMap<String, usize>, aseqs: &mut [AlignedSeq]| {
-        let mut offset = 0;
-
-        for (new_id, seq) in aseqs.iter_mut().enumerate() {
-            if let Some(id) = names.get_mut(&seq.name) {
-                *id = new_id;
-            }
-            seq.offset = offset;
-            offset += seq.len;
-        }
-
-        offset
-    };
-
-    let target_len = process_aligned(&mut target_names, &mut targets);
-    let query_len = process_aligned(&mut query_names, &mut queries);
-
-    let seq_names = target_names
-        .iter()
-        .chain(&query_names)
-        .map(|(n, i)| (n.clone(), SeqId(*i)))
-        .collect::<bimap::BiMap<_, _>>();
-    let seq_names = Arc::new(seq_names);
-
-    let x_axis = grid::GridAxis::from_sequences(&seq_names, &targets);
-    let y_axis = grid::GridAxis::from_sequences(&seq_names, &queries);
-
-    // process matches
-    let mut processed_lines = Vec::new();
-
-    let reader = std::fs::File::open(&paf_path).map(std::io::BufReader::new)?;
-
-    let mut pair_line_ix = FxHashMap::default();
-
-    for line in reader.lines() {
-        let line = line?;
-        let Some(paf_line) = parse_paf_line(line.split('\t')) else {
-            continue;
-        };
-
-        let target = seq_names.get_by_left(paf_line.tgt_name);
-        let query = seq_names.get_by_left(paf_line.query_name);
-
-        let (Some(target_i), Some(query_i)) = (target, query) else {
-            continue;
-        };
-
-        // let origin = {
-        //     let x0 = x_axis.sequence_offset(*target_i).unwrap();
-        //     let y0 = y_axis.sequence_offset(*query_i).unwrap();
-        //     // let x0 = &targets[*target_i].offset;
-        //     // let y0 = &queries[*query_i].offset;
-
-        //     let x = x0 + paf_line.tgt_seq_start;
-        //     let y = if paf_line.strand_rev {
-        //         y0 + paf_line.query_seq_end
-        //     } else {
-        //         y0 + paf_line.query_seq_start
-        //     };
-        //     [x as u64, y as u64]
-        // };
-
-        pair_line_ix.insert((*target_i, *query_i), processed_lines.len());
-        processed_lines.push(ProcessedCigar::from_line_local(&seq_names, &paf_line)?);
-        // processed_lines.push(ProcessedCigar::from_line(&seq_names, &paf_line, origin)?);
-
-        // process_cigar(&paf_line, origin, &mut match_edges)?;
-        // process_cigar_compress(&paf_line, origin, target_len, query_len, &mut match_edges)?;
-    }
-
-    let paf_input = PafInput {
-        queries,
-        targets,
-        pair_line_ix,
-        processed_lines,
-    };
-
-    let mut annotations = AnnotationStore::default();
-
-    println!("sum target len: {target_len}");
-    println!("sum query len: {query_len}");
-    let total_matches: usize = paf_input
-        .processed_lines
-        .iter()
-        .map(|l| l.match_edges.len())
-        .sum();
-    println!("drawing {} matches", total_matches);
-
-    let alignment_grid = AlignmentGrid {
-        x_axis,
-        y_axis,
-        sequence_names: seq_names.clone(),
-    };
-
-    let app = PafViewerApp {
-        alignment_grid,
-        paf_input,
-        seq_names,
-        annotations,
-    };
-
-    start_window(app);
-
-    Ok(())
-}
-*/
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd, Pod, Zeroable)]
 #[repr(C)]

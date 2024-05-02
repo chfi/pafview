@@ -14,4 +14,12 @@ pub(crate) struct Cli {
     /// Path to BED annotation file
     #[arg(long)]
     pub bed: Option<PathBuf>,
+
+    /// Optional list of sequences to include as targets (X axis)
+    #[arg(long)]
+    pub target_seqs: Option<Vec<String>>,
+
+    /// Optional list of sequences to include as queries (Y axis)
+    #[arg(long)]
+    pub query_seqs: Option<Vec<String>>,
 }
