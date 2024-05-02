@@ -28,9 +28,20 @@ impl AlignmentLocation {
         self.query_range.end - self.query_range.start
     }
 
+    pub fn map_from_local_target_offset(&self, target_offset: u64) -> u64 {
+        self.target_range.start + target_offset
+    }
+
+    pub fn map_from_local_query_offset(&self, query_offset: u64) -> u64 {
+        match self.query_strand {
+            Strand::Forward => self.query_range.start + query_offset,
+            Strand::Reverse => self.query_range.end.checked_sub(query_offset).unwrap_or(0),
+        }
+    }
+
     /// Maps `local_range` so that it is offset according to `self.target_range`
     /// `local_range.end` must be smaller than or equal to `self.aligned_target_len()`
-    pub fn map_from_local_target_range(
+    pub fn map_from_aligned_target_range(
         &self,
         local_range: std::ops::Range<u64>,
     ) -> std::ops::Range<u64> {
@@ -44,7 +55,7 @@ impl AlignmentLocation {
     /// the output will point to the last 10 bytes of the aligned part of the query sequence
     ///
     /// `local_range.end` must be smaller than or equal to `self.aligned_query_len()`
-    pub fn map_from_local_query_range(
+    pub fn map_from_aligned_query_range(
         &self,
         local_range: std::ops::Range<u64>,
     ) -> std::ops::Range<u64> {
@@ -151,10 +162,10 @@ impl<'cg> Iterator for AlignmentIter<'cg> {
         let cg_item = self.cigar_iter.next()?;
         let target_range = self
             .location
-            .map_from_local_target_range(cg_item.target_range);
+            .map_from_aligned_target_range(cg_item.target_range);
         let query_range = self
             .location
-            .map_from_local_query_range(cg_item.query_range);
+            .map_from_aligned_query_range(cg_item.query_range);
 
         Some(AlignmentIterItem {
             op: cg_item.op,
@@ -244,8 +255,8 @@ impl Alignment {
                 }
             };
 
-            let tgt_range = location.map_from_local_target_range(tgt_cg..tgt_end);
-            let qry_range = location.map_from_local_query_range(qry_cg..qry_end);
+            let tgt_range = location.map_from_aligned_target_range(tgt_cg..tgt_end);
+            let qry_range = location.map_from_aligned_query_range(qry_cg..qry_end);
 
             let mut from = DVec2::new(tgt_range.start as f64, qry_range.start as f64);
             let mut to = DVec2::new(tgt_range.end as f64, qry_range.end as f64);
@@ -271,6 +282,70 @@ impl Alignment {
         target_range: std::ops::Range<u64>,
     ) -> AlignmentIter<'cg> {
         AlignmentIter::new(&self, target_range)
+    }
+
+    pub fn query_offset_at_target(&self, target_offset: u64) -> u64 {
+        /*
+        use std::cmp::Ordering;
+        let query_offset = match (
+            target_offset.cmp(&self.location.target_range.start),
+            self.location.query_strand,
+        ) {
+            (Ordering::Less, Strand::Forward)
+            | (Ordering::Greater, Strand::Reverse) => {
+                0
+                // self.location.query_range.start
+                // todo!()
+            }
+            (Ordering::Less, Strand::Reverse)
+            | (Ordering::Greater, Strand::Forward) => {
+                self.location.query_total_len
+                // self.location.query_range.end
+                // todo!()
+            }
+            (Ordering::Equal, Strand::Forward) => {
+                todo!()
+            }
+            (Ordering::Equal, Strand::Reverse) => {
+                todo!()
+            }
+        };
+        */
+
+        if target_offset < self.location.target_range.start {
+            if self.location.query_strand.is_rev() {
+                self.location.query_total_len
+                // self.location.query_range.end
+            } else {
+                0
+                // self.location.query_range.start
+            }
+        } else if target_offset >= self.location.target_range.end {
+            if self.location.query_strand.is_rev() {
+                0
+                // self.location.query_range.start
+            } else {
+                self.location.query_total_len
+                // self.location.query_range.end
+            }
+        } else {
+            let op_ix = self
+                .cigar
+                .op_target_offsets
+                .partition_point(|&offset| offset < target_offset);
+            let ix = op_ix.min(self.cigar.op_query_offsets.len() - 1);
+            let target_origin = self.cigar.op_target_offsets[ix];
+            let mut query_offset = self.cigar.op_query_offsets[ix];
+
+            if let Some((op, _count)) = self.cigar.cigar.get(ix) {
+                if op.consumes_query() && target_offset > target_origin {
+                    let delta = target_offset - target_origin;
+                    query_offset += delta;
+                }
+            }
+
+            self.location.map_from_local_query_offset(query_offset)
+        }
     }
 }
 
