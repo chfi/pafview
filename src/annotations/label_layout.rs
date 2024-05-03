@@ -12,7 +12,7 @@ use rapier2d::{
 use rustc_hash::FxHashMap;
 use ultraviolet::DVec2;
 
-use crate::PafViewerApp;
+use crate::{sequences::SeqId, PafViewerApp};
 
 // TODO generalize for query annotations that "fall right" too
 pub struct LabelDef<'a> {
@@ -45,38 +45,20 @@ to the visualized alignment
 
 
 
+one approach, to part of the solution...
+
+ * track "anchor" in world space...
+ * labels live in screen space, but are influenced by the screen space
+     projection of their world space anchor
+ * when panning or zooming, the label will initially not be moved,
+     only being affected by the anchor-related dynamics due to the
+     anchor being moved to a different screen position
+ * (maybe) anchors exert repulsive forces on one another when close
+ * labels will try to sit above their anchor, moving vertically to avoid overlap
+ * (maybe) if the new position is farther away than some constant threshold,
+     collapse "into" the overlapping label
 
 */
-
-// Binned linear approximation of the "height" of the alignment
-// above the major axis
-struct AlignmentHeightMap {
-    len: u64,
-    bin_size: u64,
-    bins: Vec<u64>,
-}
-
-impl AlignmentHeightMap {
-    fn alignment_query_height(alignment: &crate::paf::Alignment) -> Self {
-        let bin_count = 4096;
-        let len = alignment.location.aligned_target_len();
-        let bin_size = len / bin_count;
-
-        let mut bins = Vec::with_capacity(bin_count as usize);
-
-        let mut last_bin_end = None;
-
-        for i in 0..bin_count {
-            todo!();
-        }
-
-        AlignmentHeightMap {
-            len,
-            bin_size,
-            bins,
-        }
-    }
-}
 
 pub fn debug_window(ctx: &egui::Context, app: &PafViewerApp, view: &crate::view::View) {
     let labels = vec![
@@ -99,6 +81,40 @@ pub fn debug_window(ctx: &egui::Context, app: &PafViewerApp, view: &crate::view:
         for (pos, galley) in placed_labels.iter() {
             painter.galley(*pos, galley.clone(), egui::Color32::BLACK);
         }
+    }
+
+    let binned_index = ctx
+        .data(|data| data.get_temp::<Option<Arc<BinnedCigarIndex>>>(id))
+        .unwrap_or_default();
+
+    if binned_index.is_none() {
+        let alignment = app.alignments.pairs.values().next().unwrap();
+        let binned_index = bin_cigar_index(&alignment.cigar, 4096);
+        ctx.data_mut(|data| data.insert_temp(id, Some(Arc::new(binned_index))));
+    }
+
+    let mat = view.to_mat4();
+
+    if let Some(bins) = binned_index.as_ref() {
+        let alignment = app.alignments.pairs.values().next().unwrap();
+        let world_y0 = alignment.location.query_range.start as f32;
+        let world_x0 = alignment.location.target_range.start as f32;
+
+        let world_origin =
+            ultraviolet::Vec4::new(world_x0, bins.bins[0] as f32 + world_y0, 0.0, 0.0);
+        let screen_origin = mat * world_origin;
+
+        println!("screen_origin: {screen_origin:?}");
+        let rect = egui::Rect::from_center_size(
+            [screen_origin.x, screen_origin.y].into(),
+            [50.0, 50.0].into(),
+        );
+        painter.rect(
+            rect,
+            0.0,
+            egui::Color32::BLUE,
+            egui::Stroke::new(2.0, egui::Color32::GREEN),
+        );
     }
 
     egui::Window::new("Label Placement Test").show(&ctx, |ui| {
@@ -293,4 +309,239 @@ where
     }
 
     placed_labels
+}
+
+// Binned linear approximation of the "height" of the alignment
+// above the major axis
+pub struct BinnedCigarIndex {
+    pub bins: Vec<f64>,
+    pub x_min: f64,
+    pub bin_size: f64,
+}
+
+impl BinnedCigarIndex {
+    pub fn new(bins: Vec<f64>, x_min: f64, bin_size: f64) -> Self {
+        BinnedCigarIndex {
+            bins,
+            x_min,
+            bin_size,
+        }
+    }
+
+    pub fn lookup(&self, x: f64) -> f64 {
+        if self.bins.is_empty() {
+            return 0.0; // No bins, return default value
+        }
+
+        // Calculate bin index
+        let index = ((x - self.x_min) / self.bin_size).floor() as usize;
+
+        // If the index is out of bounds, clamp to the bounds of the bins
+        if index >= self.bins.len() - 1 {
+            return *self.bins.last().unwrap();
+        }
+
+        // Linear interpolation
+        let x0 = self.x_min + index as f64 * self.bin_size;
+        let y0 = self.bins[index];
+        let x1 = x0 + self.bin_size;
+        let y1 = self.bins[index + 1];
+
+        y0 + (x - x0) * (y1 - y0) / (x1 - x0)
+    }
+}
+
+pub fn bin_cigar_index(cigar: &crate::CigarIndex, bin_count: usize) -> BinnedCigarIndex {
+    // Ensure there are points and bins to process
+    if cigar.op_target_offsets.is_empty() || bin_count == 0 {
+        return BinnedCigarIndex::new(vec![], 0.0, 0.0);
+    }
+
+    // Find the range of X values
+    let x_min = *cigar.op_target_offsets.first().unwrap();
+    let x_max = *cigar.op_target_offsets.last().unwrap();
+    let x_range = x_max - x_min;
+    let bin_size = x_range as f64 / bin_count as f64;
+
+    // Initialize bins
+    let mut bins = vec![0.0; bin_count];
+    let mut bin_counts = vec![0; bin_count];
+
+    // Populate bins with average Y values
+    for (x, y) in cigar.op_target_offsets.iter().zip(&cigar.op_query_offsets) {
+        let bin_index = (((*x - x_min) as f64 / bin_size) as usize).min(bin_count - 1);
+        bins[bin_index] += *y as f64;
+        bin_counts[bin_index] += 1;
+    }
+
+    // Compute the average for each bin
+    for i in 0..bin_count {
+        if bin_counts[i] > 0 {
+            bins[i] /= bin_counts[i] as f64;
+        }
+    }
+
+    BinnedCigarIndex::new(bins, x_min as f64, bin_size)
+}
+
+/*
+pub fn bin_cigar_index(cigar: &crate::CigarIndex, bin_count: usize) -> BinnedCigarIndex {
+    // Ensure there are points and bins to process
+    if cigar.op_target_offsets.is_empty() || bin_count == 0 {
+        return BinnedCigarIndex { bins: vec![] };
+    }
+
+    // Find the range of X values
+    let x_min = *cigar.op_target_offsets.first().unwrap();
+    let x_max = *cigar.op_target_offsets.last().unwrap();
+    let x_range = x_max - x_min;
+    let bin_size = x_range as f64 / bin_count as f64;
+
+    // Initialize bins
+    let mut bins = vec![0.0; bin_count];
+    let mut bin_counts = vec![0; bin_count];
+
+    // Populate bins with average Y values
+    for (x, y) in cigar.op_target_offsets.iter().zip(&cigar.op_query_offsets) {
+        let bin_index = (((*x - x_min) as f64 / bin_size) as usize).min(bin_count - 1);
+        bins[bin_index] += *y as f64;
+        bin_counts[bin_index] += 1;
+    }
+
+    // Compute the average for each bin
+    for i in 0..bin_count {
+        if bin_counts[i] > 0 {
+            bins[i] /= bin_counts[i] as f64;
+        }
+    }
+
+    BinnedCigarIndex { bins }
+}
+*/
+
+/*
+impl BinnedCigarIndex {
+    // Method to get interpolated value for a given x
+    pub fn interpolate(&self, x: u64, x_min: u64, x_max: u64, bin_count: usize) -> f64 {
+        if self.bins.is_empty() {
+            return 0.0; // Return default if there are no bins
+        }
+
+        // Calculate bin size
+        let x_range = x_max - x_min;
+        let bin_size = x_range as f64 / bin_count as f64;
+
+        // Handle edge cases
+        if x <= x_min {
+            return self.bins[0];
+        }
+        if x >= x_max {
+            return self.bins.last().unwrap().clone();
+        }
+
+        // Calculate bin indices
+        let bin_index = ((x - x_min) as f64 / bin_size) as usize;
+        let bin_index_next = bin_index + 1;
+
+        // Handle the last bin case
+        if bin_index_next >= self.bins.len() {
+            return self.bins[bin_index];
+        }
+
+        // Linear interpolation
+        let x1 = x_min as f64 + bin_index as f64 * bin_size;
+        let x2 = x_min as f64 + bin_index_next as f64 * bin_size;
+        let y1 = self.bins[bin_index];
+        let y2 = self.bins[bin_index_next];
+
+        // Interpolation formula
+        let interpolated_value = y1 + (y2 - y1) * ((x as f64 - x1) / (x2 - x1));
+        interpolated_value
+    }
+}
+*/
+
+struct LabelState {
+    galley: Arc<Galley>,
+
+    anchor_world: Option<ultraviolet::DVec2>,
+    pos_screen: Option<ultraviolet::Vec2>,
+}
+
+pub struct LabelLayoutState {
+    // world space
+    labels: Vec<(String, std::ops::Range<f64>)>,
+
+    alignment_heights: FxHashMap<(SeqId, SeqId), BinnedCigarIndex>,
+
+    label_state: Vec<LabelState>,
+}
+
+impl LabelLayoutState {
+    pub fn from_alignments(
+        alignments: &FxHashMap<(SeqId, SeqId), crate::paf::Alignment>,
+        labels: impl IntoIterator<Item = (String, std::ops::Range<f64>)>,
+    ) -> Self {
+        let mut alignment_heights = FxHashMap::default();
+
+        for (key, alignment) in alignments.iter() {
+            let binned = bin_cigar_index(&alignment.cigar, 4096);
+            alignment_heights.insert(key.clone(), binned);
+        }
+
+        LabelLayoutState {
+            labels: labels.into_iter().collect(),
+            alignment_heights,
+            label_state: Vec::new(),
+        }
+    }
+
+    pub fn update(&mut self, ctx: &egui::Context, view: &crate::view::View) {
+        // initialize galleys so the size of each label is known
+        if self.labels.len() > self.label_state.len() {
+            ctx.fonts(|fonts| {
+                let to_add = self.label_state.len()..self.labels.len();
+
+                for i in to_add {
+                    let (text, _) = &self.labels[i];
+                    let galley = fonts.layout(
+                        text.clone(),
+                        egui::FontId::monospace(12.0),
+                        egui::Color32::BLACK,
+                        256.0,
+                    );
+
+                    self.label_state.push(LabelState {
+                        galley,
+                        anchor_world: None,
+                        pos_screen: None,
+                    });
+                }
+            })
+        }
+
+        // need to know which alignments to check at this point
+
+        let screen_dims = ctx.screen_rect().size();
+
+        for ((_, world_range), state) in std::iter::zip(&self.labels, &self.label_state) {
+            //
+        }
+    }
+}
+
+pub struct LabelLayoutTest {
+    // width in pixels, range in world space
+    labels: Vec<(f32, std::ops::Range<f64>)>,
+    heights: BinnedCigarIndex,
+}
+
+impl LabelLayoutTest {
+    pub fn show(&mut self, ctx: &egui::Context) {
+        egui::Window::new("LabelLayoutTest2").show(ctx, |ui| {
+            if ui.button("Initialize").clicked() {
+                // ...
+            }
+        });
+    }
 }
