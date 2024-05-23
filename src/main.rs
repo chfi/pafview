@@ -23,6 +23,7 @@ use std::io::prelude::*;
 use anyhow::anyhow;
 
 pub mod cigar;
+pub mod math_conv;
 pub mod paf;
 pub mod pixels;
 
