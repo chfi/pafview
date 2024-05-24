@@ -18,6 +18,13 @@ use self::draw::AnnotShapeId;
 pub mod draw;
 pub mod label_layout;
 
+pub mod physics;
+
+// TODO newtype these
+pub type RecordListId = usize;
+pub type RecordEntryId = usize;
+pub type AnnotationId = (RecordListId, RecordEntryId);
+
 #[derive(Default)]
 pub struct AnnotationStore {
     annotation_sources: BiMap<String, usize>,
