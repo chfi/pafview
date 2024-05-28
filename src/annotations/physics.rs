@@ -44,12 +44,13 @@ implement LabelPhysics::step()
 integrate with annotation store, GUI, and rendering
 
 */
-
 #[derive(Default)]
 pub struct LabelPhysics {
     pub rigid_body_set: RigidBodySet,
     pub collider_set: ColliderSet,
     pub query_pipeline: QueryPipeline,
+
+    physics: Physics,
 
     // annotation_map: AnnotationDefs,
     annotations: FxHashMap<super::AnnotationId, AnnotationData>,
@@ -72,7 +73,7 @@ struct AnnotationData {
 struct LabelHandles {
     annotation_id: Vec<super::AnnotationId>,
     anchor_screen_pos: Vec<Option<Vec2>>,
-    anchor_rigid_body: Vec<Option<RigidBodyHandle>>,
+    label_rigid_body: Vec<Option<RigidBodyHandle>>,
 }
 
 impl LabelHandles {
@@ -80,7 +81,7 @@ impl LabelHandles {
         let id = self.annotation_id.len();
         self.annotation_id.push(annot_id);
         self.anchor_screen_pos.push(None);
-        self.anchor_rigid_body.push(None);
+        self.label_rigid_body.push(None);
         id
     }
 }
@@ -143,8 +144,9 @@ impl LabelPhysics {
 
             // find anchor target (X) pos (middle of screen intersection w/ range)
 
-            // project target onto heightfield*
-            //  -- need to know which heightfield to use here
+            // project target onto heightfield
+
+            // update annotation anchor position (remove if offscreen)
         }
 
         //
@@ -152,12 +154,154 @@ impl LabelPhysics {
     }
 
     pub fn update_labels(&mut self, viewport: &Viewport) {
-        //
+        for (annot_id, annot_data) in self.annotations.iter() {
+            let handle_ix = annot_data.target_label_ix;
+
+            if let Some(anchor_pos) = self.target_labels.anchor_screen_pos[handle_ix] {
+                if self.target_labels.label_rigid_body[handle_ix].is_none() {
+                    // initialize label rigid body
+                    // create collider
+                    // position
+                    todo!();
+                }
+
+                // if label not visible,
+                // show label, enable physics object
+
+                let Some((rb_handle, rigid_body)) = self.target_labels.label_rigid_body[handle_ix]
+                    .and_then(|rb_handle| {
+                        let rigid_body = self.rigid_body_set.get_mut(rb_handle)?;
+                        Some((rb_handle, rigid_body))
+                    })
+                else {
+                    continue;
+                };
+
+                if !rigid_body.is_enabled() {
+                    rigid_body.set_enabled(true);
+                }
+            } else {
+                // hide label, disable physics object
+
+                let Some((rb_handle, rigid_body)) = self.target_labels.label_rigid_body[handle_ix]
+                    .and_then(|rb_handle| {
+                        let rigid_body = self.rigid_body_set.get_mut(rb_handle)?;
+                        Some((rb_handle, rigid_body))
+                    })
+                else {
+                    continue;
+                };
+
+                if rigid_body.is_enabled() {
+                    rigid_body.set_enabled(false);
+                }
+            }
+        }
+
         todo!();
     }
 
     pub fn step(&mut self, dt: f32, viewport: &Viewport) {
-        todo!();
+        self.physics.step(
+            &mut self.rigid_body_set,
+            &mut self.collider_set,
+            &mut self.query_pipeline,
+        );
+    }
+}
+
+impl LabelPhysics {
+    fn find_position_for_screen_rectangle(
+        &self,
+        viewport: &Viewport,
+        proposed_center: impl Into<[f32; 2]>,
+        rect_size: impl Into<[f32; 2]>,
+    ) -> Option<ultraviolet::Vec2> {
+        let screen_world = viewport.screen_world_mat3();
+
+        let center = proposed_center.as_uv();
+        let size = rect_size.as_uv();
+
+        // idk if this is right
+        let screen_norm_size = size / viewport.canvas_size;
+        let world_size = screen_norm_size * viewport.view_size;
+
+        let world_center = screen_world.transform_point2(center);
+
+        // find height using heightmap
+        let ground_y = todo!();
+        // let ground_y = self.heightfield_project_world_x(world_center.x + world_size.x * 0.5)?;
+
+        let screen_center = viewport
+            .world_screen_mat3()
+            .transform_point2([world_center.x, ground_y].as_uv());
+
+        let this_shape = Cuboid::new((size * 0.5).as_na());
+
+        let mut intersecting = Vec::new();
+        let mut cur_position = nalgebra::Isometry2::translation(screen_center.x, screen_center.y);
+
+        let mut can_add = false;
+
+        let mut iter_count = 0;
+        const ITER_LIMIT: usize = 10;
+
+        loop {
+            let this_aabb = this_shape.aabb(&cur_position);
+
+            // self.query_pipeline.intersections_with_shape(bodies, colliders, shape_pos, shape, filter, callback)
+            intersecting.clear();
+            self.query_pipeline
+                .colliders_with_aabb_intersecting_aabb(&this_aabb, |other_handle| {
+                    //
+                    intersecting.push(*other_handle);
+                    false
+                });
+
+            // {
+            // let pos = (cur_position.translation.as_uv())
+            //         painter.rect_stroke(
+            //             egui::Rect::from_center_size(pos.as_epos2(), size.as_evec2()),
+            //             0.0,
+            //             egui::Stroke::new(1.0, egui::Color32::BLACK),
+            //         );
+            // }
+
+            if intersecting.is_empty() {
+                can_add = true;
+                break;
+            }
+
+            for other_handle in &intersecting {
+                let Some(other_aabb) = self
+                    .collider_set
+                    .get(*other_handle)
+                    .map(|c| c.compute_aabb())
+                else {
+                    continue;
+                };
+                let overlap = aabb_overlap(&this_aabb, &other_aabb);
+                if overlap.x.abs() > 0.0 && overlap.y.abs() > 0.0 {
+                    cur_position.translation.y = other_aabb.center().y
+                        - other_aabb.half_extents().y
+                        - this_shape.half_extents.y
+                        - 0.1;
+                    //
+                }
+                //
+            }
+
+            if iter_count >= ITER_LIMIT {
+                break;
+            }
+            iter_count += 1;
+        }
+
+        if can_add {
+            Some(cur_position.translation.as_uv())
+        } else {
+            None
+        }
     }
 }
 
@@ -185,6 +329,8 @@ impl AlignmentHeightFields {
         viewport: &Viewport,
         world_target: f64,
     ) -> Option<&LabelHeightField> {
+        let (tgt_id, seq_pos) = grid.x_axis.global_to_axis_local(world_target)?;
+
         todo!();
         None
     }
@@ -209,7 +355,45 @@ struct LabelHeightField {
 
 impl LabelHeightField {
     fn from_alignment(alignment: &Alignment, bin_count: usize) -> Self {
-        todo!();
+        let location = alignment.location;
+        let target_id = alignment.target_id;
+        let query_id = alignment.query_id;
+
+        let bin_size = location.aligned_target_len() as f32 / bin_count as f32;
+
+        let mut bins = vec![0.0; bin_count];
+
+        let mut y_max = f32::NEG_INFINITY;
+
+        // TODO this can be done faster
+
+        let mut bin_ix = 0;
+        let mut current_bin_end = bin_size.floor() as usize;
+
+        let cigar = &alignment.cigar;
+        for (&x, &y) in std::iter::zip(&cigar.op_target_offsets, &cigar.op_query_offsets) {
+            // shouldn't happen, but
+            if bin_ix >= bins.len() {
+                break;
+            }
+
+            let yf = y as f32;
+            if bins[bin_ix] > yf {
+                bins[bin_ix] = yf;
+                y_max = y_max.max(yf);
+            }
+
+            if x as usize >= current_bin_end {
+                bin_ix += 1;
+                current_bin_end = ((bin_ix + 1) as f32 * bin_size).floor() as usize;
+            }
+        }
+
+        let scale_x = location.aligned_target_len() as f32;
+        let heights = nalgebra::DVector::from_vec(bins);
+        let heightfield = HeightField::new(heights, [scale_x, 1.0]);
+
+        Self { heightfield }
     }
 }
 
@@ -325,5 +509,85 @@ impl AnnotationRange {
                 query_range,
             }),
         }
+    }
+}
+
+fn aabb_overlap(
+    aabb1: &rapier2d::geometry::Aabb,
+    aabb2: &rapier2d::geometry::Aabb,
+) -> nalgebra::Vector2<f32> {
+    let center1 = aabb1.center();
+    let center2 = aabb2.center();
+
+    let half_extents1 = aabb1.half_extents();
+    let half_extents2 = aabb2.half_extents();
+
+    let overlap_x = (half_extents1.x + half_extents2.x) - (center2.x - center1.x).abs();
+    let overlap_y = (half_extents1.y + half_extents2.y) - (center2.y - center1.y).abs();
+
+    let sign_x = (center2.x - center1.x).signum();
+    let sign_y = (center2.y - center1.y).signum();
+
+    nalgebra::Vector2::new(overlap_x * sign_x, overlap_y * sign_y)
+}
+
+struct Physics {
+    gravity: nalgebra::Vector2<f32>,
+    physics_pipeline: PhysicsPipeline,
+    integration_parameters: IntegrationParameters,
+    island_manager: IslandManager,
+    broad_phase: DefaultBroadPhase,
+    narrow_phase: NarrowPhase,
+    impulse_joint_set: ImpulseJointSet,
+    multibody_joint_set: MultibodyJointSet,
+    ccd_solver: CCDSolver,
+}
+
+impl std::default::Default for Physics {
+    fn default() -> Self {
+        Self {
+            // gravity: vector![0.0, 0.0],
+            gravity: vector![0.0, 9.81],
+            // gravity: vector![0.0, 20.0],
+            // gravity: vector![0.0, 8.0],
+            physics_pipeline: PhysicsPipeline::default(),
+            integration_parameters: IntegrationParameters::default(),
+            island_manager: IslandManager::default(),
+            broad_phase: DefaultBroadPhase::default(),
+            narrow_phase: NarrowPhase::default(),
+            impulse_joint_set: ImpulseJointSet::default(),
+            multibody_joint_set: MultibodyJointSet::default(),
+            ccd_solver: CCDSolver::default(),
+        }
+    }
+}
+
+impl Physics {
+    fn step(
+        &mut self,
+        rigid_bodies: &mut RigidBodySet,
+        colliders: &mut ColliderSet,
+        query_pipeline: &mut QueryPipeline,
+        // physics_hooks: Option<&dyn PhysicsHooks>,
+        // event_handler: Option<&dyn EventHandler>,
+    ) {
+        let physics_hooks = ();
+        let event_handler = ();
+
+        self.physics_pipeline.step(
+            &self.gravity,
+            &self.integration_parameters,
+            &mut self.island_manager,
+            &mut self.broad_phase,
+            &mut self.narrow_phase,
+            rigid_bodies,
+            colliders,
+            &mut self.impulse_joint_set,
+            &mut self.multibody_joint_set,
+            &mut self.ccd_solver,
+            Some(query_pipeline),
+            &physics_hooks,
+            &event_handler,
+        );
     }
 }
