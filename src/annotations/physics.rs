@@ -10,17 +10,23 @@ use crate::{paf::Alignment, view::View};
 
 use crate::math_conv::*;
 
+use super::draw::AnnotationPainter;
 use super::AnnotationStore;
 
 /*
 
 TODO:
 
-- finish heightfield projection
-- anchor initialization & update
-- label creation
+- finish heightfield projection (doneish)
+- anchor initialization & update (done)
+- label creation (doneish)
 - enable/disable physics & rendering via existing UI
 - hooking up to rendering
+-*- DrawAnnotation for AnnotationLabel chooses positions entirely by itself;
+-*-*-  we need to feed the positions to the AnnotationPainter somehow
+-*-*-  makes sense to have some sort of position associated with pretty much any displayed annotation, anyway
+
+
 - labels for query annotations
 
 */
@@ -32,6 +38,8 @@ pub struct LabelPhysics {
     pub query_pipeline: QueryPipeline,
 
     physics: Physics,
+
+    pub heightfields: AlignmentHeightFields,
 
     // annotation_map: AnnotationDefs,
     annotations: FxHashMap<super::AnnotationId, AnnotationData>,
@@ -119,22 +127,71 @@ impl LabelPhysics {
 }
 
 impl LabelPhysics {
-    pub fn update_anchors(&mut self, viewport: &Viewport) {
+    pub fn update_anchors(&mut self, grid: &AlignmentGrid, viewport: &Viewport) {
+        use ultraviolet::mat::*;
+        use ultraviolet::vec::*;
+        let world_screen = viewport.world_screen_dmat3();
+        let [xs, ys, zs] = world_screen.cols;
+        let ws_x2 = DMat3x2::new(DVec3x2::splat(xs), DVec3x2::splat(ys), DVec3x2::splat(zs));
+
+        let (vx_min, vx_max) = viewport.x_range().into_inner();
+
         for (annot_id, annot_data) in self.annotations.iter() {
             // target for now
 
             // find anchor target (X) pos (middle of screen intersection w/ range)
+            let Some(world_range) = annot_data.world_range.target_range() else {
+                continue;
+            };
+
+            let (wx_min, wx_max) = world_range.clone().into_inner();
+
+            let screen_xrange = ws_x2
+                .transform_point2(DVec2x2::new([wx_min, wx_max].into(), [0.0, 0.0].into()))
+                .x;
+
+            let &[sx_min, sx_max] = screen_xrange.as_array_ref();
+
+            let cl_min = sx_min.clamp(vx_min, vx_max);
+            let cl_max = sx_max.clamp(vx_min, vx_max);
+
+            let cl_mid = (cl_min + cl_max) * 0.5;
 
             // project target onto heightfield
+            let Some(mid_y) =
+                self.heightfields
+                    .project_screen_from_top(grid, viewport, cl_mid as f32)
+            else {
+                continue;
+            };
+            // let left_y = self
+            //     .heightfields
+            //     .project_screen_from_top(grid, viewport, sx_min as f32);
+            // let right_y = self
+            //     .heightfields
+            //     .project_screen_from_top(grid, viewport, sx_max as f32);
 
             // update annotation anchor position (remove if offscreen)
-        }
+            let new_anchor = if sx_max < vx_min
+                || sx_min > vx_max
+                || mid_y < 0.0
+                || mid_y > viewport.canvas_size.y
+            {
+                None
+            } else {
+                Some([cl_mid as f32, mid_y].as_uv())
+            };
 
-        //
-        todo!();
+            self.target_labels.anchor_screen_pos[annot_data.target_label_ix] = new_anchor;
+        }
     }
 
-    pub fn update_labels(&mut self, viewport: &Viewport) {
+    pub fn update_labels(
+        &mut self,
+        grid: &AlignmentGrid,
+        painter: &mut AnnotationPainter,
+        viewport: &Viewport,
+    ) {
         for (annot_id, annot_data) in self.annotations.iter() {
             let handle_ix = annot_data.target_label_ix;
 
@@ -145,7 +202,9 @@ impl LabelPhysics {
                     // initialize label rigid body
                     let size = annot_data.size;
 
-                    if let Some(label_pos) = self.try_to_place_label(viewport, anchor_pos, size) {
+                    if let Some(label_pos) =
+                        self.try_to_place_label(grid, viewport, anchor_pos, size)
+                    {
                         let collider = ColliderBuilder::cuboid(size.x * 0.5, size.y * 0.5)
                             .mass(1.0)
                             // .friction(0.1)
@@ -208,8 +267,6 @@ impl LabelPhysics {
                 }
             }
         }
-
-        todo!();
     }
 
     pub fn step(&mut self, dt: f32, viewport: &Viewport) {
@@ -271,17 +328,19 @@ impl LabelPhysics {
 impl LabelPhysics {
     fn try_to_place_label(
         &self,
+        grid: &AlignmentGrid,
         viewport: &Viewport,
         // anchor_screen_x_range: std::
         anchor_pos: Vec2,
         rect_size: impl Into<[f32; 2]>,
     ) -> Option<ultraviolet::Vec2> {
         let proposed_center = anchor_pos + [0.0, -40.0].as_uv();
-        self.find_position_for_screen_rectangle(viewport, proposed_center, rect_size)
+        self.find_position_for_screen_rectangle(grid, viewport, proposed_center, rect_size)
     }
 
     fn find_position_for_screen_rectangle(
         &self,
+        grid: &AlignmentGrid,
         viewport: &Viewport,
         proposed_center: impl Into<[f32; 2]>,
         rect_size: impl Into<[f32; 2]>,
@@ -299,12 +358,15 @@ impl LabelPhysics {
         let world_center = screen_world.transform_point2(center);
 
         // find height using heightmap
-        let ground_y = todo!();
+        let ground_screen_y = self
+            .heightfields
+            .project_screen_from_top(grid, viewport, center.x)?;
+        // let ground_y = todo!();
         // let ground_y = self.heightfield_project_world_x(world_center.x + world_size.x * 0.5)?;
 
         let screen_center = viewport
             .world_screen_mat3()
-            .transform_point2([world_center.x, ground_y].as_uv());
+            .transform_point2([world_center.x, 0.0].as_uv());
 
         let this_shape = Cuboid::new((size * 0.5).as_na());
 
@@ -375,12 +437,13 @@ impl LabelPhysics {
     }
 }
 
-struct AlignmentHeightFields {
+#[derive(Default)]
+pub struct AlignmentHeightFields {
     heightfields: FxHashMap<(SeqId, SeqId), LabelHeightField>,
 }
 
 impl AlignmentHeightFields {
-    fn from_alignments(alignments: &Alignments) -> Self {
+    pub fn from_alignments(alignments: &Alignments) -> Self {
         let bin_count = 4096;
 
         let mut heightfields = FxHashMap::default();
@@ -401,11 +464,28 @@ impl AlignmentHeightFields {
         viewport: &Viewport,
         screen_x: f32,
     ) -> Option<f32> {
-        let mat = viewport.screen_world_mat3();
-        let world_x = mat.transform_point2([screen_x, 0.0].as_uv()).x;
-        // let hfield = self.top_heightfield_in_visible_column(grid, viewport, world_x)?;
+        let mat = viewport.screen_world_dmat3();
+        let world_x = mat.transform_point2([screen_x as f64, 0.0].as_duv()).x;
 
-        let hfield_y = todo!();
+        let (qry_id, hfield) = self.top_heightfield_in_visible_column(grid, viewport, world_x)?;
+        let (tgt_id, norm_x) = grid.x_axis.global_to_axis_local(world_x)?;
+
+        // need to shift `world_x` to account for the (intended) offset of the heightfield
+        let offset =
+            (grid.x_axis.sequence_offset(tgt_id)? + hfield.location.target_range.start) as f64;
+
+        let y_offset = grid.y_axis.sequence_offset(qry_id)? as f64;
+
+        let hfield_y = hfield.heightfield_project_x((world_x - offset) as f32)?;
+        // let hfield_y = hfield.heightfield_project_screen(viewport, screen_point)
+        let world_y = y_offset + hfield_y as f64;
+        let world = [world_x, world_y];
+
+        let screen = viewport
+            .world_screen_dmat3()
+            .transform_point2(world.as_duv());
+
+        Some(screen.y as f32)
     }
 
     // fn project_screen_from_left(&self,
@@ -415,12 +495,16 @@ impl AlignmentHeightFields {
     //     todo!();
     // }
 
+    // TODO this isn't trivial -- this solution will probably end up with some cases of overlap
+    // as labels are drawn "too high", but a proper solution will likely need to take several
+    // heightfields into account, and the view in relation to them (even actually projecting
+    // the view X-range onto them)
     fn top_heightfield_in_visible_column(
         &self,
         grid: &AlignmentGrid,
         viewport: &Viewport,
         world_target: f64,
-    ) -> Option<&LabelHeightField> {
+    ) -> Option<(SeqId, &LabelHeightField)> {
         let (tgt_id, seq_pos) = grid.x_axis.global_to_axis_local(world_target)?;
 
         // find map works since the axes are already sorted & the pairs are provided in that order
@@ -433,10 +517,13 @@ impl AlignmentHeightFields {
             // let pair_location =
             //
             Some(qry_id)
-        });
+        })?;
 
-        todo!();
-        None
+        let qry_id = top_visible_qry;
+
+        let hfield = self.heightfields.get(&(tgt_id, qry_id))?;
+
+        Some((qry_id, hfield))
     }
 
     fn left_heightfield_in_visible_row(
@@ -539,17 +626,21 @@ impl LabelHeightField {
         inter_y
     }
 
+    /*
     fn heightfield_project_screen(
         &self,
         viewport: &Viewport,
-        screen_point: impl Into<[f32; 2]>,
+        // screen_point: impl Into<[f32; 2]>,
+        screen_x: f32,
     ) -> Option<Vec2> {
-        let pt = screen_point.as_uv();
-        let world = viewport.screen_world_mat3().transform_point2(pt);
-        todo!();
-        // let y = self.heightfield_project_x(world.x)?;
-        // Some([world.x, y].as_uv())
+        // let pt = screen_point.as_uv();
+        let world = viewport
+            .screen_world_mat3()
+            .transform_point2([screen_x, 0.0].as_uv());
+        let y = self.heightfield_project_x(world.x)?;
+        Some([world.x, y].as_uv())
     }
+    */
 
     fn heightfield_screen_segments(
         &self,
@@ -566,13 +657,13 @@ impl LabelHeightField {
         })
     }
 
-    fn height_at_target(&self, align_tgt_pos: f64) -> Option<f64> {
-        todo!();
-    }
+    // fn height_at_target(&self, align_tgt_pos: f64) -> Option<f64> {
+    //     todo!();
+    // }
 
-    fn height_at_query(&self, align_qry_pos: f64) -> Option<f64> {
-        todo!();
-    }
+    // fn height_at_query(&self, align_qry_pos: f64) -> Option<f64> {
+    //     todo!();
+    // }
 }
 
 #[derive(Debug, Clone, PartialEq)]

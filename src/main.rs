@@ -349,6 +349,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
     // egui_renderer.initialize(&window);
 
     let mut label_physics = LabelPhysics::default();
+    label_physics.heightfields =
+        annotations::physics::AlignmentHeightFields::from_alignments(&app.alignments);
     let mut labels_to_prepare: Vec<annotations::AnnotationId> = Vec::new();
 
     // egui_renderer.context.run(
@@ -575,6 +577,28 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
                         delta = DVec2::new(0.0, 0.0);
                         delta_scale = 1.0;
+
+                        let viewport = {
+                            // TODO: move all logic to Viewport; for now just construct each frame
+                            // should take menu bar into account
+                            let center = DVec2::new(
+                                (app_view.x_max + app_view.x_min) * 0.5,
+                                (app_view.y_max + app_view.y_min) * 0.5,
+                            );
+                            let size = DVec2::new(
+                                app_view.x_max - app_view.x_min,
+                                app_view.y_max - app_view.y_min,
+                            );
+                            view::Viewport::new(center, size, [0.0, 0.0], screen_size)
+                        };
+
+                        label_physics.update_anchors(&app.alignment_grid, &viewport);
+                        label_physics.update_labels(
+                            &app.alignment_grid,
+                            &mut annotation_painter,
+                            &viewport,
+                        );
+                        label_physics.step(delta_t as f32, &viewport);
 
                         last_frame = std::time::Instant::now();
 
