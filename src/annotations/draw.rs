@@ -25,6 +25,8 @@ pub struct AnnotationPainter {
     // annotations: FxHashMap<usize, Box<dyn DrawAnnotation>>,
 }
 
+const LABEL_TEXT_SIZE: f32 = 12.0;
+
 impl AnnotationPainter {
     pub fn add_shape(&mut self, draw: Box<dyn DrawAnnotation>) -> AnnotShapeId {
         let id = AnnotShapeId(self.annotations.len());
@@ -43,6 +45,21 @@ impl AnnotationPainter {
         self.add_shape(Box::new(draw_collection))
     }
 
+    pub fn cache_label_fonts(&mut self, fonts: &egui::text::Fonts, text: &str) -> Arc<Galley> {
+        if let Some(galley) = self.galley_cache.get(text) {
+            galley.clone()
+        } else {
+            let galley = fonts.layout_no_wrap(
+                text.to_string(),
+                egui::FontId::monospace(LABEL_TEXT_SIZE),
+                egui::Color32::BLACK,
+            );
+
+            self.galley_cache.insert(text.to_string(), galley.clone());
+            galley
+        }
+    }
+
     pub fn cache_label(&mut self, ctx: &egui::Context, text: &str) -> Arc<Galley> {
         if let Some(galley) = self.galley_cache.get(text) {
             galley.clone()
@@ -50,7 +67,7 @@ impl AnnotationPainter {
             let galley = ctx.fonts(|fonts| {
                 fonts.layout_no_wrap(
                     text.to_string(),
-                    egui::FontId::monospace(12.0),
+                    egui::FontId::monospace(LABEL_TEXT_SIZE),
                     egui::Color32::BLACK,
                 )
             });

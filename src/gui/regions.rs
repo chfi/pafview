@@ -227,6 +227,126 @@ impl RegionsOfInterestGui {
             }
         });
     }
+}
+
+impl RegionsOfInterestGui {
+    fn annotation_panel_ui(
+        &mut self,
+        app: &PafViewerApp,
+        annotation_painter: &mut AnnotationPainter,
+        // annotations: &crate::annotations::AnnotationStore,
+        // alignment_grid: &crate::grid::AlignmentGrid,
+        // seq_names: &BiMap<String, usize>,
+        // input: &PafInput,
+        view: &mut View,
+        ui: &mut Ui,
+        list_id: usize,
+    ) {
+        let Some(list) = app.annotations.list_by_id(list_id) else {
+            return;
+        };
+
+        ui.vertical(|ui| {
+            if ui.button("test label layout").clicked() {
+                let ctx = ui.ctx();
+
+                let labels = list.records.iter().map(|record| {
+                    let galley = annotation_painter.cache_label(ctx, &record.label);
+
+                    let axis_range = AxisRange::Seq {
+                        seq_id: record.seq_id,
+                        range: record.seq_range.clone(),
+                    };
+                    let x_range = app
+                        .alignment_grid
+                        .x_axis
+                        .axis_range_into_global(&axis_range)
+                        .unwrap();
+
+                    crate::annotations::label_layout::LabelDef {
+                        text: &record.label,
+                        galley,
+                        world_x_region: x_range,
+                    }
+                });
+
+                self.label_debug =
+                    compute_layout_for_labels(ctx.screen_rect().size(), view, labels);
+            }
+
+            let mut filter_text = ui.data(|data| {
+                data.get_temp::<String>(ui.id().with("filter_text"))
+                    .unwrap_or_default()
+            });
+            ui.horizontal(|ui| {
+                ui.label("Filter");
+                ui.text_edit_singleline(&mut filter_text);
+                if ui.button("Clear").clicked() {
+                    filter_text.clear();
+                }
+            });
+
+            ui.separator();
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                egui::Grid::new(ui.id().with("annotation_list"))
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label("Toggle display");
+                        let tgl_all_target = ui.button("Target").clicked();
+                        let tgl_all_query = ui.button("Query").clicked();
+
+                        ui.end_row();
+
+                        ui.separator();
+                        ui.end_row();
+
+                        for (record_id, record) in list.records.iter().enumerate() {
+                            if !record.label.contains(&filter_text) {
+                                continue;
+                            }
+
+                            let (toggle_target, toggle_query) = self.annotation_list_entry_widget(
+                                app,
+                                annotation_painter,
+                                view,
+                                ui,
+                                list_id,
+                                record_id,
+                            );
+
+                            // if let Some(shape) = (toggle_target || tgl_all_target)
+                            //     .then(|| app.annotations.target_shape_for(list_id, record_id))
+                            //     .flatten()
+                            // {
+                            //         *annotation_painter.enable_shape_mut(shape) ^= true;
+                            // }
+
+                            if toggle_target || tgl_all_target {
+                                if let Some(shape) =
+                                    app.annotations.target_shape_for(list_id, record_id)
+                                {
+                                    *annotation_painter.enable_shape_mut(shape) ^= true;
+                                }
+                            }
+
+                            if toggle_query || tgl_all_query {
+                                if let Some(shape) =
+                                    app.annotations.query_shape_for(list_id, record_id)
+                                {
+                                    *annotation_painter.enable_shape_mut(shape) ^= true;
+                                }
+                            }
+
+                            ui.end_row();
+                        }
+                    });
+                //
+            });
+
+            ui.data_mut(|data| data.insert_temp(ui.id().with("filter_text"), filter_text));
+        });
+    }
 
     fn annotation_list_entry_widget(
         &mut self,
@@ -293,6 +413,61 @@ impl RegionsOfInterestGui {
         }
 
         (toggle_target, toggle_query)
+    }
+}
+
+impl RegionsOfInterestGui {
+    fn bookmark_panel_ui(
+        &mut self,
+        app: &PafViewerApp,
+        event_loop: &EventLoopProxy<crate::AppEvent>,
+        annotation_painter: &mut AnnotationPainter,
+        // annotations: &crate::annotations::AnnotationStore,
+        // alignment_grid: &crate::grid::AlignmentGrid,
+        // seq_names: &BiMap<String, usize>,
+        // input: &PafInput,
+        view: &mut View,
+        ui: &mut Ui,
+    ) {
+        ui.vertical(|ui| {
+            // list of existing bookmarks + simple controls
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                egui::Grid::new(ui.id().with("bookmark_list"))
+                    .striped(true)
+                    .show(ui, |ui| {
+                        for ix in 0..self.bookmarks.len() {
+                            self.bookmark_list_entry_widget(
+                                // &app.annotations,
+                                annotation_painter,
+                                &app.alignment_grid,
+                                view,
+                                ui,
+                                ix,
+                            );
+
+                            ui.end_row();
+                        }
+                    });
+                //
+            });
+
+            // panel for creating & modifying bookmarks
+
+            // "bookmark view"
+            // "select & mark region"
+            // "custom mark" w/ target & query region inputs
+
+            self.bookmark_create_widget(
+                event_loop,
+                annotation_painter,
+                &app.alignment_grid,
+                view,
+                ui,
+            );
+
+            ui.separator();
+            self.bookmark_details_widget(annotation_painter, &app.alignment_grid, view, ui);
+        });
     }
 
     fn bookmark_list_entry_widget(
@@ -501,176 +676,5 @@ impl RegionsOfInterestGui {
         }
 
         ui.data_mut(|data| data.insert_temp(data_id, widget_state));
-    }
-
-    fn annotation_panel_ui(
-        &mut self,
-        app: &PafViewerApp,
-        annotation_painter: &mut AnnotationPainter,
-        // annotations: &crate::annotations::AnnotationStore,
-        // alignment_grid: &crate::grid::AlignmentGrid,
-        // seq_names: &BiMap<String, usize>,
-        // input: &PafInput,
-        view: &mut View,
-        ui: &mut Ui,
-        list_id: usize,
-    ) {
-        let Some(list) = app.annotations.list_by_id(list_id) else {
-            return;
-        };
-
-        ui.vertical(|ui| {
-            if ui.button("test label layout").clicked() {
-                let ctx = ui.ctx();
-
-                let labels = list.records.iter().map(|record| {
-                    let galley = annotation_painter.cache_label(ctx, &record.label);
-
-                    let axis_range = AxisRange::Seq {
-                        seq_id: record.seq_id,
-                        range: record.seq_range.clone(),
-                    };
-                    let x_range = app
-                        .alignment_grid
-                        .x_axis
-                        .axis_range_into_global(&axis_range)
-                        .unwrap();
-
-                    crate::annotations::label_layout::LabelDef {
-                        text: &record.label,
-                        galley,
-                        world_x_region: x_range,
-                    }
-                });
-
-                self.label_debug =
-                    compute_layout_for_labels(ctx.screen_rect().size(), view, labels);
-            }
-
-            let mut filter_text = ui.data(|data| {
-                data.get_temp::<String>(ui.id().with("filter_text"))
-                    .unwrap_or_default()
-            });
-            ui.horizontal(|ui| {
-                ui.label("Filter");
-                ui.text_edit_singleline(&mut filter_text);
-                if ui.button("Clear").clicked() {
-                    filter_text.clear();
-                }
-            });
-
-            ui.separator();
-
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                egui::Grid::new(ui.id().with("annotation_list"))
-                    .striped(true)
-                    .show(ui, |ui| {
-                        ui.label("Toggle display");
-                        let tgl_all_target = ui.button("Target").clicked();
-                        let tgl_all_query = ui.button("Query").clicked();
-
-                        ui.end_row();
-
-                        ui.separator();
-                        ui.end_row();
-
-                        for (record_id, record) in list.records.iter().enumerate() {
-                            if !record.label.contains(&filter_text) {
-                                continue;
-                            }
-
-                            let (toggle_target, toggle_query) = self.annotation_list_entry_widget(
-                                app,
-                                annotation_painter,
-                                view,
-                                ui,
-                                list_id,
-                                record_id,
-                            );
-
-                            // if let Some(shape) = (toggle_target || tgl_all_target)
-                            //     .then(|| app.annotations.target_shape_for(list_id, record_id))
-                            //     .flatten()
-                            // {
-                            //         *annotation_painter.enable_shape_mut(shape) ^= true;
-                            // }
-
-                            if toggle_target || tgl_all_target {
-                                if let Some(shape) =
-                                    app.annotations.target_shape_for(list_id, record_id)
-                                {
-                                    *annotation_painter.enable_shape_mut(shape) ^= true;
-                                }
-                            }
-
-                            if toggle_query || tgl_all_query {
-                                if let Some(shape) =
-                                    app.annotations.query_shape_for(list_id, record_id)
-                                {
-                                    *annotation_painter.enable_shape_mut(shape) ^= true;
-                                }
-                            }
-
-                            ui.end_row();
-                        }
-                    });
-                //
-            });
-
-            ui.data_mut(|data| data.insert_temp(ui.id().with("filter_text"), filter_text));
-        });
-    }
-
-    fn bookmark_panel_ui(
-        &mut self,
-        app: &PafViewerApp,
-        event_loop: &EventLoopProxy<crate::AppEvent>,
-        annotation_painter: &mut AnnotationPainter,
-        // annotations: &crate::annotations::AnnotationStore,
-        // alignment_grid: &crate::grid::AlignmentGrid,
-        // seq_names: &BiMap<String, usize>,
-        // input: &PafInput,
-        view: &mut View,
-        ui: &mut Ui,
-    ) {
-        ui.vertical(|ui| {
-            // list of existing bookmarks + simple controls
-            egui::ScrollArea::vertical().show(ui, |ui| {
-                egui::Grid::new(ui.id().with("bookmark_list"))
-                    .striped(true)
-                    .show(ui, |ui| {
-                        for ix in 0..self.bookmarks.len() {
-                            self.bookmark_list_entry_widget(
-                                // &app.annotations,
-                                annotation_painter,
-                                &app.alignment_grid,
-                                view,
-                                ui,
-                                ix,
-                            );
-
-                            ui.end_row();
-                        }
-                    });
-                //
-            });
-
-            // panel for creating & modifying bookmarks
-
-            // "bookmark view"
-            // "select & mark region"
-            // "custom mark" w/ target & query region inputs
-
-            self.bookmark_create_widget(
-                event_loop,
-                annotation_painter,
-                &app.alignment_grid,
-                view,
-                ui,
-            );
-
-            ui.separator();
-            self.bookmark_details_widget(annotation_painter, &app.alignment_grid, view, ui);
-        });
     }
 }

@@ -1,4 +1,4 @@
-use annotations::{draw::AnnotationPainter, AnnotationGuiHandler};
+use annotations::{draw::AnnotationPainter, physics::LabelPhysics, AnnotationGuiHandler};
 use bimap::BiMap;
 use bytemuck::{Pod, Zeroable};
 use clap::Parser;
@@ -292,12 +292,33 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
     };
     */
 
+    let initial_view = View {
+        x_min: 0.0,
+        x_max: app.alignment_grid.x_axis.total_len as f64,
+        y_min: 0.0,
+        y_max: app.alignment_grid.y_axis.total_len as f64,
+    };
+
     let mut app_view = View {
         x_min: 0.0,
         x_max: app.alignment_grid.x_axis.total_len as f64,
         y_min: 0.0,
         y_max: app.alignment_grid.y_axis.total_len as f64,
     };
+
+    // let mut app_view = View {
+    //     x_min: 30667021.681820594,
+    //     y_min: 28324452.4998267,
+    //     x_max: 30667091.79049289,
+    //     y_max: 28324528.035320908,
+    // };
+
+    // let mut app_view = View {
+    //     x_min: 500.0,
+    //     x_max: 1200.0,
+    //     y_min: 198_000.0,
+    //     y_max: 191_500.0,
+    // };
 
     let mut config = surface
         .get_default_config(&adapter, size.width, size.height)
@@ -324,6 +345,9 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
     let mut egui_renderer = EguiRenderer::new(&device, &config, swapchain_format, None, 1, &window);
     // egui_renderer.initialize(&window);
+
+    let mut label_physics = LabelPhysics::default();
+    let mut labels_to_prepare: Vec<AnnotationId> = Vec::new();
 
     // egui_renderer.context.run(
     // egui_renderer.context
@@ -385,7 +409,26 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                             &mut annotation_painter,
                             &path,
                         ) {
-                            Ok(_) => {
+                            Ok(list_id) => {
+                                let annot_ids =
+                                    app.annotations.list_by_id(list_id).into_iter().flat_map(
+                                        |list| {
+                                            list.records
+                                                .iter()
+                                                .enumerate()
+                                                .map(|(record_id, _)| (list_id, record_id))
+                                        },
+                                    );
+
+                                labels_to_prepare.extend(annot_ids);
+                                // label_physics.prepare_annotations(
+                                //     &app.alignment_grid,
+                                //     &app.annotations,
+                                //     annot_ids,
+                                //     fonts,
+                                //     annotation_painter,
+                                // );
+
                                 log::info!("Loaded BED file `{path:?}`");
                             }
                             Err(err) => {
@@ -444,6 +487,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                             if event.state != ElementState::Pressed {
                                 return;
                             }
+                            app_view = initial_view;
 
                             /*
                             // if event.state
@@ -568,6 +612,10 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                             |ctx| {
                                 // cpu_rasterizer.draw_and_display_view_layer(ctx, &app, &app_view);
 
+                                crate::annotations::label_layout::debug_window(
+                                    ctx, &app, &app_view,
+                                );
+
                                 selection_handler.run(ctx, &mut app_view);
                                 // regions::paf_line_debug_aabbs(&input, ctx, &app_view);
                                 // annotations::draw_annotation_test_window(
@@ -602,12 +650,12 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 //     &mut window_states,
                                 // );
 
-                                annot_gui_handler.show_annotation_list(
-                                    ctx,
-                                    &app,
-                                    &mut window_states,
-                                );
-                                annot_gui_handler.draw_annotations(ctx, &app, &mut app_view);
+                                // annot_gui_handler.show_annotation_list(
+                                //     ctx,
+                                //     &app,
+                                //     &mut window_states,
+                                // );
+                                // annot_gui_handler.draw_annotations(ctx, &app, &mut app_view);
 
                                 gui::draw_cursor_position_rulers(
                                     &app.alignment_grid,
@@ -621,6 +669,22 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                         );
 
                         queue.submit(Some(encoder.finish()));
+
+                        // prepare newly loaded annotations as labels in the physics system
+                        if labels_to_prepare.len() > 0 {
+                            egui_renderer.context.fonts(|fonts| {
+                                label_physics.prepare_annotations(
+                                    &app.alignment_grid,
+                                    &app.annotations,
+                                    labels_to_prepare.drain(..),
+                                    fonts,
+                                    &mut annotation_painter,
+                                );
+                            })
+                        }
+
+                        // handle label physics (TODO threading!)
+
                         frame.present();
                     }
                     WindowEvent::CloseRequested => target.exit(),

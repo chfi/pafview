@@ -76,7 +76,7 @@ impl AnnotationStore {
         // seq_names: &BiMap<String, usize>,
         painter: &mut draw::AnnotationPainter,
         bed_path: impl AsRef<std::path::Path>,
-    ) -> Result<()> {
+    ) -> Result<RecordListId> {
         use std::io::prelude::*;
         use std::io::BufReader;
 
@@ -168,10 +168,11 @@ impl AnnotationStore {
             records: record_list,
         };
         let shapes = record_list.prepare_annotation_shapes(alignment_grid, painter);
+        let list_id = self.annotation_lists.len();
         self.annotation_lists.push(record_list);
         self.shapes.push(shapes);
 
-        Ok(())
+        Ok(list_id)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -248,6 +249,7 @@ impl RecordList {
     }
 }
 
+#[deprecated]
 #[derive(Default)]
 pub struct AnnotationGuiHandler {
     // target_enabled: Vec<bool>,
