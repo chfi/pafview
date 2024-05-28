@@ -12,6 +12,78 @@ pub struct AlignmentGrid {
     pub y_axis: GridAxis,
 
     pub sequence_names: Arc<BiMap<String, SeqId>>,
+
+    pairs_by_target: FxHashMap<SeqId, Vec<SeqId>>,
+    pairs_by_query: FxHashMap<SeqId, Vec<SeqId>>,
+}
+
+impl AlignmentGrid {
+    pub fn pairs_with_target(&self, target: SeqId) -> &[SeqId] {
+        self.pairs_by_target
+            .get(&target)
+            .map(|q| q.as_slice())
+            .unwrap_or_default()
+    }
+
+    pub fn pairs_with_query(&self, query: SeqId) -> &[SeqId] {
+        self.pairs_by_query
+            .get(&query)
+            .map(|t| t.as_slice())
+            .unwrap_or_default()
+    }
+
+    pub fn from_alignments(
+        alignments: &crate::paf::Alignments,
+        sequence_names: Arc<BiMap<String, SeqId>>,
+        // x_axis: GridAxis,
+        // y_axis: GridAxis,
+    ) -> Self {
+        let mut targets = alignments
+            .pairs
+            .values()
+            .map(|al| (al.target_id, al.location.target_total_len))
+            .collect::<Vec<_>>();
+        targets.sort_by_key(|(_, l)| *l);
+        targets.dedup_by_key(|(id, _)| *id);
+
+        let x_axis = crate::grid::GridAxis::from_index_and_lengths(targets);
+        let mut queries = alignments
+            .pairs
+            .values()
+            .map(|al| (al.query_id, al.location.query_total_len))
+            .collect::<Vec<_>>();
+        queries.sort_by_key(|(_, l)| *l);
+        queries.dedup_by_key(|(id, _)| *id);
+        let y_axis = crate::grid::GridAxis::from_index_and_lengths(queries);
+
+        let mut pairs_by_target: FxHashMap<_, Vec<_>> = FxHashMap::default();
+        let mut pairs_by_query: FxHashMap<_, Vec<_>> = FxHashMap::default();
+
+        for &(tgt_id, qry_id) in alignments.pairs.keys() {
+            pairs_by_target.entry(tgt_id).or_default().push(qry_id);
+            pairs_by_query.entry(qry_id).or_default().push(tgt_id);
+        }
+
+        for (_tgt_id, queries) in pairs_by_target.iter_mut() {
+            queries.sort_by_cached_key(|qry| {
+                y_axis.seq_index_map.get(qry).copied().unwrap_or_default()
+            });
+        }
+
+        for (_qry_id, targets) in pairs_by_query.iter_mut() {
+            targets.sort_by_cached_key(|tgt| {
+                x_axis.seq_index_map.get(tgt).copied().unwrap_or_default()
+            });
+        }
+
+        Self {
+            x_axis,
+            y_axis,
+            sequence_names,
+            pairs_by_target,
+            pairs_by_query,
+        }
+    }
 }
 
 pub fn parse_axis_range_into_global(

@@ -1,12 +1,12 @@
 use std::ops::{Range, RangeInclusive};
 
-use ultraviolet::{DMat4, DVec2, DVec4, Mat3, Mat4, Vec2, Vec3};
+use ultraviolet::{DMat3, DMat4, DVec2, DVec4, Mat3, Mat4, Vec2, Vec3};
 
 use crate::math_conv::*;
 
 pub struct Viewport {
-    pub view_center: Vec2, // view center in world coordinates
-    pub view_size: Vec2,   // world coordinates
+    pub view_center: DVec2, // view center in world coordinates
+    pub view_size: DVec2,   // world coordinates
 
     pub canvas_offset: Vec2, // top left corner of canvas in screen points
     pub canvas_size: Vec2,   // pixels
@@ -14,13 +14,13 @@ pub struct Viewport {
 
 impl Viewport {
     pub fn new(
-        view_center: impl Into<[f32; 2]>,
-        view_size: impl Into<[f32; 2]>,
+        view_center: impl Into<[f64; 2]>,
+        view_size: impl Into<[f64; 2]>,
         canvas_size: impl Into<[f32; 2]>,
         canvas_offset: impl Into<[f32; 2]>,
     ) -> Self {
-        let view_center = view_center.as_uv();
-        let view_size = view_size.as_uv();
+        let view_center = view_center.as_duv();
+        let view_size = view_size.as_duv();
         let canvas_size = canvas_size.as_uv();
         let canvas_offset = canvas_offset.as_uv();
 
@@ -32,16 +32,30 @@ impl Viewport {
         }
     }
 
-    pub fn translate_view(&mut self, world_delta: impl Into<[f32; 2]>) {
-        self.view_center += world_delta.as_uv();
+    pub fn x_range(&self) -> std::ops::RangeInclusive<f64> {
+        let halfwidth = self.view_size.x * 0.5;
+        let min = self.view_center.x - halfwidth;
+        let max = self.view_center.x + halfwidth;
+        min..=max
     }
 
-    pub fn scale_view(&mut self, scale_mult: f32) {
+    pub fn y_range(&self) -> std::ops::RangeInclusive<f64> {
+        let halfheight = self.view_size.y * 0.5;
+        let min = self.view_center.y - halfheight;
+        let max = self.view_center.y + halfheight;
+        min..=max
+    }
+
+    pub fn translate_view(&mut self, world_delta: impl Into<[f64; 2]>) {
+        self.view_center += world_delta.as_duv();
+    }
+
+    pub fn scale_view(&mut self, scale_mult: f64) {
         self.view_size *= scale_mult;
     }
 
-    pub fn set_view_center(&mut self, new_center_world: impl Into<[f32; 2]>) {
-        self.view_center = new_center_world.as_uv();
+    pub fn set_view_center(&mut self, new_center_world: impl Into<[f64; 2]>) {
+        self.view_center = new_center_world.as_duv();
     }
 
     pub fn set_canvas_bounds(
@@ -56,15 +70,15 @@ impl Viewport {
             return;
         }
 
-        let view_scale = self.view_size.x / self.canvas_size.x;
-        let canvas_aspect = size.y / size.x;
+        let view_scale = self.view_size.x / self.canvas_size.x as f64;
+        let canvas_aspect = size.y as f64 / size.x as f64;
 
-        let new_width = view_scale * size.x;
+        let new_width = view_scale * size.x as f64;
         let new_height = new_width * canvas_aspect;
 
         self.canvas_offset = offset;
         self.canvas_size = size;
-        self.view_size = Vec2::new(new_width, new_height);
+        self.view_size = DVec2::new(new_width, new_height);
     }
 }
 
@@ -72,15 +86,27 @@ impl Viewport {
     /// Transforms world coordinates to screen coordinates, mapping the top left
     /// of the `self.view_{..}` world rectangle to the top left of the screen canvas.
     pub fn world_screen_mat3(&self) -> Mat3 {
+        let view_size = self.view_size.to_f32();
         let scale = Mat3::from_nonuniform_scale_homogeneous(Vec2::new(
-            self.canvas_size.x / self.view_size.x,
-            self.canvas_size.y / self.view_size.y,
+            self.canvas_size.x / view_size.x,
+            self.canvas_size.y / view_size.y,
         ));
-        // let translate = Mat3::from_translation(self.canvas_offset + self.canvas_size * 0.5);
         let translate = Mat3::from_translation(self.canvas_offset);
-        // let translate = Mat3::from_translation(self.canvas_offset + self.canvas_size * 0.5);
-        // let center_translate = Mat3::from_translation(-self.view_center);
-        let center_translate = Mat3::from_translation(-self.view_center + self.view_size * 0.5);
+        let center_translate = Mat3::from_translation(-self.view_center.to_f32() + view_size * 0.5);
+
+        translate * scale * center_translate
+    }
+
+    /// Transforms world coordinates to screen coordinates, mapping the top left
+    /// of the `self.view_{..}` world rectangle to the top left of the screen canvas.
+    pub fn world_screen_dmat3(&self) -> DMat3 {
+        let canvas_size = self.canvas_size.to_f64();
+        let scale = DMat3::from_nonuniform_scale_homogeneous(DVec2::new(
+            canvas_size.x / self.view_size.x,
+            canvas_size.y / self.view_size.y,
+        ));
+        let translate = DMat3::from_translation(self.canvas_offset.to_f64());
+        let center_translate = DMat3::from_translation(-self.view_center + self.view_size * 0.5);
 
         translate * scale * center_translate
     }
@@ -89,14 +115,29 @@ impl Viewport {
     /// pixel of the screen canvas to the top left world point of the `self.view_{..}`
     /// rectangle.
     pub fn screen_world_mat3(&self) -> Mat3 {
+        let view_size = self.view_size.to_f32();
         let scale_inv = Mat3::from_nonuniform_scale_homogeneous(Vec2::new(
-            self.view_size.x / self.canvas_size.x,
-            self.view_size.y / self.canvas_size.y,
+            view_size.x / self.canvas_size.x,
+            view_size.y / self.canvas_size.y,
         ));
         let translate_inv = Mat3::from_translation(-self.canvas_offset);
-        // let translate_inv = Mat3::from_translation(-self.canvas_offset - self.canvas_size * 0.5);
-        // let center_translate_inv = Mat3::from_translation(self.view_center);
-        let center_translate_inv = Mat3::from_translation(self.view_center - self.view_size * 0.5);
+        let center_translate_inv =
+            Mat3::from_translation(self.view_center.to_f32() - view_size * 0.5);
+
+        center_translate_inv * scale_inv * translate_inv
+    }
+
+    /// Transforms screen coordinates to world coordinates, mapping the top left
+    /// pixel of the screen canvas to the top left world point of the `self.view_{..}`
+    /// rectangle.
+    pub fn screen_world_dmat3(&self) -> DMat3 {
+        let canvas_size = self.canvas_size.to_f64();
+        let scale_inv = DMat3::from_nonuniform_scale_homogeneous(DVec2::new(
+            self.view_size.x / canvas_size.x,
+            self.view_size.y / canvas_size.y,
+        ));
+        let translate_inv = DMat3::from_translation(-self.canvas_offset.to_f64());
+        let center_translate_inv = DMat3::from_translation(self.view_center - self.view_size * 0.5);
 
         center_translate_inv * scale_inv * translate_inv
     }

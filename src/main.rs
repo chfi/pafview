@@ -76,40 +76,42 @@ pub fn main() -> anyhow::Result<()> {
     println!("drawing {} alignments", alignments.pairs.len());
 
     // construct AlignmentGrid
-    let mut targets = alignments
-        .pairs
-        .values()
-        .map(|al| (al.target_id, al.location.target_total_len))
-        .collect::<Vec<_>>();
-    targets.sort_by_key(|(_, l)| *l);
-    targets.dedup_by_key(|(id, _)| *id);
+    // let mut targets = alignments
+    //     .pairs
+    //     .values()
+    //     .map(|al| (al.target_id, al.location.target_total_len))
+    //     .collect::<Vec<_>>();
+    // targets.sort_by_key(|(_, l)| *l);
+    // targets.dedup_by_key(|(id, _)| *id);
 
-    let x_axis = grid::GridAxis::from_index_and_lengths(targets);
-    let mut queries = alignments
-        .pairs
-        .values()
-        .map(|al| (al.query_id, al.location.query_total_len))
-        .collect::<Vec<_>>();
-    queries.sort_by_key(|(_, l)| *l);
-    queries.dedup_by_key(|(id, _)| *id);
-    let y_axis = grid::GridAxis::from_index_and_lengths(queries);
+    // let x_axis = grid::GridAxis::from_index_and_lengths(targets);
+    // let mut queries = alignments
+    //     .pairs
+    //     .values()
+    //     .map(|al| (al.query_id, al.location.query_total_len))
+    //     .collect::<Vec<_>>();
+    // queries.sort_by_key(|(_, l)| *l);
+    // queries.dedup_by_key(|(id, _)| *id);
+    // let y_axis = grid::GridAxis::from_index_and_lengths(queries);
 
-    println!(
-        "X axis {} tiles, total len {}",
-        x_axis.tile_count(),
-        x_axis.total_len
-    );
-    println!(
-        "Y axis {} tiles, total len {}",
-        y_axis.tile_count(),
-        y_axis.total_len
-    );
+    // println!(
+    //     "X axis {} tiles, total len {}",
+    //     x_axis.tile_count(),
+    //     x_axis.total_len
+    // );
+    // println!(
+    //     "Y axis {} tiles, total len {}",
+    //     y_axis.tile_count(),
+    //     y_axis.total_len
+    // );
 
-    let alignment_grid = AlignmentGrid {
-        x_axis,
-        y_axis,
-        sequence_names: sequences.names().clone(),
-    };
+    let alignment_grid = AlignmentGrid::from_alignments(&alignments, sequences.names().clone());
+    // let alignment_grid = AlignmentGrid::from_axes(&alignments, sequences.names().clone(), x_axis, y_axis);
+    // let alignment_grid = AlignmentGrid {
+    //     x_axis,
+    //     y_axis,
+    //     sequence_names: sequences.names().clone(),
+    // };
 
     // TODO replace PafInput everywhere...
 
@@ -347,7 +349,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
     // egui_renderer.initialize(&window);
 
     let mut label_physics = LabelPhysics::default();
-    let mut labels_to_prepare: Vec<AnnotationId> = Vec::new();
+    let mut labels_to_prepare: Vec<annotations::AnnotationId> = Vec::new();
 
     // egui_renderer.context.run(
     // egui_renderer.context

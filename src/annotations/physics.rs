@@ -16,34 +16,15 @@ use super::AnnotationStore;
 
 TODO:
 
-implement (individual) heightfield logic
-- height_at_query is the only one that requires anything new
--*- just need to map query to target position & use height_at_target
-- heightfield_rectangle_collision function
--*- same one should work for target & query, but may require a transform/extra step for the query case
-
-implement AlignmentHeightFields
-- from_alignments()
-- choose "best" heightfield in a defined column (for target; row for query) for a view
--*- e.g. above if there's space, or below otherwise... there should always be space
-
-
-implement LabelPhysics::update_anchors()
-- initialize positions for anchors, or update them (if out of screen bounds, remove)
-
-methods (on LabelPhysics) for checking positions &c for labels
-- find_position_for_rect_in_aabb and/or find_position_for_screen_rectangle
-
-
-implement LabelPhysics::update_labels()
-- try to place labels by respective anchor (if anchor on screen & label not already placed)
-
-implement LabelPhysics::step()
-- apply spring force on label toward anchor, and collision with heightfield
-
-integrate with annotation store, GUI, and rendering
+- finish heightfield projection
+- anchor initialization & update
+- label creation
+- enable/disable physics & rendering via existing UI
+- hooking up to rendering
+- labels for query annotations
 
 */
+
 #[derive(Default)]
 pub struct LabelPhysics {
     pub rigid_body_set: RigidBodySet,
@@ -158,11 +139,41 @@ impl LabelPhysics {
             let handle_ix = annot_data.target_label_ix;
 
             if let Some(anchor_pos) = self.target_labels.anchor_screen_pos[handle_ix] {
+                let mut not_enough_space = false;
+
                 if self.target_labels.label_rigid_body[handle_ix].is_none() {
                     // initialize label rigid body
-                    // create collider
-                    // position
-                    todo!();
+                    let size = annot_data.size;
+
+                    if let Some(label_pos) = self.try_to_place_label(viewport, anchor_pos, size) {
+                        let collider = ColliderBuilder::cuboid(size.x * 0.5, size.y * 0.5)
+                            .mass(1.0)
+                            // .friction(0.1)
+                            .build();
+
+                        let rigid_body = RigidBodyBuilder::dynamic()
+                            .translation(label_pos.as_na())
+                            .lock_rotations()
+                            .linear_damping(3.0)
+                            // .linear_damping(5.0)
+                            .build();
+
+                        let rb_handle = self.rigid_body_set.insert(rigid_body);
+                        let collider_handle = self.collider_set.insert_with_parent(
+                            collider,
+                            rb_handle,
+                            &mut self.rigid_body_set,
+                        );
+                        self.query_pipeline.update_incremental(
+                            &self.collider_set,
+                            &[collider_handle],
+                            &[],
+                            true,
+                        );
+                        self.target_labels.label_rigid_body[handle_ix] = Some(rb_handle);
+                    } else {
+                        not_enough_space = true;
+                    };
                 }
 
                 // if label not visible,
@@ -202,6 +213,53 @@ impl LabelPhysics {
     }
 
     pub fn step(&mut self, dt: f32, viewport: &Viewport) {
+        const SPRING_K: f32 = 10.0;
+        const LABEL_ANCHOR_DIST_THRESHOLD: f32 = 300.0;
+        // const CLUSTER_TIME_MIN_SEC: f32 = 1.0;
+        const CLUSTER_TIME_MIN_SEC: f32 = 0.2;
+
+        const STACK_MIN_FORCE_THRESHOLD: f32 = 10.0;
+
+        for (annot_id, annot_data) in self.annotations.iter() {
+            let handle_ix = annot_data.target_label_ix;
+
+            let Some((rb_handle, rigid_body)) = self.target_labels.label_rigid_body[handle_ix]
+                .and_then(|rb_handle| {
+                    let rigid_body = self.rigid_body_set.get_mut(rb_handle)?;
+                    Some((rb_handle, rigid_body))
+                })
+            else {
+                continue;
+            };
+
+            let Some(anchor_pos) = self.target_labels.anchor_screen_pos[handle_ix] else {
+                continue;
+            };
+
+            if !rigid_body.is_enabled() {
+                continue;
+            }
+
+            let label_anchor_diff = rigid_body.position().translation.as_uv() - anchor_pos;
+            // TODO check if stacking/clustering is needed (prediction etc.)
+
+            if rigid_body.user_force().norm() > 0.0 {
+                rigid_body.reset_forces(false);
+            }
+
+            let force_x = -label_anchor_diff.x * SPRING_K;
+
+            // TODO apply vertical force (to clear heightfield/match lines)
+            let force_y = 0f32;
+            let force = [force_x, force_y].as_uv();
+            let force_min = 1.0; // arbitrary
+            if force.mag() > force_min {
+                rigid_body.add_force(force.as_na(), true);
+            }
+
+            // TODO handle contacts, stack
+        }
+
         self.physics.step(
             &mut self.rigid_body_set,
             &mut self.collider_set,
@@ -211,6 +269,17 @@ impl LabelPhysics {
 }
 
 impl LabelPhysics {
+    fn try_to_place_label(
+        &self,
+        viewport: &Viewport,
+        // anchor_screen_x_range: std::
+        anchor_pos: Vec2,
+        rect_size: impl Into<[f32; 2]>,
+    ) -> Option<ultraviolet::Vec2> {
+        let proposed_center = anchor_pos + [0.0, -40.0].as_uv();
+        self.find_position_for_screen_rectangle(viewport, proposed_center, rect_size)
+    }
+
     fn find_position_for_screen_rectangle(
         &self,
         viewport: &Viewport,
@@ -224,7 +293,8 @@ impl LabelPhysics {
 
         // idk if this is right
         let screen_norm_size = size / viewport.canvas_size;
-        let world_size = screen_norm_size * viewport.view_size;
+        let world_size =
+            screen_norm_size * Vec2::new(viewport.view_size.x as f32, viewport.view_size.y as f32);
 
         let world_center = screen_world.transform_point2(center);
 
@@ -310,7 +380,7 @@ struct AlignmentHeightFields {
 }
 
 impl AlignmentHeightFields {
-    fn from_alignments(grid: &AlignmentGrid, alignments: &Alignments) -> Self {
+    fn from_alignments(alignments: &Alignments) -> Self {
         let bin_count = 4096;
 
         let mut heightfields = FxHashMap::default();
@@ -322,6 +392,28 @@ impl AlignmentHeightFields {
 
         Self { heightfields }
     }
+}
+
+impl AlignmentHeightFields {
+    fn project_screen_from_top(
+        &self,
+        grid: &AlignmentGrid,
+        viewport: &Viewport,
+        screen_x: f32,
+    ) -> Option<f32> {
+        let mat = viewport.screen_world_mat3();
+        let world_x = mat.transform_point2([screen_x, 0.0].as_uv()).x;
+        // let hfield = self.top_heightfield_in_visible_column(grid, viewport, world_x)?;
+
+        let hfield_y = todo!();
+    }
+
+    // fn project_screen_from_left(&self,
+    //                             viewport: &Viewport,
+    //                             screen_y: f32,
+    // ) -> Option<f32> {
+    //     todo!();
+    // }
 
     fn top_heightfield_in_visible_column(
         &self,
@@ -330,6 +422,18 @@ impl AlignmentHeightFields {
         world_target: f64,
     ) -> Option<&LabelHeightField> {
         let (tgt_id, seq_pos) = grid.x_axis.global_to_axis_local(world_target)?;
+
+        // find map works since the axes are already sorted & the pairs are provided in that order
+        let top_visible_qry = grid.pairs_with_target(tgt_id).iter().find_map(|&qry_id| {
+            let world_y_range = grid.y_axis.sequence_axis_range(qry_id)?;
+            let min = world_y_range.start as f64;
+            let max = world_y_range.end as f64;
+
+            // if viewport.view_center.y -
+            // let pair_location =
+            //
+            Some(qry_id)
+        });
 
         todo!();
         None
@@ -355,7 +459,7 @@ struct LabelHeightField {
 
 impl LabelHeightField {
     fn from_alignment(alignment: &Alignment, bin_count: usize) -> Self {
-        let location = alignment.location;
+        let location = alignment.location.clone();
         let target_id = alignment.target_id;
         let query_id = alignment.query_id;
 
@@ -391,9 +495,14 @@ impl LabelHeightField {
 
         let scale_x = location.aligned_target_len() as f32;
         let heights = nalgebra::DVector::from_vec(bins);
-        let heightfield = HeightField::new(heights, [scale_x, 1.0]);
+        let heightfield = HeightField::new(heights, [scale_x, 1.0].into());
 
-        Self { heightfield }
+        Self {
+            heightfield,
+            target_id,
+            query_id,
+            location,
+        }
     }
 }
 
@@ -403,7 +512,8 @@ impl LabelHeightField {
         self.heightfield.compute_aabb(&pos)
     }
 
-    fn heightfield_project_world_x(&self, x: f32) -> Option<f32> {
+    // input and output are in "heightfield-local" (but unnormalized) coordinates
+    fn heightfield_project_x(&self, x: f32) -> Option<f32> {
         if x < 0.0 || x > self.heightfield.scale().x {
             return None;
         }
@@ -436,8 +546,9 @@ impl LabelHeightField {
     ) -> Option<Vec2> {
         let pt = screen_point.as_uv();
         let world = viewport.screen_world_mat3().transform_point2(pt);
-        let y = self.heightfield_project_world_x(world.x)?;
-        Some([world.x, y].as_uv())
+        todo!();
+        // let y = self.heightfield_project_x(world.x)?;
+        // Some([world.x, y].as_uv())
     }
 
     fn heightfield_screen_segments(
