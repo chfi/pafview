@@ -595,6 +595,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                         label_physics.update_anchors(&app.alignment_grid, &viewport);
                         label_physics.update_labels(
                             &app.alignment_grid,
+                            &app.annotations,
                             &mut annotation_painter,
                             &viewport,
                         );
@@ -638,9 +639,9 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                             |ctx| {
                                 // cpu_rasterizer.draw_and_display_view_layer(ctx, &app, &app_view);
 
-                                crate::annotations::label_layout::debug_window(
-                                    ctx, &app, &app_view,
-                                );
+                                // crate::annotations::label_layout::ebug_window(
+                                //     ctx, &app, &app_view,
+                                // );
 
                                 selection_handler.run(ctx, &mut app_view);
                                 // regions::paf_line_debug_aabbs(&input, ctx, &app_view);

@@ -293,8 +293,8 @@ impl GridAxis {
         let i = self
             .seq_offsets
             .partition_point(|&v| (v as f64) <= t)
-            .checked_sub(1)
-            .unwrap();
+            .checked_sub(1) // 2024-05-29 NB: this is going below 0 w/ the physics calls
+            .unwrap_or_default();
         let offset = self.seq_offsets[i] as f64;
 
         let v = (t - offset) / self.seq_lens[i] as f64;

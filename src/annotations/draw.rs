@@ -12,6 +12,8 @@ use ultraviolet::{DVec2, Vec2};
 
 use crate::{gui::AppWindowStates, PafViewerApp};
 
+use crate::math_conv::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AnnotShapeId(usize);
 
@@ -28,6 +30,11 @@ pub struct AnnotationPainter {
 const LABEL_TEXT_SIZE: f32 = 12.0;
 
 impl AnnotationPainter {
+    pub fn get_shape_mut(&mut self, shape_id: AnnotShapeId) -> Option<&mut dyn DrawAnnotation> {
+        let val = self.annotations.get_mut(shape_id.0)?;
+        Some(val.as_mut())
+    }
+
     pub fn add_shape(&mut self, draw: Box<dyn DrawAnnotation>) -> AnnotShapeId {
         let id = AnnotShapeId(self.annotations.len());
         self.annotations.push(draw);
@@ -116,7 +123,7 @@ impl AnnotationPainter {
     }
 }
 
-pub trait DrawAnnotation {
+pub trait DrawAnnotation: std::any::Any {
     fn draw(
         &self,
         // galley_cache: &mut FxHashMap<(String, egui::TextFormat), Arc<Galley>>,
@@ -126,7 +133,9 @@ pub trait DrawAnnotation {
         screen_size: egui::Vec2,
     );
 
-    fn set_color(&mut self, _color: egui::Color32);
+    fn set_position(&mut self, _pos: Option<egui::Pos2>) {}
+
+    fn set_color(&mut self, _color: egui::Color32) {}
 
     // fn text(&self) -> Option<(&str, egui::Align2)> {
     //     None
@@ -159,9 +168,10 @@ impl DrawAnnotation for AnnotationDrawCollection {
 }
 
 pub struct AnnotationLabel {
-    pub world_x_range: Option<std::ops::RangeInclusive<f64>>,
-    pub world_y_range: Option<std::ops::RangeInclusive<f64>>,
-    pub align: egui::Align2,
+    // pub world_x_range: Option<std::ops::RangeInclusive<f64>>,
+    // pub world_y_range: Option<std::ops::RangeInclusive<f64>>,
+    // pub align: egui::Align2,
+    pub screen_pos: Option<egui::Pos2>,
 
     pub text: String,
     // can't use TextFormat as key bc not Eq; hash manually and key w/ u64, later
@@ -198,6 +208,14 @@ impl DrawAnnotation for AnnotationLabel {
         let view_min = DVec2::new(view.x_min, view.y_min);
         let view_max = DVec2::new(view.x_max, view.y_max);
 
+        let Some(pos) = self.screen_pos else {
+            return;
+        };
+
+        // TODO might need to offset (pos is center)
+        painter.galley(pos.as_epos2(), galley, egui::Color32::BLACK);
+
+        /*
         // TODO take `align` into account
         let [p0, p1] = match (&self.world_x_range, &self.world_y_range) {
             (Some(xs), Some(ys)) => {
@@ -231,9 +249,14 @@ impl DrawAnnotation for AnnotationLabel {
 
         let rect = egui::Rect::from_two_pos(q0.into(), q1.into());
         painter.galley(rect.left_top(), galley, egui::Color32::BLACK);
+        */
     }
 
-    fn set_color(&mut self, _color: egui::Color32) {}
+    fn set_position(&mut self, new_pos: Option<egui::Pos2>) {
+        self.screen_pos = new_pos;
+    }
+
+    // fn set_color(&mut self, _color: egui::Color32) {}
 }
 
 pub struct AnnotationWorldRegion {

@@ -189,11 +189,16 @@ impl LabelPhysics {
     pub fn update_labels(
         &mut self,
         grid: &AlignmentGrid,
+        annotations: &AnnotationStore,
         painter: &mut AnnotationPainter,
         viewport: &Viewport,
     ) {
         for (annot_id, annot_data) in self.annotations.iter() {
             let handle_ix = annot_data.target_label_ix;
+
+            let Some(shape_id) = annotations.target_shape_for(annot_id.0, annot_id.1) else {
+                continue;
+            };
 
             if let Some(anchor_pos) = self.target_labels.anchor_screen_pos[handle_ix] {
                 let mut not_enough_space = false;
@@ -249,6 +254,10 @@ impl LabelPhysics {
 
                 if !rigid_body.is_enabled() {
                     rigid_body.set_enabled(true);
+                    if let Some(label) = painter.get_shape_mut(shape_id) {
+                        let pos = rigid_body.position().translation;
+                        label.set_position(Some(pos.as_epos2()));
+                    }
                 }
             } else {
                 // hide label, disable physics object
@@ -264,6 +273,9 @@ impl LabelPhysics {
 
                 if rigid_body.is_enabled() {
                     rigid_body.set_enabled(false);
+                    if let Some(label) = painter.get_shape_mut(shape_id) {
+                        label.set_position(None);
+                    }
                 }
             }
         }
@@ -793,3 +805,73 @@ impl Physics {
         );
     }
 }
+
+/*
+pub mod draw {
+
+    use egui::Galley;
+
+    use crate::annotations::{draw::DrawAnnotation, AnnotationId};
+
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    // pub struct PhysicsAnnotationLabel {
+    //     pos:
+    // }
+
+    pub struct DrawPhysicsLabels {
+        positions: Arc<Mutex<Vec<Option<Vec2>>>>,
+        galleys: Vec<Arc<Galley>>,
+    }
+
+    impl DrawPhysicsLabels {
+        pub fn from_record_list(
+            annotations: &AnnotationStore,
+            annotation_painter: &mut AnnotationPainter,
+            records: impl IntoIterator<Item = AnnotationId>,
+        ) -> Self {
+            let mut positions = Vec::new();
+            let mut galleys = Vec::new();
+        }
+
+        pub fn swap_positions(&mut self, new_pos: &mut Vec<Option<Vec2>>) {
+            let mut pos = self.positions.lock().unwrap();
+            debug_assert_eq!(pos.len(), new_pos.len());
+            std::mem::swap(pos.as_mut(), new_pos);
+        }
+    }
+
+    // impl DrawPhysicsLabels {
+    //     pub fn
+    // }
+
+    impl DrawAnnotation for DrawPhysicsLabels {
+        fn draw(
+            &self,
+            _galley_cache: &mut FxHashMap<String, Arc<Galley>>,
+            painter: &egui::Painter,
+            _view: &crate::view::View,
+            _screen_size: egui::Vec2,
+        ) {
+            let pos = self.positions.lock().unwrap();
+
+            for (ix, &label_pos) in pos.iter().enumerate() {
+                let Some(label_pos) = label_pos else {
+                    continue;
+                };
+
+                let galley = &self.galleys[ix];
+                let pos = label_pos.as_epos2() - galley.size() * 0.5;
+
+                painter.galley(pos, galley.clone(), egui::Color32::BLACK);
+            }
+        }
+
+        fn set_color(&mut self, _color: egui::Color32) {
+            //
+        }
+    }
+}
+
+*/

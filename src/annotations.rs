@@ -220,9 +220,10 @@ impl RecordList {
                 color,
             };
             let target_label = draw::AnnotationLabel {
-                world_x_range: world_x_range.clone(),
-                world_y_range: None,
-                align: egui::Align2::CENTER_TOP,
+                // world_x_range: world_x_range.clone(),
+                // world_y_range: None,
+                // align: egui::Align2::CENTER_TOP,
+                screen_pos: None,
                 text: record.label.clone(),
             };
             let target =
@@ -234,9 +235,10 @@ impl RecordList {
                 color,
             };
             let query_label = draw::AnnotationLabel {
-                world_x_range: None,
-                world_y_range,
-                align: egui::Align2::CENTER_TOP,
+                // world_x_range: None,
+                // world_y_range,
+                // align: egui::Align2::CENTER_TOP,
+                screen_pos: None,
                 text: record.label.clone(),
             };
             let query =
