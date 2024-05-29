@@ -38,7 +38,7 @@ impl AnnotationPainter {
     pub fn add_shape(&mut self, draw: Box<dyn DrawAnnotation>) -> AnnotShapeId {
         let id = AnnotShapeId(self.annotations.len());
         self.annotations.push(draw);
-        self.enabled.push(false);
+        self.enabled.push(true);
         id
     }
 
@@ -133,9 +133,7 @@ pub trait DrawAnnotation: std::any::Any {
         screen_size: egui::Vec2,
     );
 
-    fn set_position(&mut self, _pos: Option<egui::Pos2>) {
-        println!("this is the wrong set_position!!!");
-    }
+    fn set_position(&mut self, _pos: Option<egui::Pos2>) {}
 
     fn set_color(&mut self, _color: egui::Color32) {}
 
@@ -217,53 +215,17 @@ impl DrawAnnotation for AnnotationLabel {
         let view_max = DVec2::new(view.x_max, view.y_max);
 
         let Some(pos) = self.screen_pos else {
-            println!("no screen pos for {}", &self.text);
+            // println!("no screen pos for {}", &self.text);
             return;
         };
 
         // TODO might need to offset (pos is center)
-        println!("drawing label {}", &self.text);
+        // println!("drawing label {}", &self.text);
         painter.galley(pos.as_epos2(), galley, egui::Color32::BLACK);
-
-        /*
-        // TODO take `align` into account
-        let [p0, p1] = match (&self.world_x_range, &self.world_y_range) {
-            (Some(xs), Some(ys)) => {
-                // draw in top left of screen rect, for now
-                let p0 = DVec2::new(*xs.start(), *ys.start());
-                let p1 = DVec2::new(*xs.end(), *ys.end());
-                [p0, p1]
-            }
-            (Some(xs), None) => {
-                // draw at top of screen of vertical region
-                let p0 = DVec2::new(*xs.start(), view_min.y);
-                let p1 = DVec2::new(*xs.end(), view_max.y);
-                [p0, p1]
-            }
-            (None, Some(ys)) => {
-                // draw at left of screen of horizontal region
-                let p0 = DVec2::new(view_min.x, *ys.start());
-                let p1 = DVec2::new(view_min.x, *ys.end());
-                [p0, p1]
-            }
-            _ => {
-                return;
-            }
-        };
-
-        let q0: [f32; 2] = view.map_world_to_screen(screen_size, p0).into();
-        let q1: [f32; 2] = view.map_world_to_screen(screen_size, p1).into();
-
-        // let q0: [f32; 2] = view.map_world_to_screen(screen_size, min).into();
-        // let q1: [f32; 2] = view.map_world_to_screen(screen_size, max).into();
-
-        let rect = egui::Rect::from_two_pos(q0.into(), q1.into());
-        painter.galley(rect.left_top(), galley, egui::Color32::BLACK);
-        */
     }
 
     fn set_position(&mut self, new_pos: Option<egui::Pos2>) {
-        println!("new pos for {}: {new_pos:?}", &self.text);
+        // println!("new pos for {}: {new_pos:?}", &self.text);
         self.screen_pos = new_pos;
     }
 

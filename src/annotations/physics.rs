@@ -84,6 +84,7 @@ impl LabelPhysics {
         fonts: &egui::text::Fonts, // needed to derive text size
         annotation_painter: &mut super::draw::AnnotationPainter, // cache laid out text
     ) {
+        let len = self.annotations.len();
         for annot_id @ (list_id, record_id) in annotations {
             if self.annotations.contains_key(&annot_id) {
                 continue;
@@ -123,6 +124,7 @@ impl LabelPhysics {
 
             self.annotations.insert(annot_id, data);
         }
+        println!("prepared {} annotations", self.annotations.len() - len);
     }
 }
 
@@ -136,6 +138,7 @@ impl LabelPhysics {
 
         let (vx_min, vx_max) = viewport.x_range().into_inner();
 
+        let mut count = 0;
         for (annot_id, annot_data) in self.annotations.iter() {
             // target for now
 
@@ -186,7 +189,9 @@ impl LabelPhysics {
             };
 
             self.target_labels.anchor_screen_pos[annot_data.target_label_ix] = new_anchor;
+            count += 1;
         }
+        // println!("updated {count} anchors");
     }
 
     pub fn update_labels(
@@ -263,7 +268,7 @@ impl LabelPhysics {
                 }
                 if let Some(label) = painter.get_shape_mut(shape_id) {
                     let pos = rigid_body.position().translation;
-                    println!("setting label position to {pos:?}");
+                    // println!("setting label position to {pos:?}");
                     label.set_position(Some(pos.as_epos2()));
                     // if !pos.x.is_nan() && !pos.y.is_nan() {
                     //     println!("setting label position to {pos:?}");
@@ -294,7 +299,7 @@ impl LabelPhysics {
         // println!("labels with anchor positions: {position_count}");
     }
 
-    pub fn step(&mut self, dt: f32, viewport: &Viewport) {
+    pub fn step(&mut self, grid: &AlignmentGrid, dt: f32, viewport: &Viewport) {
         const SPRING_K: f32 = 10.0;
         const LABEL_ANCHOR_DIST_THRESHOLD: f32 = 300.0;
         // const CLUSTER_TIME_MIN_SEC: f32 = 1.0;
@@ -322,7 +327,8 @@ impl LabelPhysics {
                 continue;
             }
 
-            let label_anchor_diff = rigid_body.position().translation.as_uv() - anchor_pos;
+            let label_pos = rigid_body.position().translation.as_uv();
+            let label_anchor_diff = label_pos - anchor_pos;
             // TODO check if stacking/clustering is needed (prediction etc.)
 
             if rigid_body.user_force().norm() > 0.0 {
@@ -331,8 +337,21 @@ impl LabelPhysics {
 
             let force_x = -label_anchor_diff.x * SPRING_K;
 
+            let y_diff = label_anchor_diff.y;
+            println!("anchor: {anchor_pos:?}\tlabel: {label_pos:?}");
+            // println!("y_diff: {y_diff}");
+            // let hfield_y_diff = self.heightfields.project_screen_from_top(grid, viewport, screen_x)
+
             // TODO apply vertical force (to clear heightfield/match lines)
-            let force_y = 0f32;
+            // let force_y = 0f32;
+            let y_tgt = (anchor_pos.y - 100.0).max(10.0);
+            let force_y = -(label_pos.y - y_tgt) * SPRING_K;
+            // let force_y = -label_anchor_diff.y * SPRING_K;
+            // let force_y = if label_anchor_diff.y.abs() > 200.0 {
+            //     -label_anchor_diff.y * SPRING_K
+            // } else {
+            //     0.0
+            // };
             let force = [force_x, force_y].as_uv();
             let force_min = 1.0; // arbitrary
             if force.mag() > force_min {
@@ -397,7 +416,8 @@ impl LabelPhysics {
         let this_shape = Cuboid::new((size * 0.5).as_na());
 
         let mut intersecting = Vec::new();
-        let mut cur_position = nalgebra::Isometry2::translation(screen_center.x, screen_center.y);
+        let mut cur_position = nalgebra::Isometry2::translation(screen_center.x, ground_screen_y);
+        // let mut cur_position = nalgebra::Isometry2::translation(screen_center.x, screen_center.y);
 
         let mut can_add = false;
 
@@ -490,37 +510,28 @@ impl AlignmentHeightFields {
         viewport: &Viewport,
         screen_x: f32,
     ) -> Option<f32> {
-        let smat = viewport.screen_world_mat3();
         let mat = viewport.screen_world_dmat3();
-        // println!("screen_x: {screen_x}");
         let world_x = mat.transform_point2([screen_x as f64, 0.0].as_duv()).x;
-        // println!("viewport: {viewport:?}");
-        // println!("mat: {smat:#?}");
-        // println!("screen_x: {screen_x} => world_x: {world_x}");
 
         let (qry_id, hfield) = self.top_heightfield_in_visible_column(grid, viewport, world_x)?;
         let (tgt_id, norm_x) = grid.x_axis.global_to_axis_local(world_x)?;
 
         // need to shift `world_x` to account for the (intended) offset of the heightfield
-        let offset =
-            (grid.x_axis.sequence_offset(tgt_id)? + hfield.location.target_range.start) as f64;
+        let offset = grid.x_axis.sequence_offset(tgt_id)? as f64;
 
         let y_offset = grid.y_axis.sequence_offset(qry_id)? as f64;
 
         let hfield_y = hfield.heightfield_project_x((world_x - offset) as f32)?;
-        // let hfield_y = hfield.heightfield_project_screen(viewport, screen_point)
         let world_y = y_offset + hfield_y as f64;
         let world = [world_x, world_y];
-
-        // println!(
-        //     "offset: {offset}\ty_offset: {y_offset}\tworld_x: {world_x}\thfield_y: {hfield_y}"
-        // );
 
         let screen = viewport
             .world_screen_dmat3()
             .transform_point2(world.as_duv());
 
-        Some(screen.y as f32)
+        Some(viewport.canvas_size.y as f32 - screen.y as f32)
+
+        // Some(screen.y as f32)
     }
 
     // fn project_screen_from_left(&self,
@@ -543,20 +554,26 @@ impl AlignmentHeightFields {
         let (tgt_id, seq_pos) = grid.x_axis.global_to_axis_local(world_target)?;
 
         // find map works since the axes are already sorted & the pairs are provided in that order
-        let top_visible_qry = grid.pairs_with_target(tgt_id).iter().find_map(|&qry_id| {
-            let world_y_range = grid.y_axis.sequence_axis_range(qry_id)?;
-            let min = world_y_range.start as f64;
-            let max = world_y_range.end as f64;
+        let top_visible_qry = grid
+            .pairs_with_target(tgt_id)
+            .iter()
+            // .rev()
+            .find_map(|&qry_id| {
+                let world_y_range = grid.y_axis.sequence_axis_range(qry_id)?;
+                let min = world_y_range.start as f64;
+                let max = world_y_range.end as f64;
 
-            // if viewport.view_center.y -
-            // let pair_location =
-            //
-            Some(qry_id)
-        })?;
+                // if viewport.view_center.y -
+                // let pair_location =
+                //
+                Some(qry_id)
+            })?;
 
         let qry_id = top_visible_qry;
 
         let hfield = self.heightfields.get(&(tgt_id, qry_id))?;
+        let qry_name = grid.sequence_names.get_by_right(&qry_id);
+        println!("using heightfield for query: {qry_id:?} ({qry_name:?})");
 
         Some((qry_id, hfield))
     }
@@ -637,6 +654,10 @@ impl LabelHeightField {
     // input and output are in "heightfield-local" (but unnormalized) coordinates
     fn heightfield_project_x(&self, x: f32) -> Option<f32> {
         if x < 0.0 || x > self.heightfield.scale().x {
+            println!(
+                "out of scale: {x} not in [0.0, {}]",
+                self.heightfield.scale().x
+            );
             return None;
         }
         let x_ = x - self.heightfield.scale().x * 0.5;

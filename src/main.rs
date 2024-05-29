@@ -599,7 +599,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                             &mut annotation_painter,
                             &viewport,
                         );
-                        label_physics.step(delta_t as f32, &viewport);
+                        label_physics.step(&app.alignment_grid, delta_t as f32, &viewport);
 
                         last_frame = std::time::Instant::now();
 
