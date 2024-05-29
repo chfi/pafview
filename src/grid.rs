@@ -118,6 +118,13 @@ pub enum AxisRange {
 }
 
 impl AxisRange {
+    pub fn to_global(self) -> Option<std::ops::RangeInclusive<f64>> {
+        match self {
+            AxisRange::Global(r) => Some(r),
+            AxisRange::Seq { .. } => None,
+        }
+    }
+
     pub fn seq(seq_id: SeqId, range: std::ops::Range<u64>) -> Self {
         AxisRange::Seq { seq_id, range }
     }

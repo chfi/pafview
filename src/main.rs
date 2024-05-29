@@ -643,6 +643,13 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 //     ctx, &app, &app_view,
                                 // );
 
+                                crate::gui::goto::goto_region_window(
+                                    ctx,
+                                    &mut window_states.goto_region_open,
+                                    &app.alignment_grid,
+                                    &mut app_view,
+                                );
+
                                 selection_handler.run(ctx, &mut app_view);
                                 // regions::paf_line_debug_aabbs(&input, ctx, &app_view);
                                 // annotations::draw_annotation_test_window(
@@ -699,6 +706,10 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
                         // prepare newly loaded annotations as labels in the physics system
                         if labels_to_prepare.len() > 0 {
+                            println!(
+                                "preparing {} annotations for display",
+                                labels_to_prepare.len()
+                            );
                             egui_renderer.context.fonts(|fonts| {
                                 label_physics.prepare_annotations(
                                     &app.alignment_grid,
