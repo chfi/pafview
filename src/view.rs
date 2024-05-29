@@ -4,6 +4,7 @@ use ultraviolet::{DMat3, DMat4, DVec2, DVec4, Mat3, Mat4, Vec2, Vec3};
 
 use crate::math_conv::*;
 
+#[derive(Debug, Clone, Copy)]
 pub struct Viewport {
     pub view_center: DVec2, // view center in world coordinates
     pub view_size: DVec2,   // world coordinates
@@ -16,8 +17,8 @@ impl Viewport {
     pub fn new(
         view_center: impl Into<[f64; 2]>,
         view_size: impl Into<[f64; 2]>,
-        canvas_size: impl Into<[f32; 2]>,
         canvas_offset: impl Into<[f32; 2]>,
+        canvas_size: impl Into<[f32; 2]>,
     ) -> Self {
         let view_center = view_center.as_duv();
         let view_size = view_size.as_duv();
@@ -132,12 +133,17 @@ impl Viewport {
     /// rectangle.
     pub fn screen_world_dmat3(&self) -> DMat3 {
         let canvas_size = self.canvas_size.to_f64();
+        // dbg!(&canvas_size);
+        // dbg!(&self.view_size);
         let scale_inv = DMat3::from_nonuniform_scale_homogeneous(DVec2::new(
             self.view_size.x / canvas_size.x,
             self.view_size.y / canvas_size.y,
         ));
+        // dbg!(&scale_inv);
         let translate_inv = DMat3::from_translation(-self.canvas_offset.to_f64());
+        // dbg!(&translate_inv);
         let center_translate_inv = DMat3::from_translation(self.view_center - self.view_size * 0.5);
+        // dbg!(&center_translate_inv);
 
         center_translate_inv * scale_inv * translate_inv
     }

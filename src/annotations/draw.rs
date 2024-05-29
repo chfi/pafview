@@ -133,7 +133,9 @@ pub trait DrawAnnotation: std::any::Any {
         screen_size: egui::Vec2,
     );
 
-    fn set_position(&mut self, _pos: Option<egui::Pos2>) {}
+    fn set_position(&mut self, _pos: Option<egui::Pos2>) {
+        println!("this is the wrong set_position!!!");
+    }
 
     fn set_color(&mut self, _color: egui::Color32) {}
 
@@ -157,6 +159,12 @@ impl DrawAnnotation for AnnotationDrawCollection {
     ) {
         for item in self.draw.iter() {
             item.draw(galley_cache, painter, view, screen_size);
+        }
+    }
+
+    fn set_position(&mut self, new_pos: Option<egui::Pos2>) {
+        for item in self.draw.iter_mut() {
+            item.set_position(new_pos);
         }
     }
 
@@ -209,10 +217,12 @@ impl DrawAnnotation for AnnotationLabel {
         let view_max = DVec2::new(view.x_max, view.y_max);
 
         let Some(pos) = self.screen_pos else {
+            println!("no screen pos for {}", &self.text);
             return;
         };
 
         // TODO might need to offset (pos is center)
+        println!("drawing label {}", &self.text);
         painter.galley(pos.as_epos2(), galley, egui::Color32::BLACK);
 
         /*
@@ -253,6 +263,7 @@ impl DrawAnnotation for AnnotationLabel {
     }
 
     fn set_position(&mut self, new_pos: Option<egui::Pos2>) {
+        println!("new pos for {}: {new_pos:?}", &self.text);
         self.screen_pos = new_pos;
     }
 

@@ -164,6 +164,9 @@ impl LabelPhysics {
             else {
                 continue;
             };
+
+            // println!("viewport: [{viewport:?}]");
+            // println!("anchor pos: [{cl_mid}, {mid_y}]");
             // let left_y = self
             //     .heightfields
             //     .project_screen_from_top(grid, viewport, sx_min as f32);
@@ -193,6 +196,7 @@ impl LabelPhysics {
         painter: &mut AnnotationPainter,
         viewport: &Viewport,
     ) {
+        let mut position_count = 0;
         for (annot_id, annot_data) in self.annotations.iter() {
             let handle_ix = annot_data.target_label_ix;
 
@@ -201,6 +205,7 @@ impl LabelPhysics {
             };
 
             if let Some(anchor_pos) = self.target_labels.anchor_screen_pos[handle_ix] {
+                position_count += 1;
                 let mut not_enough_space = false;
 
                 if self.target_labels.label_rigid_body[handle_ix].is_none() {
@@ -215,6 +220,7 @@ impl LabelPhysics {
                             // .friction(0.1)
                             .build();
 
+                        // println!("try_to_place_label results: {label_pos:?}");
                         let rigid_body = RigidBodyBuilder::dynamic()
                             .translation(label_pos.as_na())
                             .lock_rotations()
@@ -254,10 +260,14 @@ impl LabelPhysics {
 
                 if !rigid_body.is_enabled() {
                     rigid_body.set_enabled(true);
-                    if let Some(label) = painter.get_shape_mut(shape_id) {
-                        let pos = rigid_body.position().translation;
-                        label.set_position(Some(pos.as_epos2()));
-                    }
+                }
+                if let Some(label) = painter.get_shape_mut(shape_id) {
+                    let pos = rigid_body.position().translation;
+                    println!("setting label position to {pos:?}");
+                    label.set_position(Some(pos.as_epos2()));
+                    // if !pos.x.is_nan() && !pos.y.is_nan() {
+                    //     println!("setting label position to {pos:?}");
+                    // }
                 }
             } else {
                 // hide label, disable physics object
@@ -274,11 +284,14 @@ impl LabelPhysics {
                 if rigid_body.is_enabled() {
                     rigid_body.set_enabled(false);
                     if let Some(label) = painter.get_shape_mut(shape_id) {
+                        println!("unsetting label");
                         label.set_position(None);
                     }
                 }
             }
         }
+
+        // println!("labels with anchor positions: {position_count}");
     }
 
     pub fn step(&mut self, dt: f32, viewport: &Viewport) {
@@ -346,6 +359,7 @@ impl LabelPhysics {
         anchor_pos: Vec2,
         rect_size: impl Into<[f32; 2]>,
     ) -> Option<ultraviolet::Vec2> {
+        // println!("try to place anchor pos: {anchor_pos:?}");
         let proposed_center = anchor_pos + [0.0, -40.0].as_uv();
         self.find_position_for_screen_rectangle(grid, viewport, proposed_center, rect_size)
     }
@@ -476,8 +490,13 @@ impl AlignmentHeightFields {
         viewport: &Viewport,
         screen_x: f32,
     ) -> Option<f32> {
+        let smat = viewport.screen_world_mat3();
         let mat = viewport.screen_world_dmat3();
+        // println!("screen_x: {screen_x}");
         let world_x = mat.transform_point2([screen_x as f64, 0.0].as_duv()).x;
+        // println!("viewport: {viewport:?}");
+        // println!("mat: {smat:#?}");
+        // println!("screen_x: {screen_x} => world_x: {world_x}");
 
         let (qry_id, hfield) = self.top_heightfield_in_visible_column(grid, viewport, world_x)?;
         let (tgt_id, norm_x) = grid.x_axis.global_to_axis_local(world_x)?;
@@ -492,6 +511,10 @@ impl AlignmentHeightFields {
         // let hfield_y = hfield.heightfield_project_screen(viewport, screen_point)
         let world_y = y_offset + hfield_y as f64;
         let world = [world_x, world_y];
+
+        // println!(
+        //     "offset: {offset}\ty_offset: {y_offset}\tworld_x: {world_x}\thfield_y: {hfield_y}"
+        // );
 
         let screen = viewport
             .world_screen_dmat3()
@@ -760,8 +783,8 @@ struct Physics {
 impl std::default::Default for Physics {
     fn default() -> Self {
         Self {
-            // gravity: vector![0.0, 0.0],
-            gravity: vector![0.0, 9.81],
+            gravity: vector![0.0, 0.0],
+            // gravity: vector![0.0, 9.81],
             // gravity: vector![0.0, 20.0],
             // gravity: vector![0.0, 8.0],
             physics_pipeline: PhysicsPipeline::default(),
