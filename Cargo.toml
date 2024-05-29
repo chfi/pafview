@@ -36,6 +36,9 @@ rand = "0.8.5"
 
 [profile.dev]
 opt-level = 3
+debug-info = "full"
+debug-assertions = true
+overflow-checks = true
 
 # [profile.dev.package."*"]
 # opt-level = 3

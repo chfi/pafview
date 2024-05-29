@@ -13,6 +13,8 @@ use crate::math_conv::*;
 use super::draw::AnnotationPainter;
 use super::AnnotationStore;
 
+pub mod debug;
+
 /*
 
 TODO:

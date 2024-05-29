@@ -650,6 +650,14 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                     &mut app_view,
                                 );
 
+                                #[cfg(debug_assertions)]
+                                annotations::physics::debug::label_physics_debug_window(
+                                    ctx,
+                                    &mut window_states.label_physics_debug_open,
+                                    &label_physics,
+                                    &viewport,
+                                );
+
                                 selection_handler.run(ctx, &mut app_view);
                                 // regions::paf_line_debug_aabbs(&input, ctx, &app_view);
                                 // annotations::draw_annotation_test_window(

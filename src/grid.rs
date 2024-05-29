@@ -86,6 +86,33 @@ impl AlignmentGrid {
     }
 }
 
+impl AlignmentGrid {
+    // pub fn closest_points_screen(&self, viewport: &Viewport, point: Vec2) -> [Option<Vec2>; 2] {
+    // pub fn closest_points_screen(&self, viewport: &crate::view::Viewport, point: Vec2) -> impl Iterator<Item = Vec2> {
+    /*
+    pub fn closest_points_screen(
+        &self,
+        canvas_size: [f32; 2],
+        view: &crate::view::View,
+        point: ultraviolet::Vec2,
+    ) -> impl Iterator<Item = ultraviolet::Vec2> {
+        // let screen_world = viewport.screen_world_mat3();
+        // let world_screen = viewport.world_screen_mat3();
+
+        let world_p = view.map_screen_to_world(canvas_size, point);
+        let tgt = self.x_axis.global_to_axis_local(world_p.x);
+        let qry = self.y_axis.global_to_axis_local(world_p.y);
+
+        // let tgt = tgt.and_then(|(tgt_id, _local)| {
+        // });
+
+        // let (tgt_id, _tgt_local) =
+        // let mat = viewport.screen
+        todo!();
+    }
+    */
+}
+
 pub fn parse_axis_range_into_global(
     seq_names: &BiMap<String, SeqId>,
     axis: &GridAxis,
