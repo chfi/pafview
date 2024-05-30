@@ -340,7 +340,7 @@ impl LabelPhysics {
             let force_x = -label_anchor_diff.x * SPRING_K;
 
             let y_diff = label_anchor_diff.y;
-            println!("anchor: {anchor_pos:?}\tlabel: {label_pos:?}");
+            // println!("anchor: {anchor_pos:?}\tlabel: {label_pos:?}");
             // println!("y_diff: {y_diff}");
             // let hfield_y_diff = self.heightfields.project_screen_from_top(grid, viewport, screen_x)
 
@@ -559,7 +559,7 @@ impl AlignmentHeightFields {
         let top_visible_qry = grid
             .pairs_with_target(tgt_id)
             .iter()
-            // .rev()
+            .rev()
             .find_map(|&qry_id| {
                 let world_y_range = grid.y_axis.sequence_axis_range(qry_id)?;
                 let min = world_y_range.start as f64;
@@ -575,7 +575,7 @@ impl AlignmentHeightFields {
 
         let hfield = self.heightfields.get(&(tgt_id, qry_id))?;
         let qry_name = grid.sequence_names.get_by_right(&qry_id);
-        println!("using heightfield for query: {qry_id:?} ({qry_name:?})");
+        // println!("using heightfield for query: {qry_id:?} ({qry_name:?})");
 
         Some((qry_id, hfield))
     }
@@ -851,73 +851,3 @@ impl Physics {
         );
     }
 }
-
-/*
-pub mod draw {
-
-    use egui::Galley;
-
-    use crate::annotations::{draw::DrawAnnotation, AnnotationId};
-
-    use super::*;
-    use std::sync::{Arc, Mutex};
-
-    // pub struct PhysicsAnnotationLabel {
-    //     pos:
-    // }
-
-    pub struct DrawPhysicsLabels {
-        positions: Arc<Mutex<Vec<Option<Vec2>>>>,
-        galleys: Vec<Arc<Galley>>,
-    }
-
-    impl DrawPhysicsLabels {
-        pub fn from_record_list(
-            annotations: &AnnotationStore,
-            annotation_painter: &mut AnnotationPainter,
-            records: impl IntoIterator<Item = AnnotationId>,
-        ) -> Self {
-            let mut positions = Vec::new();
-            let mut galleys = Vec::new();
-        }
-
-        pub fn swap_positions(&mut self, new_pos: &mut Vec<Option<Vec2>>) {
-            let mut pos = self.positions.lock().unwrap();
-            debug_assert_eq!(pos.len(), new_pos.len());
-            std::mem::swap(pos.as_mut(), new_pos);
-        }
-    }
-
-    // impl DrawPhysicsLabels {
-    //     pub fn
-    // }
-
-    impl DrawAnnotation for DrawPhysicsLabels {
-        fn draw(
-            &self,
-            _galley_cache: &mut FxHashMap<String, Arc<Galley>>,
-            painter: &egui::Painter,
-            _view: &crate::view::View,
-            _screen_size: egui::Vec2,
-        ) {
-            let pos = self.positions.lock().unwrap();
-
-            for (ix, &label_pos) in pos.iter().enumerate() {
-                let Some(label_pos) = label_pos else {
-                    continue;
-                };
-
-                let galley = &self.galleys[ix];
-                let pos = label_pos.as_epos2() - galley.size() * 0.5;
-
-                painter.galley(pos, galley.clone(), egui::Color32::BLACK);
-            }
-        }
-
-        fn set_color(&mut self, _color: egui::Color32) {
-            //
-        }
-    }
-}
-
-*/

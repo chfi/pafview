@@ -654,6 +654,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 annotations::physics::debug::label_physics_debug_window(
                                     ctx,
                                     &mut window_states.label_physics_debug_open,
+                                    &app,
                                     &label_physics,
                                     &viewport,
                                 );
