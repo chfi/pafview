@@ -1,37 +1,29 @@
 use std::sync::Arc;
 
 use bimap::BiMap;
+use nalgebra::Isometry2;
+use rapier2d::dynamics::RigidBodySet;
+use rapier2d::geometry::ColliderSet;
+use rapier2d::parry::simba::scalar::SubsetOf;
+use rapier2d::pipeline::QueryPipeline;
 use rustc_hash::FxHashMap;
+use ultraviolet::{DVec2, Vec2};
 
+use crate::math_conv::*;
+use crate::paf::Alignments;
 use crate::sequences::SeqId;
 
 /// An `AlignmentGrid` defines the global position of the aligned sequence pairs
-#[derive(Debug)]
 pub struct AlignmentGrid {
     pub x_axis: GridAxis,
     pub y_axis: GridAxis,
 
     pub sequence_names: Arc<BiMap<String, SeqId>>,
 
-    pairs_by_target: FxHashMap<SeqId, Vec<SeqId>>,
-    pairs_by_query: FxHashMap<SeqId, Vec<SeqId>>,
+    tile_aabbs: GridAABBs,
 }
 
 impl AlignmentGrid {
-    pub fn pairs_with_target(&self, target: SeqId) -> &[SeqId] {
-        self.pairs_by_target
-            .get(&target)
-            .map(|q| q.as_slice())
-            .unwrap_or_default()
-    }
-
-    pub fn pairs_with_query(&self, query: SeqId) -> &[SeqId] {
-        self.pairs_by_query
-            .get(&query)
-            .map(|t| t.as_slice())
-            .unwrap_or_default()
-    }
-
     pub fn from_alignments(
         alignments: &crate::paf::Alignments,
         sequence_names: Arc<BiMap<String, SeqId>>,
@@ -55,6 +47,8 @@ impl AlignmentGrid {
         queries.sort_by_key(|(_, l)| *l);
         queries.dedup_by_key(|(id, _)| *id);
         let y_axis = crate::grid::GridAxis::from_index_and_lengths(queries);
+
+        let tile_aabbs = GridAABBs::from_alignments(alignments, &x_axis, &y_axis);
 
         let mut pairs_by_target: FxHashMap<_, Vec<_>> = FxHashMap::default();
         let mut pairs_by_query: FxHashMap<_, Vec<_>> = FxHashMap::default();
@@ -80,13 +74,102 @@ impl AlignmentGrid {
             x_axis,
             y_axis,
             sequence_names,
-            pairs_by_target,
-            pairs_by_query,
+
+            tile_aabbs,
         }
     }
 }
 
 impl AlignmentGrid {
+    /*
+    fn closest_points(
+        &self,
+        world_pt: DVec2,
+    ) -> impl Iterator<Item = ((SeqId, SeqId), DVec2)> + '_ {
+        let tgt = self.x_axis.global_to_axis_local(world_pt.x);
+        let qry = self.y_axis.global_to_axis_local(world_pt.y);
+
+        // vertical
+        let vertical: Option<[Option<((SeqId, SeqId), DVec2)>; 2]> =
+            tgt.and_then(|(tgt_id, _tgt_p)| {
+                // up
+
+                // down
+                todo!();
+            });
+
+        // horizontal
+        let horizontal: Option<[Option<((SeqId, SeqId), DVec2)>; 2]> =
+            qry.and_then(|(qry_id, _qry_p)| {
+                //
+                // left
+                // right
+                todo!();
+            });
+
+        vertical
+            .into_iter()
+            .chain(horizontal.into_iter())
+            .flat_map(|v| v.into_iter().filter_map(|v| v))
+    }
+    */
+
+    /*
+    fn closest_points(
+        &self,
+        world_pt: DVec2,
+    ) -> impl Iterator<Item = ((SeqId, SeqId), DVec2)> + '_ {
+        let tgt = self.x_axis.global_to_axis_local(world_pt.x);
+        let qry = self.y_axis.global_to_axis_local(world_pt.y);
+
+        // vertical
+        let vertical: Option<[Option<((SeqId, SeqId), DVec2)>; 2]> =
+            tgt.and_then(|(tgt_id, _tgt_p)| {
+                //
+                // up
+                let column = self.pairs_by_target.get(&tgt_id)?;
+                let tgt_row_ix = column.partition_point(|t| *t < tgt_id);
+
+                // down
+                todo!();
+            });
+
+        // horizontal
+        let horizontal: Option<[Option<((SeqId, SeqId), DVec2)>; 2]> =
+            qry.and_then(|(qry_id, _qry_p)| {
+                //
+                // left
+                // right
+                todo!();
+            });
+
+        vertical
+            .into_iter()
+            .chain(horizontal.into_iter())
+            .flat_map(|v| v.into_iter().filter_map(|v| v))
+    }
+    */
+
+    /*
+    pub fn cast_screen_ray(
+        &self,
+        viewport: &crate::view::Viewport,
+        origin: impl Into<[f32; 2]>,
+        dir: impl Into<[f32; 2]>,
+    ) -> Option<((SeqId, SeqId), f32)> {
+        let screen_world = viewport.screen_world_dmat3();
+
+        let origin = origin.as_uv();
+        let dir = dir.as_uv();
+
+        let origin_w = screen_world.transform_point2(origin.to_f64());
+
+        todo!();
+
+        None
+    }
+    */
+
     // pub fn closest_points_screen(&self, viewport: &Viewport, point: Vec2) -> [Option<Vec2>; 2] {
     // pub fn closest_points_screen(&self, viewport: &crate::view::Viewport, point: Vec2) -> impl Iterator<Item = Vec2> {
     /*
@@ -379,6 +462,81 @@ impl GridAxis {
         let offset = self.seq_offsets[ix] as f64;
         let v = self.seq_lens[ix] as f64 * t;
         Some(offset + v)
+    }
+}
+
+struct GridAABBs {
+    colliders: ColliderSet,
+    query_pipeline: QueryPipeline,
+
+    _rigid_bodies: RigidBodySet,
+}
+
+impl GridAABBs {
+    fn from_alignments(alignments: &Alignments, x_axis: &GridAxis, y_axis: &GridAxis) -> Self {
+        use rapier2d::prelude::*;
+        let mut colliders = ColliderSet::new();
+
+        for (&(tgt_id, qry_id), alignment) in alignments.pairs.iter() {
+            let offsets = x_axis
+                .sequence_offset(tgt_id)
+                .zip(y_axis.sequence_offset(qry_id));
+
+            let Some((x_offset, y_offset)) = offsets else {
+                continue;
+            };
+
+            let width = alignment.location.target_total_len as f32;
+            let height = alignment.location.query_total_len as f32;
+
+            let pair_id = [tgt_id, qry_id];
+            let &[pair_id]: &[u128] = bytemuck::cast_slice(&pair_id) else {
+                unreachable!();
+            };
+
+            colliders.insert(
+                ColliderBuilder::cuboid(width * 0.5, height * 0.5)
+                    .position(nalgebra::Isometry2::translation(
+                        x_offset as f32,
+                        y_offset as f32,
+                    ))
+                    .user_data(pair_id),
+            );
+        }
+
+        let rigid_bodies = RigidBodySet::new();
+        let mut query_pipeline = QueryPipeline::new();
+
+        query_pipeline.update(&rigid_bodies, &colliders);
+
+        Self {
+            colliders,
+            query_pipeline,
+
+            _rigid_bodies: rigid_bodies,
+        }
+    }
+
+    fn cast_ray(&self, origin: Vec2, dir: Vec2) -> Option<((SeqId, SeqId), DVec2)> {
+        use rapier2d::pipeline::QueryFilter;
+        let ray = rapier2d::geometry::Ray::new(origin.as_na().into(), dir.as_na());
+        let (col_handle, toi) = self.query_pipeline.cast_ray(
+            &self._rigid_bodies,
+            &self.colliders,
+            &ray,
+            std::f32::MAX,
+            true,
+            QueryFilter::default(),
+        )?;
+
+        let collider = self.colliders.get(col_handle)?;
+
+        let &[tgt_id, qry_id]: &[SeqId] = bytemuck::cast_slice(&[collider.user_data]) else {
+            unreachable!();
+        };
+        let pos = origin.to_f64() + dir.to_f64() * toi as f64;
+
+        Some(((tgt_id, qry_id), pos))
     }
 }
 

@@ -1,8 +1,11 @@
 use std::sync::Arc;
 
+use bytemuck::{Pod, Zeroable};
+
 use rustc_hash::FxHashMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Pod, Zeroable)]
+#[repr(transparent)]
 pub struct SeqId(pub usize);
 
 pub struct Sequences {
