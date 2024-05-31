@@ -536,45 +536,21 @@ impl AlignmentHeightFields {
         // Some(screen.y as f32)
     }
 
-    // fn project_screen_from_left(&self,
-    //                             viewport: &Viewport,
-    //                             screen_y: f32,
-    // ) -> Option<f32> {
-    //     todo!();
-    // }
-
-    // TODO this isn't trivial -- this solution will probably end up with some cases of overlap
-    // as labels are drawn "too high", but a proper solution will likely need to take several
-    // heightfields into account, and the view in relation to them (even actually projecting
-    // the view X-range onto them)
     fn top_heightfield_in_visible_column(
         &self,
         grid: &AlignmentGrid,
         viewport: &Viewport,
         world_target: f64,
     ) -> Option<(SeqId, &LabelHeightField)> {
-        let (tgt_id, seq_pos) = grid.x_axis.global_to_axis_local(world_target)?;
+        let top = (viewport.view_center.y + viewport.view_size.y * 0.5) as f32;
+        // let top = grid.y_axis.total_len as f32;
 
-        // find map works since the axes are already sorted & the pairs are provided in that order
-        let top_visible_qry = grid
-            .pairs_with_target(tgt_id)
-            .iter()
-            .rev()
-            .find_map(|&qry_id| {
-                let world_y_range = grid.y_axis.sequence_axis_range(qry_id)?;
-                let min = world_y_range.start as f64;
-                let max = world_y_range.end as f64;
-
-                // if viewport.view_center.y -
-                // let pair_location =
-                //
-                Some(qry_id)
-            })?;
-
-        let qry_id = top_visible_qry;
+        let ((tgt_id, qry_id), _hit_world) =
+            grid.cast_ray([world_target as f32, top], [0.0, -1.0])?;
+        // grid.cast_ray([world_target as f32, 0.0], [0.0, 1.0])?;
 
         let hfield = self.heightfields.get(&(tgt_id, qry_id))?;
-        let qry_name = grid.sequence_names.get_by_right(&qry_id);
+        // let qry_name = grid.sequence_names.get_by_right(&qry_id);
         // println!("using heightfield for query: {qry_id:?} ({qry_name:?})");
 
         Some((qry_id, hfield))
@@ -585,9 +561,13 @@ impl AlignmentHeightFields {
         grid: &AlignmentGrid,
         viewport: &Viewport,
         world_query: f64,
-    ) -> Option<&LabelHeightField> {
-        todo!();
-        None
+    ) -> Option<(SeqId, &LabelHeightField)> {
+        let ((tgt_id, qry_id), _hit_world) =
+            grid.cast_ray([0.0, world_query as f32], [1.0, 0.0])?;
+
+        let hfield = self.heightfields.get(&(tgt_id, qry_id))?;
+
+        Some((qry_id, hfield))
     }
 }
 
