@@ -18,7 +18,7 @@ impl std::default::Default for DebugWindowState {
             draw_anchor_links: true,
             draw_projected_anchor_from_cursor: true,
 
-            debug_grid_tile_aabbs: true,
+            debug_grid_tile_aabbs: false,
             debug_grid_tile_at_point_cursor: true,
         }
     }

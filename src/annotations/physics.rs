@@ -45,11 +45,14 @@ pub struct LabelPhysics {
 
     // annotation_map: AnnotationDefs,
     annotations: FxHashMap<super::AnnotationId, AnnotationData>,
+    collider_annot_map: FxHashMap<ColliderHandle, super::AnnotationId>,
+
     // annotations_label_map: FxHashMap<super::AnnotationId, AnnotationLabelIxs>,
     target_labels: LabelHandles,
     query_labels: LabelHandles,
 }
 
+#[derive(Clone)]
 struct AnnotationData {
     size: Vec2,
     world_range: AnnotationRange,
@@ -232,10 +235,56 @@ impl LabelPhysics {
         viewport: &Viewport,
     ) {
         let mut position_count = 0;
+
+        let mut label_move_buf: Vec<(ColliderHandle, ultraviolet::Vec2)> = Vec::new();
+
+        let contact_graph: &InteractionGraph<ColliderHandle, ContactPair> =
+            self.physics.narrow_phase.contact_graph();
+
+        // let mut contact_count = 0;
+        // for (a, b, edge) in contact_graph.interactions_with_endpoints() {
+        //     println!("contact: {a:?} - {b:?}");
+        //     contact_count += 1;
+        // }
+
+        // for edge in contact_graph.interactions() {
+        //     let e: &ContactPair = edge;
+        //     // println!("contact: {edge:?}");
+        //     contact_count += 1;
+        // }
+
+        // println!("contact count: {contact_count}");
+
+        // contact_graph.
+
+        let (canvas_left, canvas_right) = {
+            let l = viewport.canvas_offset.x;
+            let r = l + viewport.canvas_size.x;
+            (l, r)
+        };
+
+        let world_screen_d = viewport.world_screen_dmat3();
+
         for (annot_id, annot_data) in self.annotations.iter() {
             let handle_ix = annot_data.target_label_ix;
 
             let Some(shape_id) = annotations.target_shape_for(annot_id.0, annot_id.1) else {
+                continue;
+            };
+
+            let screen_anchor_range = annot_data.world_range.target_range().map(|range| {
+                let left = *range.start();
+                let right = *range.end();
+                let s_left = world_screen_d.transform_point2([left, 0.0].into()).x as f32;
+                let s_right = world_screen_d.transform_point2([right, 0.0].into()).x as f32;
+
+                let s_left = s_left.clamp(canvas_left, canvas_right);
+                let s_right = s_right.clamp(canvas_right, canvas_right);
+
+                s_left..=s_right
+            });
+
+            let Some(screen_anchor_range) = screen_anchor_range else {
                 continue;
             };
 
@@ -250,9 +299,16 @@ impl LabelPhysics {
                     if let Some(label_pos) =
                         self.try_to_place_label(grid, viewport, anchor_pos, size)
                     {
+                        // if let Some(label_pos) = self.place_label_aabb_with_anchor_range(
+                        //     grid,
+                        //     viewport,
+                        //     screen_anchor_range,
+                        //     size,
+                        //     &mut label_move_buf,
+                        // ) {
                         let collider = ColliderBuilder::cuboid(size.x * 0.5, size.y * 0.5)
                             .mass(1.0)
-                            // .friction(0.1)
+                            .user_data(usize_pair_u128(*annot_id))
                             .build();
 
                         // println!("try_to_place_label results: {label_pos:?}");
@@ -275,6 +331,7 @@ impl LabelPhysics {
                             &[],
                             true,
                         );
+                        self.collider_annot_map.insert(collider_handle, *annot_id);
                         self.target_labels.label_rigid_body[handle_ix] = Some(rb_handle);
                     } else {
                         not_enough_space = true;
@@ -413,30 +470,244 @@ impl LabelPhysics {
         self.find_position_for_screen_rectangle(grid, viewport, proposed_center, rect_size)
     }
 
-    fn find_place_aabb_for_anchor_range(
+    fn place_label_aabb_with_anchor_range(
         &self,
         grid: &AlignmentGrid,
         viewport: &Viewport,
         screen_anchor_range: std::ops::RangeInclusive<f32>,
         rect_size: impl Into<[f32; 2]>,
-        move_buf: &mut Vec<(usize, ultraviolet::Vec2)>,
+        move_buf: &mut Vec<(ColliderHandle, ultraviolet::Vec2)>,
     ) -> Option<ultraviolet::Vec2> {
         let screen_world = viewport.screen_world_mat3();
+        let screen_world_d = viewport.screen_world_dmat3();
 
         let (smin, smax) = screen_anchor_range.into_inner();
 
-        let size = rect_size.as_uv();
-        let this_shape = Cuboid::new((size * 0.5).as_na());
+        let this_size = rect_size.as_uv();
+        let this_shape = Cuboid::new((this_size * 0.5).as_na());
 
         let initial_x = (smin + smax) * 0.5;
-        let initial_y = 
 
-        // let mut cur_pos = [(smin + smax) * 0.5, 
+        // pick (alignment pair) tile to use as anchor; take (rough) label position
+        // into account (avoid tiles that don't have space in the viewport above for labels,
+        // but don't do a full collision check)
+        let initial_y = {
+            let world_x = screen_world_d
+                .transform_point2([initial_x as f64, 0.0].into())
+                .x;
+            let top_visible_alignment =
+                grid.topmost_visible_tile_at_target(viewport, world_x, true);
+
+            todo!();
+        };
+
+        // should correspond to the spring distance factor but whatever
+        const ANCHOR_EXTRA_RANGE: f32 = 100.0;
+        // let initial_y =
+
+        // let mut cur_pos = [(smin + smax) * 0.5,
         // let mut cur_position = nalgebra::Isometry2::translation(screen_center.x, ground_screen_y);
-        
 
-        //
-        todo!();
+        let lim_x_min = smin - ANCHOR_EXTRA_RANGE - this_size.x * 0.5;
+        let lim_x_max = smax + ANCHOR_EXTRA_RANGE + this_size.x * 0.5;
+
+        let mut cur_position = [initial_x, initial_y].as_uv();
+
+        // let mut intersect_handle_buf = Vec::new();
+        let mut intersect_buf = Vec::new();
+
+        // loop per "row" (move up one level & stack when iterating)
+        loop {
+            let this_pos = nalgebra::Isometry2::translation(cur_position.x, cur_position.y);
+
+            // check for other labels inside an AABB at the current position;
+            // the AABB should extend horizontally to cover the entire space
+            // available given the anchor range, without "straining" too much
+            // (i.e. stay within the minimum spring force distance)
+
+            // vertically it should only cover the label itself (?)
+
+            // NB: the AABB should be clipped by the heightfield, though this only matters when zoomed in
+            // (the AABB is offset above the heightfield anyway -- but it is an AABB, corresponding to
+            // a single "line" or "row")
+
+            let aabb = Aabb::from_points([
+                &[lim_x_min, cur_position.y - this_size.y * 0.5]
+                    .as_na()
+                    .into(),
+                &[lim_x_min, cur_position.y + this_size.y * 0.5]
+                    .as_na()
+                    .into(),
+                &[lim_x_max, cur_position.y - this_size.y * 0.5]
+                    .as_na()
+                    .into(),
+                &[lim_x_max, cur_position.y + this_size.y * 0.5]
+                    .as_na()
+                    .into(),
+            ]);
+            // intersect_handle_buf.clear();
+            intersect_buf.clear();
+
+            self.query_pipeline
+                .colliders_with_aabb_intersecting_aabb(&aabb, |&handle| {
+                    if let Some((collider, annot_data)) =
+                        self.collider_set.get(handle).and_then(|c| {
+                            Some((c, self.annotations.get(&u128_usize_pair(c.user_data))?))
+                        })
+                    {
+                        intersect_buf.push((handle, collider, annot_data.clone()));
+                    }
+
+                    false
+                });
+
+            // sort intersections by X position (maybe lookup anchor/annotation range here?)
+            intersect_buf.sort_by_cached_key(|(_handle, _collider, annot_data)| {
+                annot_data
+                    .world_range
+                    .target_range()
+                    .map(|r| ordered_float::OrderedFloat((*r.start() + *r.end()) * 0.5))
+            });
+
+            // iterate through intersections (should only be a few; we're only looking at a row here)
+
+            // "figure out" if there's space in the AABB for this label; if so, we're done;
+            // otherwise, if it's possible to move one (or more) of the intersecting labels
+            // to make space, push the new/shifted positions to `move_buf` & return a position
+            // that doesn't intersect any of the shifted labels
+            // (since the label we're adding is constrained by the AABB, we know that it won't
+            // intersect any other labels either)
+
+            let mut lim_left = lim_x_min;
+            let mut lim_right = lim_x_max;
+
+            // far from complete!!
+            for (handle, collider, annot_data) in &intersect_buf {
+                let Some(other_size) = collider.shape().as_cuboid().map(|c| c.half_extents * 2.0)
+                else {
+                    continue;
+                };
+                let other_pos = collider.position().translation;
+                let other_left = other_pos.x - other_size.x * 0.5;
+                let other_right = other_pos.x + other_size.x * 0.5;
+
+                let this_left = this_pos.translation.x - this_size.x * 0.5;
+                let this_right = this_pos.translation.x + this_size.x * 0.5;
+
+                if other_pos.x > cur_position.x {
+                    // other to right; try pushing further right
+                    let right_ray =
+                        Ray::new([other_right, cur_position.y].into(), [1.0, 0.0].as_na());
+
+                    let other_right_raycast = self.query_pipeline.cast_ray(
+                        &self.rigid_body_set,
+                        &self.collider_set,
+                        &right_ray,
+                        this_size.x,
+                        false,
+                        QueryFilter::default(),
+                    );
+
+                    let left_ray =
+                        Ray::new([this_left, cur_position.y].into(), [-1.0, 0.0].as_na());
+
+                    let this_left_raycast = self.query_pipeline.cast_ray(
+                        &self.rigid_body_set,
+                        &self.collider_set,
+                        &left_ray,
+                        this_size.x,
+                        false,
+                        QueryFilter::default(),
+                    );
+
+                    let no_collisions =
+                        other_right_raycast.is_none() && this_left_raycast.is_none();
+
+                    if no_collisions {
+                        let new_other_pos =
+                            other_pos.as_uv() + [this_left - other_left, 0.0].as_uv();
+                        move_buf.push((*handle, new_other_pos));
+
+                        return Some(cur_position);
+                    }
+
+                    /*
+                    if let Some((collider, toi)) = other_right_raycast {
+                        // is there anything to do?
+                    } else {
+                        let new_pos = other_pos.as_uv() + [this_left - other_left, 0.0].as_uv();
+                        move_buf.push((*handle, new_pos));
+                    }
+                    */
+                } else {
+                    //
+                    let right_ray =
+                        Ray::new([this_right, cur_position.y].into(), [1.0, 0.0].as_na());
+
+                    let this_right_raycast = self.query_pipeline.cast_ray(
+                        &self.rigid_body_set,
+                        &self.collider_set,
+                        &right_ray,
+                        this_size.x,
+                        false,
+                        QueryFilter::default(),
+                    );
+
+                    let left_ray =
+                        Ray::new([other_left, cur_position.y].into(), [-1.0, 0.0].as_na());
+
+                    let other_left_raycast = self.query_pipeline.cast_ray(
+                        &self.rigid_body_set,
+                        &self.collider_set,
+                        &left_ray,
+                        this_size.x,
+                        false,
+                        QueryFilter::default(),
+                    );
+
+                    let no_collisions =
+                        this_right_raycast.is_none() && other_left_raycast.is_none();
+
+                    if no_collisions {
+                        let new_other_pos =
+                            other_pos.as_uv() - [other_left - this_left, 0.0].as_uv();
+                        // other_pos.as_uv() + [this_left - other_left, 0.0].as_uv();
+                        move_buf.push((*handle, new_other_pos));
+
+                        return Some(cur_position);
+                    }
+                }
+
+                // TODO far from complete!
+                if other_left > lim_left {
+                    if other_left - lim_left > this_size.x {
+                        // can add here
+                        let x = other_left - this_size.x * 0.5;
+                        let pos = [x, cur_position.y].as_uv();
+                        return Some(pos);
+                    }
+
+                    // if other_right > lim_right {
+                    //     lim_right = lim_right.min(other_left);
+                    // }
+                }
+
+                if other_right < lim_right {
+                    if lim_right - other_right > this_size.x {
+                        // can add here
+                        let x = other_right + this_size.x * 0.5;
+                        let pos = [x, cur_position.y].as_uv();
+                        return Some(pos);
+                    }
+
+                    // if other_left < lim_left {
+                    //     lim_left = lim_left.max(other_right);
+                    // }
+                }
+            }
+        }
+
+        Some(cur_position)
     }
 
     fn find_position_for_screen_rectangle(
@@ -537,6 +808,15 @@ impl LabelPhysics {
             None
         }
     }
+}
+
+fn choose_anchor_tile_for_world_x(
+    grid: &AlignmentGrid,
+    viewport: &Viewport,
+    target: f64,
+    label_width: f32,
+) -> Option<(SeqId, SeqId)> {
+    todo!();
 }
 
 #[derive(Default)]
@@ -902,4 +1182,14 @@ impl Physics {
             &event_handler,
         );
     }
+}
+
+fn usize_pair_u128((a, b): (usize, usize)) -> u128 {
+    (a as u128) << (std::mem::size_of::<usize>() as u128) | b as u128
+}
+
+fn u128_usize_pair(v: u128) -> (usize, usize) {
+    let a = (v >> (std::mem::size_of::<usize>() as u128)) as usize;
+    let b = v as usize;
+    (a, b)
 }
