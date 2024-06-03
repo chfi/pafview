@@ -131,7 +131,12 @@ impl LabelPhysics {
 }
 
 impl LabelPhysics {
-    pub fn update_anchors(&mut self, grid: &AlignmentGrid, viewport: &Viewport) {
+    pub fn update_anchors(
+        &mut self,
+        debug_painter: &egui::Painter,
+        grid: &AlignmentGrid,
+        viewport: &Viewport,
+    ) {
         use ultraviolet::mat::*;
         use ultraviolet::vec::*;
         let world_screen = viewport.world_screen_dmat3();
@@ -157,8 +162,8 @@ impl LabelPhysics {
 
             let &[sx_min, sx_max] = screen_xrange.as_array_ref();
 
-            let cl_min = sx_min.clamp(vx_min, vx_max);
-            let cl_max = sx_max.clamp(vx_min, vx_max);
+            let cl_min = sx_min.clamp(0.0, viewport.canvas_size.x as f64);
+            let cl_max = sx_max.clamp(0.0, viewport.canvas_size.x as f64);
 
             let cl_mid = (cl_min + cl_max) * 0.5;
 
@@ -170,18 +175,9 @@ impl LabelPhysics {
                 continue;
             };
 
-            // println!("viewport: [{viewport:?}]");
-            // println!("anchor pos: [{cl_mid}, {mid_y}]");
-            // let left_y = self
-            //     .heightfields
-            //     .project_screen_from_top(grid, viewport, sx_min as f32);
-            // let right_y = self
-            //     .heightfields
-            //     .project_screen_from_top(grid, viewport, sx_max as f32);
-
             // update annotation anchor position (remove if offscreen)
-            let new_anchor = if sx_max < vx_min
-                || sx_min > vx_max
+            let new_anchor = if sx_max < 0.0
+                || sx_min > viewport.canvas_size.x as f64
                 || mid_y < 0.0
                 || mid_y > viewport.canvas_size.y
             {
@@ -518,12 +514,30 @@ impl AlignmentHeightFields {
         let (qry_id, hfield) = self.top_heightfield_in_visible_column(grid, viewport, world_x)?;
         let (tgt_id, norm_x) = grid.x_axis.global_to_axis_local(world_x)?;
 
+        /*
+        // might be more correct
+        let tgt_range = &hfield.location.target_range;
+
+        let x_in_range = {
+            let l = hfield.location.target_total_len as f64;
+            let s = tgt_range.start as f64 / l;
+            let e = tgt_range.end as f64 / l;
+
+            (norm_x - s) * (e - s)
+        };
+
+        let hfield_x = x_in_range * hfield.heightfield.scale().x as f64 * x_in_range;
+        let hfield_y = hfield.heightfield_project_x(hfield_x as f32)?;
+        */
+
+        // let local_x =
+
         // need to shift `world_x` to account for the (intended) offset of the heightfield
+
         let offset = grid.x_axis.sequence_offset(tgt_id)? as f64;
+        let hfield_y = hfield.heightfield_project_x((world_x - offset) as f32)?;
 
         let y_offset = grid.y_axis.sequence_offset(qry_id)? as f64;
-
-        let hfield_y = hfield.heightfield_project_x((world_x - offset) as f32)?;
         let world_y = y_offset + hfield_y as f64;
         let world = [world_x, world_y];
 

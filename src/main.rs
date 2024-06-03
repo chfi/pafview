@@ -592,7 +592,13 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                             view::Viewport::new(center, size, [0.0, 0.0], screen_size)
                         };
 
-                        label_physics.update_anchors(&app.alignment_grid, &viewport);
+                        let debug_painter = egui_renderer.context.debug_painter();
+
+                        label_physics.update_anchors(
+                            &debug_painter,
+                            &app.alignment_grid,
+                            &viewport,
+                        );
                         label_physics.update_labels(
                             &app.alignment_grid,
                             &app.annotations,
