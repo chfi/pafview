@@ -106,6 +106,8 @@ impl SelectionHandler {
         self.selection_target.is_some()
     }
 
+    // TODO: this logic is super messy and does too much;
+    // need to rewrite & clean up
     pub fn run(&mut self, ctx: &egui::Context, view: &mut crate::view::View) {
         let (right_pressed, right_released, cur_pos) = ctx.input(|i| {
             // let left_pressed = i.pointer.button_pressed(egui::PointerButton::Primary);
@@ -133,6 +135,12 @@ impl SelectionHandler {
             egui::Order::Background,
             "selection".into(),
         ));
+
+        let is_zooming = self.right_click_w_pos.is_some() && self.selection_target.is_none();
+
+        if is_zooming {
+            ctx.set_cursor_icon(egui::CursorIcon::ZoomIn);
+        }
 
         if let Some(wp0) = self.right_click_w_pos {
             let l = wp0.x.min(wp1.x);
