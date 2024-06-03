@@ -27,15 +27,13 @@ impl AlignmentGrid {
     pub fn from_alignments(
         alignments: &crate::paf::Alignments,
         sequence_names: Arc<BiMap<String, SeqId>>,
-        // x_axis: GridAxis,
-        // y_axis: GridAxis,
     ) -> Self {
         let mut targets = alignments
             .pairs
             .values()
             .map(|al| (al.target_id, al.location.target_total_len))
             .collect::<Vec<_>>();
-        targets.sort_by_key(|(_, l)| *l);
+        targets.sort_by_key(|(_, l)| std::cmp::Reverse(*l));
         targets.dedup_by_key(|(id, _)| *id);
 
         let x_axis = crate::grid::GridAxis::from_index_and_lengths(targets);
@@ -44,7 +42,7 @@ impl AlignmentGrid {
             .values()
             .map(|al| (al.query_id, al.location.query_total_len))
             .collect::<Vec<_>>();
-        queries.sort_by_key(|(_, l)| *l);
+        queries.sort_by_key(|(_, l)| std::cmp::Reverse(*l));
         queries.dedup_by_key(|(id, _)| *id);
         let y_axis = crate::grid::GridAxis::from_index_and_lengths(queries);
 
