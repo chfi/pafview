@@ -86,6 +86,34 @@ impl AlignmentGrid {
     ) -> Option<((SeqId, SeqId), DVec2)> {
         self.tile_aabbs.cast_ray(origin.as_uv(), dir.as_uv())
     }
+
+    pub fn tile_at_world_point(&self, point: DVec2) -> Option<(SeqId, SeqId)> {
+        let (tile, _handle) = self.tile_aabbs.tile_at_point(point.to_f32())?;
+        Some(tile)
+        // let p = point.to_f32();
+        // self.tile_aabbs.query_pipeline.intersections_with_point(&self.bodies, colliders, point, filter, callback)
+        //
+    }
+
+    /// if `alignments_only` is false, the tile coordinates returned
+    /// do *not* have to correspond to an alignment (i.e. the tile may
+    /// be "empty")
+    pub fn topmost_visible_tile_at_target(
+        &self,
+        viewport: &crate::view::Viewport,
+        global_target: f64,
+        alignments_only: bool,
+    ) -> Option<(SeqId, SeqId)> {
+        let (tgt_id, tgt_local) = self.x_axis.global_to_axis_local(global_target)?;
+
+        let (top, btm) = viewport.y_range().into_inner();
+
+        // TODO
+        None
+        // let ((
+
+        //
+    }
 }
 
 pub fn parse_axis_range_into_global(
@@ -360,6 +388,7 @@ impl GridAxis {
 struct GridAABBs {
     colliders: ColliderSet,
     query_pipeline: QueryPipeline,
+    pair_collider_map: FxHashMap<(SeqId, SeqId), rapier2d::geometry::ColliderHandle>,
 
     _rigid_bodies: RigidBodySet,
 }
@@ -368,6 +397,8 @@ impl GridAABBs {
     fn from_alignments(alignments: &Alignments, x_axis: &GridAxis, y_axis: &GridAxis) -> Self {
         use rapier2d::prelude::*;
         let mut colliders = ColliderSet::new();
+
+        let mut pair_collider_map = FxHashMap::default();
 
         for (&(tgt_id, qry_id), alignment) in alignments.pairs.iter() {
             let offsets = x_axis
@@ -385,15 +416,19 @@ impl GridAABBs {
             let &[pair_id]: &[u128] = bytemuck::cast_slice(&pair_id) else {
                 unreachable!();
             };
+            let halfwidth = width * 0.5;
+            let halfheight = height * 0.5;
 
-            colliders.insert(
-                ColliderBuilder::cuboid(width * 0.5, height * 0.5)
+            let handle = colliders.insert(
+                ColliderBuilder::cuboid(halfwidth, halfheight)
                     .position(nalgebra::Isometry2::translation(
-                        x_offset as f32,
-                        y_offset as f32,
+                        x_offset as f32 + halfwidth,
+                        y_offset as f32 + halfheight,
                     ))
                     .user_data(pair_id),
             );
+
+            pair_collider_map.insert((tgt_id, qry_id), handle);
         }
 
         let rigid_bodies = RigidBodySet::new();
@@ -403,10 +438,38 @@ impl GridAABBs {
 
         Self {
             colliders,
+            pair_collider_map,
             query_pipeline,
 
             _rigid_bodies: rigid_bodies,
         }
+    }
+
+    fn tile_at_point(
+        &self,
+        point: Vec2,
+    ) -> Option<((SeqId, SeqId), rapier2d::geometry::ColliderHandle)> {
+        let mut last = None;
+        self.query_pipeline.intersections_with_point(
+            &self._rigid_bodies,
+            &self.colliders,
+            &point.as_na().into(),
+            rapier2d::pipeline::QueryFilter::default(),
+            |h| {
+                last = Some(h);
+                false
+            },
+        );
+
+        let handle = last?;
+
+        let collider = self.colliders.get(handle)?;
+        let &[tgt_id, qry_id]: &[SeqId] = bytemuck::cast_slice(&[collider.user_data]) else {
+            unreachable!();
+        };
+
+        Some(((tgt_id, qry_id), handle))
+        // self.query_pipeline.cast_ray(&self._rigid_bodies, &self.colliders, ray, max_toi, solid, filter)
     }
 
     fn cast_ray(&self, origin: Vec2, dir: Vec2) -> Option<((SeqId, SeqId), DVec2)> {
@@ -429,6 +492,51 @@ impl GridAABBs {
         let pos = origin.to_f64() + dir.to_f64() * toi as f64;
 
         Some(((tgt_id, qry_id), pos))
+    }
+}
+
+pub(crate) mod debug {
+    use super::*;
+
+    impl AlignmentGrid {
+        pub(crate) fn draw_tile_aabbs(
+            &self,
+            painter: &egui::Painter,
+            viewport: &crate::view::Viewport,
+        ) {
+            let world_screen = viewport.world_screen_mat3();
+
+            // let stroke = (1.0, egui::, g, b)
+            let stroke = (1.0, egui::Color32::RED);
+
+            let mut count = 0;
+            for (handle, collider) in self.tile_aabbs.colliders.iter() {
+                let pos = world_screen.transform_point2(collider.position().translation.as_uv());
+                let size = collider
+                    .shape()
+                    .as_cuboid()
+                    .map(|c| c.half_extents.as_uv() * 2.0);
+                let Some(size) = size else {
+                    continue;
+                };
+
+                let mut size = world_screen.transform_vec2(size).abs();
+
+                if count == 0 {
+                    println!("drawing AABB [{:.2}, {:.2} to {pos:?}", size.x, size.y);
+                }
+                size = size.max_by_component([5.0, 5.0].as_uv());
+
+                painter.rect_stroke(
+                    egui::Rect::from_center_size(pos.as_epos2(), size.as_evec2()),
+                    0.0,
+                    stroke,
+                );
+                count += 1;
+            }
+            // println!("drew {count} AABBs");
+            // for (pair, handle) in self.tile_aabbs
+        }
     }
 }
 

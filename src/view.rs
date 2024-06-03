@@ -93,9 +93,15 @@ impl Viewport {
             self.canvas_size.y / view_size.y,
         ));
         let translate = Mat3::from_translation(self.canvas_offset);
-        let center_translate = Mat3::from_translation(-self.view_center.to_f32() + view_size * 0.5);
+        let mut offset = -self.view_center.to_f32();
 
-        translate * scale * center_translate
+        offset.y -= view_size.y * 0.5;
+        offset.x += view_size.x * 0.5;
+
+        let center_translate = Mat3::from_translation(offset);
+        let y_flip = Mat3::from_nonuniform_scale_homogeneous(Vec2::new(1.0, -1.0));
+
+        y_flip * translate * scale * center_translate
     }
 
     /// Transforms world coordinates to screen coordinates, mapping the top left
@@ -107,9 +113,18 @@ impl Viewport {
             canvas_size.y / self.view_size.y,
         ));
         let translate = DMat3::from_translation(self.canvas_offset.to_f64());
-        let center_translate = DMat3::from_translation(-self.view_center + self.view_size * 0.5);
+        // let center_translate = DMat3::from_translation(-self.view_center + self.view_size * 0.5);
 
-        translate * scale * center_translate
+        // translate * scale * center_translate
+        let mut offset = -self.view_center;
+
+        offset.y -= self.view_size.y * 0.5;
+        offset.x += self.view_size.x * 0.5;
+
+        let center_translate = DMat3::from_translation(offset);
+        let y_flip = DMat3::from_nonuniform_scale_homogeneous(DVec2::new(1.0, -1.0));
+
+        y_flip * translate * scale * center_translate
     }
 
     /// Transforms screen coordinates to world coordinates, mapping the top left
@@ -124,8 +139,13 @@ impl Viewport {
         let translate_inv = Mat3::from_translation(-self.canvas_offset);
         let center_translate_inv =
             Mat3::from_translation(self.view_center.to_f32() - view_size * 0.5);
+        let y_flip = Mat3::from_nonuniform_scale_homogeneous(Vec2::new(1.0, -1.0));
 
-        center_translate_inv * scale_inv * translate_inv
+        // center_translate_inv * scale_inv * translate_inv * Mat3::from_nonuniform_scale_homogeneous(Vec2::new(1.0, -1.0))
+
+        y_flip * center_translate_inv * scale_inv * translate_inv
+
+        // center_translate_inv * scale_inv * translate_inv
     }
 
     /// Transforms screen coordinates to world coordinates, mapping the top left

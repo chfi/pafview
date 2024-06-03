@@ -192,8 +192,40 @@ impl LabelPhysics {
         // println!("updated {count} anchors");
     }
 
+    pub fn update_labels_new(
+        &mut self,
+        debug_painter: &egui::Painter,
+        grid: &AlignmentGrid,
+        annotations: &AnnotationStore,
+        painter: &mut AnnotationPainter,
+        viewport: &Viewport,
+    ) {
+        for (annot_id, annot_data) in self.annotations.iter() {
+            let handle_ix = annot_data.target_label_ix;
+
+            let Some(shape_id) = annotations.target_shape_for(annot_id.0, annot_id.1) else {
+                continue;
+            };
+
+            let Some(anchor_pos) = self.target_labels.anchor_screen_pos[handle_ix] else {
+                todo!(); // disable label rigid body if it exists etc.
+                continue;
+            };
+
+            // if there's no rigid body for this label, try to initialize it
+            // or if it has been previously disabled, reset it
+            // -- the only difference between the two is having to create the collider etc.;
+            // the result is the same
+
+            // if the label already has an enabled rigid body, handle swaps & stacking?
+        }
+
+        //
+    }
+
     pub fn update_labels(
         &mut self,
+        debug_painter: &egui::Painter,
         grid: &AlignmentGrid,
         annotations: &AnnotationStore,
         painter: &mut AnnotationPainter,
@@ -379,6 +411,32 @@ impl LabelPhysics {
         // println!("try to place anchor pos: {anchor_pos:?}");
         let proposed_center = anchor_pos + [0.0, -40.0].as_uv();
         self.find_position_for_screen_rectangle(grid, viewport, proposed_center, rect_size)
+    }
+
+    fn find_place_aabb_for_anchor_range(
+        &self,
+        grid: &AlignmentGrid,
+        viewport: &Viewport,
+        screen_anchor_range: std::ops::RangeInclusive<f32>,
+        rect_size: impl Into<[f32; 2]>,
+        move_buf: &mut Vec<(usize, ultraviolet::Vec2)>,
+    ) -> Option<ultraviolet::Vec2> {
+        let screen_world = viewport.screen_world_mat3();
+
+        let (smin, smax) = screen_anchor_range.into_inner();
+
+        let size = rect_size.as_uv();
+        let this_shape = Cuboid::new((size * 0.5).as_na());
+
+        let initial_x = (smin + smax) * 0.5;
+        let initial_y = 
+
+        // let mut cur_pos = [(smin + smax) * 0.5, 
+        // let mut cur_position = nalgebra::Isometry2::translation(screen_center.x, ground_screen_y);
+        
+
+        //
+        todo!();
     }
 
     fn find_position_for_screen_rectangle(

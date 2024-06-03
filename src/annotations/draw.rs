@@ -211,17 +211,13 @@ impl DrawAnnotation for AnnotationLabel {
             unreachable!();
         };
 
-        let view_min = DVec2::new(view.x_min, view.y_min);
-        let view_max = DVec2::new(view.x_max, view.y_max);
-
         let Some(pos) = self.screen_pos else {
             // println!("no screen pos for {}", &self.text);
             return;
         };
 
-        // TODO might need to offset (pos is center)
-        // println!("drawing label {}", &self.text);
-        painter.galley(pos.as_epos2(), galley, egui::Color32::BLACK);
+        let pos = pos.as_epos2() - galley.size() * 0.5;
+        painter.galley(pos, galley, egui::Color32::BLACK);
     }
 
     fn set_position(&mut self, new_pos: Option<egui::Pos2>) {

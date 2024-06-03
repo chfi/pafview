@@ -7,6 +7,9 @@ use super::LabelPhysics;
 struct DebugWindowState {
     draw_anchor_links: bool,
     draw_projected_anchor_from_cursor: bool,
+
+    debug_grid_tile_aabbs: bool,
+    debug_grid_tile_at_point_cursor: bool,
 }
 
 impl std::default::Default for DebugWindowState {
@@ -14,6 +17,9 @@ impl std::default::Default for DebugWindowState {
         Self {
             draw_anchor_links: true,
             draw_projected_anchor_from_cursor: true,
+
+            debug_grid_tile_aabbs: true,
+            debug_grid_tile_at_point_cursor: true,
         }
     }
 }
@@ -27,9 +33,9 @@ fn draw_projected_anchor(
     painter: &egui::Painter,
     screen_pos: egui::Pos2,
 ) {
-    // let screen_world = viewport.screen_world_mat3();
-
-    // let world_pos = screen_world.transform_point2(screen_pos.as_uv());
+    let screen_world = viewport.screen_world_mat3();
+    let world_screen = viewport.world_screen_mat3();
+    let world_pos = screen_world.transform_point2(screen_pos.as_uv());
 
     let stroke = (1.0, egui::Color32::RED);
 
@@ -45,7 +51,14 @@ fn draw_projected_anchor(
             (2.0, stroke.1),
         );
     }
+
+    if let Some((_, pos)) = app.alignment_grid.cast_ray(world_pos, [0.0, -1.0]) {
+        let pos = world_screen.transform_point2(pos.to_f32()).as_epos2();
+        painter.line_segment([screen_pos, pos], (2.0, egui::Color32::LIGHT_BLUE));
+    }
 }
+
+// fn draw_tile_aabbs
 
 pub fn label_physics_debug_window(
     ctx: &egui::Context,
@@ -86,9 +99,22 @@ pub fn label_physics_debug_window(
             };
 
             let rb_pos = rigid_body.position().translation.as_epos2();
+
+            // ann_data.s
+            let rb_rect = egui::Rect::from_center_size(rb_pos, ann_data.size.as_evec2());
+            painter.rect_stroke(rb_rect, 0.0, anchor_stroke);
+            // let rb_size = {
+            // };
+            // let rb_size =
+
+            // let rb_rect =
             painter.line_segment([anchor_pos.as_epos2(), rb_pos], anchor_stroke);
             //
         }
+    }
+
+    if dbg_state.debug_grid_tile_aabbs {
+        app.alignment_grid.draw_tile_aabbs(&painter, viewport);
     }
 
     egui::Window::new("Label Physics Debugger")
@@ -100,6 +126,23 @@ pub fn label_physics_debug_window(
                 &mut dbg_state.draw_projected_anchor_from_cursor,
                 "Test anchor projection",
             );
+
+            ui.separator();
+
+            if dbg_state.debug_grid_tile_at_point_cursor {
+                if let Some(pos) = ctx.pointer_latest_pos() {
+                    let world_pos = viewport
+                        .screen_world_dmat3()
+                        .transform_point2(pos.as_uv().to_f64());
+
+                    if let Some(pair @ (tgt, qry)) =
+                        app.alignment_grid.tile_at_world_point(world_pos)
+                    {
+                        ui.label("Hovering alignment {pair:?}");
+                    }
+                }
+                //
+            }
         });
 
     ctx.data_mut(|data| data.insert_temp(eid, dbg_state));

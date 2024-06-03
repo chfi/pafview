@@ -600,6 +600,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                             &viewport,
                         );
                         label_physics.update_labels(
+                            &debug_painter,
                             &app.alignment_grid,
                             &app.annotations,
                             &mut annotation_painter,
