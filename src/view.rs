@@ -137,15 +137,15 @@ impl Viewport {
             view_size.y / self.canvas_size.y,
         ));
         let translate_inv = Mat3::from_translation(-self.canvas_offset);
-        let center_translate_inv =
-            Mat3::from_translation(self.view_center.to_f32() - view_size * 0.5);
+
+        let mut offset = self.view_center.to_f32();
+        offset.y += view_size.y * 0.5;
+        offset.x -= view_size.x * 0.5;
+
+        let center_translate_inv = Mat3::from_translation(offset);
         let y_flip = Mat3::from_nonuniform_scale_homogeneous(Vec2::new(1.0, -1.0));
 
-        // center_translate_inv * scale_inv * translate_inv * Mat3::from_nonuniform_scale_homogeneous(Vec2::new(1.0, -1.0))
-
-        y_flip * center_translate_inv * scale_inv * translate_inv
-
-        // center_translate_inv * scale_inv * translate_inv
+        center_translate_inv * scale_inv * translate_inv * y_flip
     }
 
     /// Transforms screen coordinates to world coordinates, mapping the top left
@@ -153,19 +153,20 @@ impl Viewport {
     /// rectangle.
     pub fn screen_world_dmat3(&self) -> DMat3 {
         let canvas_size = self.canvas_size.to_f64();
-        // dbg!(&canvas_size);
-        // dbg!(&self.view_size);
         let scale_inv = DMat3::from_nonuniform_scale_homogeneous(DVec2::new(
             self.view_size.x / canvas_size.x,
             self.view_size.y / canvas_size.y,
         ));
-        // dbg!(&scale_inv);
         let translate_inv = DMat3::from_translation(-self.canvas_offset.to_f64());
-        // dbg!(&translate_inv);
-        let center_translate_inv = DMat3::from_translation(self.view_center - self.view_size * 0.5);
-        // dbg!(&center_translate_inv);
 
-        center_translate_inv * scale_inv * translate_inv
+        let mut offset = self.view_center;
+        offset.y += self.view_size.y * 0.5;
+        offset.x -= self.view_size.x * 0.5;
+
+        let center_translate_inv = DMat3::from_translation(offset);
+        let y_flip = DMat3::from_nonuniform_scale_homogeneous(DVec2::new(1.0, -1.0));
+
+        center_translate_inv * scale_inv * translate_inv * y_flip
     }
 }
 

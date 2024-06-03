@@ -506,11 +506,9 @@ pub(crate) mod debug {
         ) {
             let world_screen = viewport.world_screen_mat3();
 
-            // let stroke = (1.0, egui::, g, b)
             let stroke = (1.0, egui::Color32::RED);
 
-            let mut count = 0;
-            for (handle, collider) in self.tile_aabbs.colliders.iter() {
+            for (_handle, collider) in self.tile_aabbs.colliders.iter() {
                 let pos = world_screen.transform_point2(collider.position().translation.as_uv());
                 let size = collider
                     .shape()
@@ -522,9 +520,6 @@ pub(crate) mod debug {
 
                 let mut size = world_screen.transform_vec2(size).abs();
 
-                if count == 0 {
-                    println!("drawing AABB [{:.2}, {:.2} to {pos:?}", size.x, size.y);
-                }
                 size = size.max_by_component([5.0, 5.0].as_uv());
 
                 painter.rect_stroke(
@@ -532,10 +527,7 @@ pub(crate) mod debug {
                     0.0,
                     stroke,
                 );
-                count += 1;
             }
-            // println!("drew {count} AABBs");
-            // for (pair, handle) in self.tile_aabbs
         }
     }
 }
