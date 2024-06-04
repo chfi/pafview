@@ -83,8 +83,9 @@ impl AlignmentGrid {
         &self,
         origin: impl Into<[f32; 2]>,
         dir: impl Into<[f32; 2]>,
+        solid: bool,
     ) -> Option<((SeqId, SeqId), DVec2)> {
-        self.tile_aabbs.cast_ray(origin.as_uv(), dir.as_uv())
+        self.tile_aabbs.cast_ray(origin.as_uv(), dir.as_uv(), solid)
     }
 
     pub fn tile_at_world_point(&self, point: DVec2) -> Option<(SeqId, SeqId)> {
@@ -111,12 +112,58 @@ impl AlignmentGrid {
 
         // let (top, btm) = viewport.y_range().into_inner();
 
+        let world_screen_mat = viewport.world_screen_mat3();
+
+        let mut top_vis_nonempty = self.tile_aabbs.cast_ray(
+            [global_target as f32, top as f32].into(),
+            [0.0, 1.0].into(),
+            true,
+        );
+
+        loop {
+            if let Some((pair @ (tgt, qry), pos)) = top_vis_nonempty.take() {
+                if let Some((handle, aabb)) = self.tile_aabbs.tile_aabb(pair) {
+                    let center = aabb.center();
+                    let tile_top = center.as_uv() - [0.0, aabb.half_extents().y].as_uv();
+                    // let tile_btm_y = center.y + aabb.half_extents().y;
+                    // let tile_btm = tile_top + [0.0, aabb.extents().y].as_uv();
+
+                    let screen = world_screen_mat.transform_point2(tile_top);
+
+                    if screen.y > 0.0 {
+                        return Some(pair);
+                    }
+
+                    top_vis_nonempty = self.tile_aabbs.cast_ray(tile_top, [0.0, 1.0].into(), false);
+                    // top_vis_empty = self.tile_aabbs.cast_ray([global_target as f32, tile_btm_y], [0.0, 1.0].into(), false);
+                    // let tile_top = center.y - aabb.half_extents().y;
+                }
+
+                // let collider = self
+                //     .tile_aabbs
+                //     .pair_collider_map
+                //     .get(&pair)
+                //     .and_then(|handle| {
+                //         let collider = self.tile_aabbs.colliders.get(handle)?;
+                //         let aabb = collider.compute_aabb();
+                //         Some((handle, aabb))
+                //     });
+
+                // if let Some(col_handle) = self.tile_aabbs.pair_collider_map.get(&pair) {
+                //
+                // }
+                //
+            } else {
+                break;
+            }
+        }
+
         // if !alignments_only {
         // return self.tile_at_world_point([global_target, top].into());
         // }
 
         // TODO
-        None
+        top_vis_nonempty.map(|(a, _)| a)
         // let ((
 
         //
@@ -479,7 +526,7 @@ impl GridAABBs {
         // self.query_pipeline.cast_ray(&self._rigid_bodies, &self.colliders, ray, max_toi, solid, filter)
     }
 
-    fn cast_ray(&self, origin: Vec2, dir: Vec2) -> Option<((SeqId, SeqId), DVec2)> {
+    fn cast_ray(&self, origin: Vec2, dir: Vec2, solid: bool) -> Option<((SeqId, SeqId), DVec2)> {
         use rapier2d::pipeline::QueryFilter;
         let ray = rapier2d::geometry::Ray::new(origin.as_na().into(), dir.as_na());
         let (col_handle, toi) = self.query_pipeline.cast_ray(
@@ -487,7 +534,7 @@ impl GridAABBs {
             &self.colliders,
             &ray,
             std::f32::MAX,
-            true,
+            solid,
             QueryFilter::default(),
         )?;
 
@@ -499,6 +546,16 @@ impl GridAABBs {
         let pos = origin.to_f64() + dir.to_f64() * toi as f64;
 
         Some(((tgt_id, qry_id), pos))
+    }
+
+    fn tile_aabb(
+        &self,
+        pair: (SeqId, SeqId),
+    ) -> Option<(rapier2d::geometry::ColliderHandle, rapier2d::geometry::Aabb)> {
+        let handle = *self.pair_collider_map.get(&pair)?;
+        let collider = self.colliders.get(handle)?;
+        let aabb = collider.compute_aabb();
+        Some((handle, aabb))
     }
 }
 

@@ -296,16 +296,16 @@ impl LabelPhysics {
                     // initialize label rigid body
                     let size = annot_data.size;
 
-                    if let Some(label_pos) =
-                        self.try_to_place_label(grid, viewport, anchor_pos, size)
-                    {
-                        // if let Some(label_pos) = self.place_label_aabb_with_anchor_range(
-                        //     grid,
-                        //     viewport,
-                        //     screen_anchor_range,
-                        //     size,
-                        //     &mut label_move_buf,
-                        // ) {
+                    // if let Some(label_pos) =
+                    //     self.try_to_place_label(grid, viewport, anchor_pos, size)
+                    // {
+                    if let Some(label_pos) = self.place_label_aabb_with_anchor_range(
+                        grid,
+                        viewport,
+                        screen_anchor_range,
+                        size,
+                        &mut label_move_buf,
+                    ) {
                         let collider = ColliderBuilder::cuboid(size.x * 0.5, size.y * 0.5)
                             .mass(1.0)
                             .user_data(usize_pair_u128(*annot_id))
@@ -498,9 +498,15 @@ impl LabelPhysics {
             let top_visible_alignment =
                 grid.topmost_visible_tile_at_target(viewport, world_x, true);
 
-            todo!();
+            // dbg!();
+            let (qry_id, hfield, hit_world) = self
+                .heightfields
+                .top_heightfield_in_visible_column(grid, viewport, world_x)?;
+
+            hit_world.y as f32
         };
 
+        // dbg!(&initial_y);
         // should correspond to the spring distance factor but whatever
         const ANCHOR_EXTRA_RANGE: f32 = 100.0;
         // let initial_y =
@@ -517,8 +523,14 @@ impl LabelPhysics {
         let mut intersect_buf = Vec::new();
 
         // loop per "row" (move up one level & stack when iterating)
+        let mut iter_count = 0;
         loop {
+            if iter_count > 5 {
+                break;
+            }
+            iter_count += 1;
             let this_pos = nalgebra::Isometry2::translation(cur_position.x, cur_position.y);
+            // dbg!(&cur_position);
 
             // check for other labels inside an AABB at the current position;
             // the AABB should extend horizontally to cover the entire space
@@ -624,6 +636,7 @@ impl LabelPhysics {
                         other_right_raycast.is_none() && this_left_raycast.is_none();
 
                     if no_collisions {
+                        // NB these aren't correct/very thought out (`this` should move more here);
                         let new_other_pos =
                             other_pos.as_uv() + [this_left - other_left, 0.0].as_uv();
                         move_buf.push((*handle, new_other_pos));
@@ -849,8 +862,12 @@ impl AlignmentHeightFields {
         let mat = viewport.screen_world_dmat3();
         let world_x = mat.transform_point2([screen_x as f64, 0.0].as_duv()).x;
 
-        let (qry_id, hfield) = self.top_heightfield_in_visible_column(grid, viewport, world_x)?;
+        let (qry_id, hfield, hit_world) =
+            self.top_heightfield_in_visible_column(grid, viewport, world_x)?;
         let (tgt_id, norm_x) = grid.x_axis.global_to_axis_local(world_x)?;
+        let screen = viewport.world_screen_dmat3().transform_point2(hit_world);
+
+        Some(screen.y as f32)
 
         /*
         // might be more correct
@@ -872,6 +889,7 @@ impl AlignmentHeightFields {
 
         // need to shift `world_x` to account for the (intended) offset of the heightfield
 
+        /*
         let offset = grid.x_axis.sequence_offset(tgt_id)? as f64;
         let hfield_y = hfield.heightfield_project_x((world_x - offset) as f32)?;
 
@@ -884,6 +902,7 @@ impl AlignmentHeightFields {
             .transform_point2(world.as_duv());
 
         Some(viewport.canvas_size.y as f32 - screen.y as f32)
+        */
 
         // Some(screen.y as f32)
     }
@@ -893,21 +912,23 @@ impl AlignmentHeightFields {
         grid: &AlignmentGrid,
         viewport: &Viewport,
         world_target: f64,
-    ) -> Option<(SeqId, &LabelHeightField)> {
-        let top = (viewport.view_center.y + viewport.view_size.y * 0.5) as f32;
+    ) -> Option<(SeqId, &LabelHeightField, ultraviolet::DVec2)> {
+        // 0.35 is kind of arbitrary, but should keep labels from going too far up
+        let top = (viewport.view_center.y + viewport.view_size.y * 0.35) as f32;
         // let top = grid.y_axis.total_len as f32;
 
-        let ((tgt_id, qry_id), _hit_world) =
-            grid.cast_ray([world_target as f32, top], [0.0, -1.0])?;
+        let ((tgt_id, qry_id), hit_world) =
+            grid.cast_ray([world_target as f32, top], [0.0, -1.0], true)?;
         // grid.cast_ray([world_target as f32, 0.0], [0.0, 1.0])?;
 
         let hfield = self.heightfields.get(&(tgt_id, qry_id))?;
         // let qry_name = grid.sequence_names.get_by_right(&qry_id);
         // println!("using heightfield for query: {qry_id:?} ({qry_name:?})");
 
-        Some((qry_id, hfield))
+        Some((qry_id, hfield, hit_world))
     }
 
+    /*
     fn left_heightfield_in_visible_row(
         &self,
         grid: &AlignmentGrid,
@@ -921,6 +942,7 @@ impl AlignmentHeightFields {
 
         Some((qry_id, hfield))
     }
+    */
 }
 
 struct LabelHeightField {

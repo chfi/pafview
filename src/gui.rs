@@ -256,8 +256,8 @@ impl AppWindowStates {
             regions_of_interest_open: false,
 
             #[cfg(debug_assertions)]
-            label_physics_debug_open: true,
-            // label_physics_debug_open: false,
+            label_physics_debug_open: false,
+            // label_physics_debug_open: true,
         }
     }
 }
