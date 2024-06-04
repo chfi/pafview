@@ -1,5 +1,5 @@
 use rapier2d::prelude::*;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use ultraviolet::Vec2;
 
 use crate::grid::{AlignmentGrid, AxisRange, GridAxis};
@@ -238,8 +238,76 @@ impl LabelPhysics {
 
         let mut label_move_buf: Vec<(ColliderHandle, ultraviolet::Vec2)> = Vec::new();
 
-        let contact_graph: &InteractionGraph<ColliderHandle, ContactPair> =
-            self.physics.narrow_phase.contact_graph();
+        // let contact_graph: &InteractionGraph<ColliderHandle, ContactPair> =
+        //     self.physics.narrow_phase.contact_graph();
+
+        let mut to_swap_set: FxHashSet<ColliderHandle> = FxHashSet::default();
+        let mut to_swap: Vec<_> = Vec::new();
+        // let mut to_swap: bimap::BiMap<ColliderHandle,
+
+        for pair in self.physics.narrow_phase.contact_pairs() {
+            // swap labels if it'd reduce the total distance to their respective anchors
+            if to_swap_set.contains(&pair.collider1) || to_swap_set.contains(&pair.collider2) {
+                continue;
+            }
+
+            let get_annot_for = |handle: ColliderHandle| {
+                let collider = self.collider_set.get(handle)?;
+                let annot_id = u128_usize_pair(collider.user_data);
+                let pos = collider.position().translation.as_uv();
+                let size = collider.shape().as_cuboid()?.half_extents.as_uv() * 2.0;
+                Some((annot_id, pos, size))
+            };
+
+            let Some((label1, label2)) =
+                get_annot_for(pair.collider1).zip(get_annot_for(pair.collider2))
+            else {
+                continue;
+            };
+
+            let data1 = self.annotations.get(&label1.0);
+            let data2 = self.annotations.get(&label2.0);
+
+            let Some((data1, data2)) = data1.zip(data2) else {
+                continue;
+            };
+
+            let anchor1 = self.target_labels.anchor_screen_pos[data1.target_label_ix];
+            let anchor2 = self.target_labels.anchor_screen_pos[data2.target_label_ix];
+
+            let Some((anchor1, anchor2)) = anchor1.zip(anchor2) else {
+                continue;
+            };
+
+            let dist1a1 = (anchor1 - label1.1).mag();
+            let dist1a2 = (anchor2 - label1.1).mag();
+            let dist2a1 = (anchor1 - label2.1).mag();
+            let dist2a2 = (anchor2 - label2.1).mag();
+
+            if dist1a1 < dist2a1 && dist1a2 < dist2a2 {
+                let Some((rb_handle1, rb_handle2)) = self.target_labels.label_rigid_body
+                    [data1.target_label_ix]
+                    .zip(self.target_labels.label_rigid_body[data2.target_label_ix])
+                else {
+                    continue;
+                };
+
+                to_swap_set.insert(pair.collider1);
+                to_swap_set.insert(pair.collider2);
+
+                to_swap.push([(rb_handle1, label2.1), (rb_handle2, label1.1)]);
+                // to_swap.push([(pair.collider1, label2.1), (pair.collider2, label1.1)]);
+            }
+        }
+
+        for [(rb1, new_p1), (rb2, new_p2)] in to_swap {
+            if let Some(body) = self.rigid_body_set.get_mut(rb1) {
+                body.set_position(new_p1.as_na().into(), false);
+            }
+            if let Some(body) = self.rigid_body_set.get_mut(rb2) {
+                body.set_position(new_p2.as_na().into(), false);
+            }
+        }
 
         // let mut contact_count = 0;
         // for (a, b, edge) in contact_graph.interactions_with_endpoints() {
@@ -279,7 +347,7 @@ impl LabelPhysics {
                 let s_right = world_screen_d.transform_point2([right, 0.0].into()).x as f32;
 
                 let s_left = s_left.clamp(canvas_left, canvas_right);
-                let s_right = s_right.clamp(canvas_right, canvas_right);
+                let s_right = s_right.clamp(canvas_left, canvas_right);
 
                 s_left..=s_right
             });
@@ -299,6 +367,7 @@ impl LabelPhysics {
                     // if let Some(label_pos) =
                     //     self.try_to_place_label(grid, viewport, anchor_pos, size)
                     // {
+                    println!("trying to place label for <{annot_id:?}> (screen pos {screen_anchor_range:?})");
                     if let Some(label_pos) = self.place_label_aabb_with_anchor_range(
                         grid,
                         viewport,
@@ -478,6 +547,7 @@ impl LabelPhysics {
         rect_size: impl Into<[f32; 2]>,
         move_buf: &mut Vec<(ColliderHandle, ultraviolet::Vec2)>,
     ) -> Option<ultraviolet::Vec2> {
+        // println!("screen anchor range:  {screen_anchor_range:?}");
         let screen_world = viewport.screen_world_mat3();
         let screen_world_d = viewport.screen_world_dmat3();
 
@@ -488,6 +558,8 @@ impl LabelPhysics {
 
         let initial_x = (smin + smax) * 0.5;
 
+        // return None;
+
         // pick (alignment pair) tile to use as anchor; take (rough) label position
         // into account (avoid tiles that don't have space in the viewport above for labels,
         // but don't do a full collision check)
@@ -495,20 +567,39 @@ impl LabelPhysics {
             let world_x = screen_world_d
                 .transform_point2([initial_x as f64, 0.0].into())
                 .x;
+            // println!("screen x: {initial_x}\t world_x: {world_x}");
+            let (tgt_id, _) = grid.x_axis.global_to_axis_local(world_x)?;
+            // dbg!();
+
+            let world_x = grid.x_axis.axis_local_to_global(tgt_id, 0.5)?;
+            // dbg!();
+
             let top_visible_alignment =
                 grid.topmost_visible_tile_at_target(viewport, world_x, true);
-
             // dbg!();
-            let (qry_id, hfield, hit_world) = self
-                .heightfields
-                .top_heightfield_in_visible_column(grid, viewport, world_x)?;
+
+            // let top = (viewport.view_center.y + viewport.view_size.y * 0.35) as f32;
+            let top = (viewport.view_center.y + viewport.view_size.y * 0.5) as f32;
+            // let top = grid.y_axis.total_len as f32;
+
+            let src = [world_x as f32, top];
+            // println!("casting ray from {src:?}");
+            let ((tgt_id, qry_id), hit_world) = grid.cast_ray(src, [0.0, -1.0], false)?;
+            // dbg!();
+            // grid.cast_ray([world_target as f32, 0.0], [0.0, 1.0])?;
+
+            // let hfield = self.heightfields.heightfields.get(&(tgt_id, qry_id))?;
+            // dbg!();
+            // let (qry_id, hfield, hit_world) = self
+            //     .heightfields
+            //     .top_heightfield_in_visible_column(grid, viewport, world_x)?;
 
             hit_world.y as f32
         };
 
-        // dbg!(&initial_y);
+        dbg!(&initial_y);
         // should correspond to the spring distance factor but whatever
-        const ANCHOR_EXTRA_RANGE: f32 = 100.0;
+        const ANCHOR_EXTRA_RANGE: f32 = 300.0;
         // let initial_y =
 
         // let mut cur_pos = [(smin + smax) * 0.5,

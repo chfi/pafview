@@ -17,11 +17,11 @@ struct DebugWindowState {
 impl std::default::Default for DebugWindowState {
     fn default() -> Self {
         Self {
-            draw_anchor_links: true,
+            draw_anchor_links: false,
             draw_projected_anchor_from_cursor: true,
 
             debug_grid_tile_aabbs: false,
-            debug_grid_tile_at_point_cursor: true,
+            debug_grid_tile_at_point_cursor: false,
             debug_optimal_tile_label_at_cursor: true,
         }
     }
@@ -146,6 +146,7 @@ pub fn label_physics_debug_window(
                 .world_screen_mat3()
                 .transform_point2(origin.as_uv());
 
+            // println!("casting ray from {origin:?}");
             if let Some((tile, hit_world)) = grid.cast_ray(origin, [0.0, -1.0], false) {
                 let hit_screen = viewport
                     .world_screen_dmat3()
@@ -188,21 +189,37 @@ pub fn label_physics_debug_window(
     egui::Window::new("Label Physics Debugger")
         .open(open)
         .show(ctx, |ui| {
-            ui.toggle_value(&mut dbg_state.draw_anchor_links, "Show label anchors");
+            egui::Grid::new(ui.id().with("toggles")).show(ui, |ui| {
+                ui.toggle_value(&mut dbg_state.draw_anchor_links, "Show label anchors");
 
-            ui.toggle_value(
-                &mut dbg_state.draw_projected_anchor_from_cursor,
-                "Test anchor projection",
-            );
+                ui.toggle_value(
+                    &mut dbg_state.draw_projected_anchor_from_cursor,
+                    "Test anchor projection",
+                );
+
+                ui.end_row();
+
+                ui.toggle_value(&mut dbg_state.debug_grid_tile_aabbs, "Show grid AABBs");
+                ui.end_row();
+            });
 
             ui.separator();
 
-            if dbg_state.debug_grid_tile_at_point_cursor {
-                if let Some(pos) = ctx.pointer_latest_pos() {
-                    let world_pos = viewport
-                        .screen_world_dmat3()
-                        .transform_point2(pos.as_uv().to_f64());
+            if let Some(pos) = ctx.pointer_latest_pos() {
+                let world_pos = viewport
+                    .screen_world_dmat3()
+                    .transform_point2(pos.as_uv().to_f64());
 
+                if let Some(tgt) = app.alignment_grid.x_axis.global_to_axis_local(world_pos.x) {
+                    ui.label(format!(
+                        "target under cursor (world {}): {tgt:?}",
+                        world_pos.x
+                    ));
+                } else {
+                    ui.label(format!("no target under cursor (world {})", world_pos.x));
+                }
+
+                if dbg_state.debug_grid_tile_at_point_cursor {
                     if let Some(pair @ (tgt, qry)) =
                         app.alignment_grid.tile_at_world_point(world_pos)
                     {

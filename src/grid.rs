@@ -88,6 +88,21 @@ impl AlignmentGrid {
         self.tile_aabbs.cast_ray(origin.as_uv(), dir.as_uv(), solid)
     }
 
+    /*
+    pub fn debug_cast_ray(
+        &self,
+        origin: impl Into<[f32; 2]>,
+        dir: impl Into<[f32; 2]>,
+        solid: bool,
+        debug_painter: &egui::Painter,
+    ) -> Option<((SeqId, SeqId), DVec2)> {
+
+        let stroke = (2.0, egui::Color32::DEBUG_COLOR);
+
+        let result = self.tile_aabbs.cast_ray(origin.as_uv(), dir.as_uv(), solid);
+    }
+    */
+
     pub fn tile_at_world_point(&self, point: DVec2) -> Option<(SeqId, SeqId)> {
         let (tile, _handle) = self.tile_aabbs.tile_at_point(point.to_f32())?;
         Some(tile)
@@ -529,6 +544,7 @@ impl GridAABBs {
     fn cast_ray(&self, origin: Vec2, dir: Vec2, solid: bool) -> Option<((SeqId, SeqId), DVec2)> {
         use rapier2d::pipeline::QueryFilter;
         let ray = rapier2d::geometry::Ray::new(origin.as_na().into(), dir.as_na());
+        dbg!(&ray);
         let (col_handle, toi) = self.query_pipeline.cast_ray(
             &self._rigid_bodies,
             &self.colliders,
@@ -537,14 +553,17 @@ impl GridAABBs {
             solid,
             QueryFilter::default(),
         )?;
+        // dbg!();
 
         let collider = self.colliders.get(col_handle)?;
+        // dbg!();
 
         let &[tgt_id, qry_id]: &[SeqId] = bytemuck::cast_slice(&[collider.user_data]) else {
             unreachable!();
         };
         let pos = origin.to_f64() + dir.to_f64() * toi as f64;
 
+        // dbg!();
         Some(((tgt_id, qry_id), pos))
     }
 
