@@ -284,7 +284,7 @@ impl LabelPhysics {
             let dist2a1 = (anchor1 - label2.1).mag();
             let dist2a2 = (anchor2 - label2.1).mag();
 
-            if dist1a1 < dist2a1 && dist1a2 < dist2a2 {
+            if dist1a1 < dist1a2 && dist2a2 < dist2a1 {
                 let Some((rb_handle1, rb_handle2)) = self.target_labels.label_rigid_body
                     [data1.target_label_ix]
                     .zip(self.target_labels.label_rigid_body[data2.target_label_ix])
