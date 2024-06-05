@@ -553,7 +553,14 @@ impl PafRenderer {
             self.last_rendered_view = Some(*view);
 
             if view.bp_per_pixel(window_dims[0]) > Self::SCALE_LIMIT_BP_PER_PX {
-                self.submit_draw_matches(device, queue, match_data, view, window_dims);
+                self.submit_draw_matches(
+                    device,
+                    queue,
+                    &app.app_config,
+                    match_data,
+                    view,
+                    window_dims,
+                );
             } else {
                 cpu_rasterizer.draw_into_wgpu_texture(device, queue, window_dims, app, view);
             }
@@ -612,6 +619,7 @@ impl PafRenderer {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        config: &crate::config::AppConfig,
         match_data: &batch::MatchDrawBatchData,
         view: &crate::view::View,
         window_dims: [u32; 2],
@@ -664,7 +672,13 @@ impl PafRenderer {
             }
 
             let params = PafDrawParams::from_view_and_dims(view, window_dims);
-            self.draw_states[1].update_uniforms(queue, view, window_dims, self.line_width);
+            self.draw_states[1].update_uniforms(
+                queue,
+                view,
+                window_dims,
+                config.alignment_line_width,
+                config.grid_line_width,
+            );
 
             let Some(draw_set) = self.draw_states[1].draw_set.as_mut() else {
                 unreachable!();
@@ -951,7 +965,8 @@ impl PafDrawState {
         queue: &wgpu::Queue,
         view: &crate::view::View,
         window_dims: [u32; 2],
-        line_width: f32,
+        alignment_line_width: f32,
+        grid_line_width: f32,
     ) {
         let proj = view.to_mat4();
         queue.write_buffer(
@@ -964,14 +979,14 @@ impl PafDrawState {
         // px / window width
         // let line_width: f32 = 5.0 / 1000.0;
         // let line_width: f32 = 15.0 / 1000.0;
-        let match_line_width: f32 = line_width / window_dims[0] as f32;
+        let match_line_width: f32 = alignment_line_width / window_dims[0] as f32;
         queue.write_buffer(
             &self.uniforms.conf_uniform,
             0,
             bytemuck::cast_slice(&[match_line_width, line_brightness, 0.0, 0.0]),
         );
 
-        let grid_line_width: f32 = 1.0 / window_dims[0] as f32;
+        let grid_line_width: f32 = grid_line_width / window_dims[0] as f32;
         let line_brightness = 0.0;
         queue.write_buffer(
             &self.uniforms.grid_conf_uniform,

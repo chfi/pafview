@@ -8,7 +8,11 @@ use paf::Alignments;
 use regions::SelectionHandler;
 use rustc_hash::FxHashMap;
 use sequences::Sequences;
-use std::{borrow::Cow, str::FromStr, sync::Arc};
+use std::{
+    borrow::Cow,
+    str::FromStr,
+    sync::{atomic::AtomicBool, Arc},
+};
 use ultraviolet::{DVec2, Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
@@ -26,6 +30,9 @@ pub mod cigar;
 pub mod math_conv;
 pub mod paf;
 pub mod pixels;
+
+mod config;
+use config::AppConfig;
 
 mod annotations;
 mod cli;
@@ -115,9 +122,12 @@ pub fn main() -> anyhow::Result<()> {
 
     // TODO replace PafInput everywhere...
 
+    let app_config = config::load_app_config().unwrap_or_default();
+
     let seq_names = sequences.names().clone();
 
     let app = PafViewerApp {
+        app_config,
         alignments,
         alignment_grid,
         sequences,
@@ -380,6 +390,17 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
         });
     }
 
+    let quit_signal = Arc::new(AtomicBool::from(false));
+
+    // {
+    let signal = quit_signal.clone();
+    ctrlc::set_handler(move || {
+        println!("signaling exit!");
+        signal.store(true, std::sync::atomic::Ordering::SeqCst);
+    })
+    .expect("Error setting Ctrl-C handler");
+    // }
+
     // TODO build this on a separate thread
     // let rstar_match = spatial::RStarMatches::from_paf(&input);
 
@@ -403,6 +424,14 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
             // `event_loop.run` never returns, therefore we must do this to ensure
             // the resources are properly cleaned up.
             let _ = (&instance, &adapter);
+
+            if let Event::LoopExiting = event {
+                println!("closing!");
+
+                if let Err(err) = config::save_app_config(&app.app_config) {
+                    log::error!("Error saving app configuration to file: {err:?}");
+                }
+            }
 
             if let Event::UserEvent(event) = event {
                 match event {
@@ -452,6 +481,11 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
             }
 
             if let Event::AboutToWait = event {
+                if quit_signal.load(std::sync::atomic::Ordering::SeqCst) {
+                    println!("received quit signal");
+                    target.exit();
+                }
+
                 let result = device.poll(wgpu::Maintain::Poll);
                 if let wgpu::MaintainResult::SubmissionQueueEmpty = result {
                     if delta.x != 0.0 || delta.y != 0.0 || delta_scale != 1.0 {
@@ -899,4 +933,6 @@ struct PafViewerApp {
     #[deprecated]
     seq_names: Arc<bimap::BiMap<String, SeqId>>,
     annotations: AnnotationStore,
+
+    app_config: config::AppConfig,
 }

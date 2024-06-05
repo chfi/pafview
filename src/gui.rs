@@ -222,11 +222,15 @@ impl MenuBar {
                     }
                 }
 
-                #[cfg(debug_assertions)]
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                    let open = &mut window_states.label_physics_debug_open;
-                    if ui.button("Debug label physics").clicked {
-                        *open = !*open;
+                    let open = &mut window_states.config_open;
+
+                    #[cfg(debug_assertions)]
+                    {
+                        let open = &mut window_states.label_physics_debug_open;
+                        if ui.button("Debug label physics").clicked {
+                            *open = !*open;
+                        }
                     }
                 });
                 // ui.spacing()
@@ -242,6 +246,8 @@ pub struct AppWindowStates {
 
     pub regions_of_interest_open: bool,
 
+    pub config_open: bool,
+
     #[cfg(debug_assertions)]
     pub label_physics_debug_open: bool,
 }
@@ -254,6 +260,8 @@ impl AppWindowStates {
             annotation_list_open,
             goto_region_open: false,
             regions_of_interest_open: false,
+
+            config_open: false,
 
             #[cfg(debug_assertions)]
             label_physics_debug_open: false,

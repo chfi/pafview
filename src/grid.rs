@@ -544,7 +544,7 @@ impl GridAABBs {
     fn cast_ray(&self, origin: Vec2, dir: Vec2, solid: bool) -> Option<((SeqId, SeqId), DVec2)> {
         use rapier2d::pipeline::QueryFilter;
         let ray = rapier2d::geometry::Ray::new(origin.as_na().into(), dir.as_na());
-        dbg!(&ray);
+        // dbg!(&ray);
         let (col_handle, toi) = self.query_pipeline.cast_ray(
             &self._rigid_bodies,
             &self.colliders,
