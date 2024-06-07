@@ -203,6 +203,69 @@ impl LabelPhysics {
         painter: &mut AnnotationPainter,
         viewport: &Viewport,
     ) {
+        let mut covered_top: FxHashSet<ColliderHandle> = FxHashSet::default();
+        let mut stack_parents: FxHashMap<ColliderHandle, ColliderHandle> = FxHashMap::default();
+
+        // step through all (of last frame's) contacts, identifying
+        // which labels can be stacked on which
+        for pair in self.physics.narrow_phase.contact_pairs() {
+            // need to track which labels
+            // - *should* stack -- which labels would be "better off" sitting on top
+            //     of one of its neighbors
+            // - *can* be stacked *on* -- which labels have *no* contacts on top (?)
+
+            let Some((manifold, contact)) = pair.find_deepest_contact() else {
+                continue;
+            };
+
+            let covered1 = manifold.local_n1.y < 0.0;
+            let covered2 = manifold.local_n2.y < 0.0;
+            if covered1 {
+                covered_top.insert(pair.collider1);
+            }
+            if covered2 {
+                covered_top.insert(pair.collider2);
+            }
+
+            let collider1 = self.collider_set.get(pair.collider1);
+            let collider2 = self.collider_set.get(pair.collider2);
+
+            let Some((collider1, collider2)) = collider1.zip(collider2) else {
+                continue;
+            };
+
+            let annot1: super::AnnotationId = u128_usize_pair(collider1.user_data);
+            let annot2: super::AnnotationId = u128_usize_pair(collider2.user_data);
+
+            let get_anchor_and_data = |a| {
+                self.annotations.get(&a).and_then(|a_data| {
+                    let anchor = self.target_labels.anchor_screen_pos[a_data.target_label_ix]?;
+                    let body_handle = self.target_labels.label_rigid_body[a_data.target_label_ix]?;
+                    let rigid_body = self.rigid_body_set.get(body_handle)?;
+                    Some((anchor, a_data, rigid_body))
+                })
+            };
+
+            let Some(((anchor1, data1, body1), (anchor2, data2, body2))) =
+                get_anchor_and_data(annot1).zip(get_anchor_and_data(annot2))
+            else {
+                continue;
+            };
+
+            // if one of the labels is _pushing_ into the other, it's a stacking candidate...
+            // i.e. using the custom forces applied last frame
+        }
+
+        // apply forces to stick to annotation range
+
+        //- move anchor to closest point on annotation range (on screen) to the label
+        //  - if that point is directly below/overlapping the label, there's no need
+        //    to apply any force
+
+        // alternatively, use the overlap of the label with the annot. range (project
+        // the label onto the world range) -- need some normalization but might make sense
+
+        /*
         for (annot_id, annot_data) in self.annotations.iter() {
             let handle_ix = annot_data.target_label_ix;
 
@@ -222,6 +285,7 @@ impl LabelPhysics {
 
             // if the label already has an enabled rigid body, handle swaps & stacking?
         }
+        */
 
         //
     }
@@ -241,15 +305,57 @@ impl LabelPhysics {
         // let contact_graph: &InteractionGraph<ColliderHandle, ContactPair> =
         //     self.physics.narrow_phase.contact_graph();
 
+        // TODO may want to use a custom physics event handler that populates a structure
+        // containing adjacent (contacting) labels
+
         let mut to_swap_set: FxHashSet<ColliderHandle> = FxHashSet::default();
         let mut to_swap: Vec<_> = Vec::new();
         // let mut to_swap: bimap::BiMap<ColliderHandle,
 
+        #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+        struct ContactDirs {
+            up: bool,
+            down: bool,
+            right: bool,
+            left: bool,
+        }
+
+        let mut contact_dirs =
+            vec![ContactDirs::default(); self.target_labels.anchor_screen_pos.len()];
+
+        let mut update_contacts = |contact: &ContactPair| {
+            // let collider = self.collider_set.get(handle)?;
+            // let annot_id = u128_usize_pair(collider.user_data);
+            let aid1 = self.collider_annot_map.get(&contact.collider1)?;
+            let aid2 = self.collider_annot_map.get(&contact.collider2)?;
+            // let annot_id = self.collider_annot_map.get(handle)?;
+            let ix1 = self.annotations.get(aid1)?.target_label_ix;
+            let ix2 = self.annotations.get(aid2)?.target_label_ix;
+
+            for manifold in contact.manifolds.iter() {
+                //
+                if manifold.local_n1.y < 0.0 {
+                    contact_dirs[ix1].up = true;
+                    contact_dirs[ix2].down = true;
+                } else if manifold.local_n1.y > 0.0 {
+                    contact_dirs[ix1].down = true;
+                    contact_dirs[ix2].up = true;
+                }
+            }
+            Some(())
+        };
+
         for pair in self.physics.narrow_phase.contact_pairs() {
+            update_contacts(pair);
+
             // swap labels if it'd reduce the total distance to their respective anchors
             if to_swap_set.contains(&pair.collider1) || to_swap_set.contains(&pair.collider2) {
                 continue;
             }
+
+            // TODO: if contact point is on the bottom of label1, and on its right side,
+            // i.e. so that label1 is partially supported by label2 (with nothing to the left
+            // of label2), they should slide apart so that label1 can drop down a level, etc.
 
             let get_annot_for = |handle: ColliderHandle| {
                 let collider = self.collider_set.get(handle)?;
@@ -284,6 +390,10 @@ impl LabelPhysics {
             let dist2a1 = (anchor1 - label2.1).mag();
             let dist2a2 = (anchor2 - label2.1).mag();
 
+            // let sum_before = dist1a1 + dist2a2;
+            // let sum_after = dist1a2 + dist2a1;
+            // println!("sum_before: {sum_before}\tsum_after: {sum_after}");
+
             if dist1a1 < dist1a2 && dist2a2 < dist2a1 {
                 let Some((rb_handle1, rb_handle2)) = self.target_labels.label_rigid_body
                     [data1.target_label_ix]
@@ -300,7 +410,13 @@ impl LabelPhysics {
             }
         }
 
+        for (tgt_label_ix, contact_dirs) in contact_dirs.iter().enumerate() {
+            if !contact_dirs.down {}
+        }
+
+        /*
         for [(rb1, new_p1), (rb2, new_p2)] in to_swap {
+            // println!("swapping! {rb1:?}<->{rb2:?}");
             if let Some(body) = self.rigid_body_set.get_mut(rb1) {
                 body.set_position(new_p1.as_na().into(), false);
             }
@@ -308,6 +424,7 @@ impl LabelPhysics {
                 body.set_position(new_p2.as_na().into(), false);
             }
         }
+        */
 
         // let mut contact_count = 0;
         // for (a, b, edge) in contact_graph.interactions_with_endpoints() {
@@ -377,6 +494,7 @@ impl LabelPhysics {
                     ) {
                         let collider = ColliderBuilder::cuboid(size.x * 0.5, size.y * 0.5)
                             .mass(1.0)
+                            .friction(0.0)
                             .user_data(usize_pair_u128(*annot_id))
                             .build();
 
