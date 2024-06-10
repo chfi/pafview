@@ -10,6 +10,7 @@ anyhow = "1.0.80"
 bimap = "0.6.3"
 bytemuck = { version = "1.14.3", features = ["derive"] }
 clap = { version = "4.5.4", features = ["derive"] }
+crossbeam = "0.8.4"
 ctrlc = "3.4.4"
 directories = "5.0.1"
 dirs = "5.0.1"

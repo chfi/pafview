@@ -18,6 +18,7 @@ use self::exact::CpuViewRasterizerEgui;
 
 pub mod batch;
 pub mod exact;
+pub mod thread;
 
 pub struct LinePipeline {
     pub bind_group_layout_0: wgpu::BindGroupLayout,

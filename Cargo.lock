@@ -1781,6 +1781,7 @@ dependencies = [
  "bimap",
  "bytemuck",
  "clap",
+ "crossbeam",
  "ctrlc",
  "directories",
  "dirs",

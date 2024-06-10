@@ -128,8 +128,8 @@ pub fn main() -> anyhow::Result<()> {
 
     let app = PafViewerApp {
         app_config,
-        alignments,
-        alignment_grid,
+        alignments: Arc::new(alignments),
+        alignment_grid: Arc::new(alignment_grid),
         sequences,
         // paf_input: todo!(),
         seq_names,
@@ -193,6 +193,9 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
         )
         .await
         .expect("Failed to create device");
+
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
 
     let sample_count = 4;
     // let sample_count = 1;
@@ -633,20 +636,20 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                             &app.alignment_grid,
                             &viewport,
                         );
-                        label_physics.update_labels(
-                            &debug_painter,
-                            &app.alignment_grid,
-                            &app.annotations,
-                            &mut annotation_painter,
-                            &viewport,
-                        );
-                        // label_physics.update_labels_new(
+                        // label_physics.update_labels(
                         //     &debug_painter,
                         //     &app.alignment_grid,
                         //     &app.annotations,
                         //     &mut annotation_painter,
                         //     &viewport,
                         // );
+                        label_physics.update_labels_new(
+                            &debug_painter,
+                            &app.alignment_grid,
+                            &app.annotations,
+                            &mut annotation_painter,
+                            &viewport,
+                        );
                         label_physics.step(&app.alignment_grid, delta_t as f32, &viewport);
 
                         last_frame = std::time::Instant::now();
@@ -932,8 +935,8 @@ pub fn write_png(
 */
 
 struct PafViewerApp {
-    alignments: Alignments,
-    alignment_grid: AlignmentGrid,
+    alignments: Arc<Alignments>,
+    alignment_grid: Arc<AlignmentGrid>,
     sequences: Sequences,
 
     // paf_input: PafInput,
