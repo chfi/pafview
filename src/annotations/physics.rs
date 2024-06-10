@@ -212,8 +212,10 @@ impl LabelPhysics {
         viewport: &Viewport,
     ) {
         let world_screen_d = viewport.world_screen_dmat3();
-        let mut label_move_buf: Vec<(ColliderHandle, ultraviolet::Vec2)> =
-            self.handle_label_stack_and_swap(grid);
+
+        let mut label_move_buf: Vec<(ColliderHandle, ultraviolet::Vec2)> = Vec::new();
+        // let mut label_move_buf: Vec<(ColliderHandle, ultraviolet::Vec2)> =
+        //     self.handle_label_stack_and_swap(grid);
 
         let mut touched_handles = Vec::with_capacity(label_move_buf.len());
 
@@ -283,6 +285,7 @@ impl LabelPhysics {
                     &[],
                     true,
                 );
+                self.target_labels.label_rigid_body[handle_ix] = Some(rb_handle);
             }
 
             // NB: computing potential label position before retrieving the rigid body
@@ -335,6 +338,12 @@ impl LabelPhysics {
                     rigid_body.set_translation(pos.as_na().into(), true);
                     rigid_body.set_enabled(true);
                 }
+            }
+
+            let shape_id = annotations.target_shape_for(annot_id.0, annot_id.1);
+            if let Some(label) = shape_id.and_then(|id| painter.get_shape_mut(id)) {
+                let pos = rigid_body.position().translation;
+                label.set_position(Some(pos.as_epos2()));
             }
         }
 
@@ -756,6 +765,8 @@ impl LabelPhysics {
         let screen_world = viewport.screen_world_mat3();
         let screen_world_d = viewport.screen_world_dmat3();
 
+        let world_screen_d = viewport.world_screen_dmat3();
+
         let (smin, smax) = screen_anchor_range.into_inner();
 
         let this_size = rect_size.as_uv();
@@ -799,7 +810,7 @@ impl LabelPhysics {
             //     .heightfields
             //     .top_heightfield_in_visible_column(grid, viewport, world_x)?;
 
-            hit_world.y as f32
+            world_screen_d.transform_point2(hit_world).y as f32
         };
 
         dbg!(&initial_y);
