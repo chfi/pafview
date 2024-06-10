@@ -168,6 +168,12 @@ impl LabelPhysics {
             let cl_min = sx_min.clamp(0.0, viewport.canvas_size.x as f64);
             let cl_max = sx_max.clamp(0.0, viewport.canvas_size.x as f64);
 
+            if cl_min == cl_max && (cl_min == 0.0 || cl_min == viewport.canvas_size.x as f64) {
+                // out of view bounds; remove anchor?
+                // println!("range out of bounds");
+                continue;
+            }
+
             let cl_mid = (cl_min + cl_max) * 0.5;
 
             // project target onto heightfield
@@ -175,6 +181,7 @@ impl LabelPhysics {
                 self.heightfields
                     .project_screen_from_top(grid, viewport, cl_mid as f32)
             else {
+                // println!("skipping");
                 continue;
             };
 
@@ -203,8 +210,12 @@ impl LabelPhysics {
         painter: &mut AnnotationPainter,
         viewport: &Viewport,
     ) {
+        let world_screen_d = viewport.world_screen_dmat3();
+
         let mut covered_top: FxHashSet<ColliderHandle> = FxHashSet::default();
         let mut stack_parents: FxHashMap<ColliderHandle, ColliderHandle> = FxHashMap::default();
+
+        let mut label_move_buf: Vec<(ColliderHandle, ultraviolet::Vec2)> = Vec::new();
 
         // step through all (of last frame's) contacts, identifying
         // which labels can be stacked on which
@@ -256,7 +267,132 @@ impl LabelPhysics {
             // i.e. using the custom forces applied last frame
         }
 
-        // apply forces to stick to annotation range
+        for (annot_id, annot_data) in self.annotations.iter() {
+            let handle_ix = annot_data.target_label_ix;
+
+            let anchor_pos = self.target_labels.anchor_screen_pos[handle_ix];
+            let mut body_handle = self.target_labels.label_rigid_body[handle_ix];
+
+            if anchor_pos.is_none() {
+                // if there's no anchor, but the label has an enabled
+                // rigid body, disable it
+
+                if let Some(body) = body_handle.and_then(|h| self.rigid_body_set.get_mut(h)) {
+                    if body.is_enabled() {
+                        body.set_enabled(false);
+                    }
+                }
+            }
+
+            // at this point we're only dealing with annotations that
+            // correspond to a target range that's visible
+            let Some(anchor_pos) = self.target_labels.anchor_screen_pos[handle_ix] else {
+                continue;
+            };
+
+            // initialize rigid body if necessary
+            if body_handle.is_none() {
+                // body initialized as disabled
+                let (collider, rigid_body) = label_collider_body(*annot_id, annot_data.size);
+
+                // set position? or not
+                let rb_handle = self.rigid_body_set.insert(rigid_body);
+                let collider_handle = self.collider_set.insert_with_parent(
+                    collider,
+                    rb_handle,
+                    &mut self.rigid_body_set,
+                );
+                self.query_pipeline.update_incremental(
+                    &self.collider_set,
+                    &[collider_handle],
+                    &[],
+                    true,
+                );
+            }
+
+            let label_pos = {
+                let (canvas_left, canvas_right) = {
+                    let l = viewport.canvas_offset.x;
+                    let r = l + viewport.canvas_size.x;
+                    (l, r)
+                };
+
+                let screen_anchor_range = annot_data.world_range.target_range().map(|range| {
+                    let left = *range.start();
+                    let right = *range.end();
+                    let s_left = world_screen_d.transform_point2([left, 0.0].into()).x as f32;
+                    let s_right = world_screen_d.transform_point2([right, 0.0].into()).x as f32;
+
+                    let s_left = s_left.clamp(canvas_left, canvas_right);
+                    let s_right = s_right.clamp(canvas_left, canvas_right);
+
+                    s_left..=s_right
+                });
+
+                let Some(screen_anchor_range) = screen_anchor_range else {
+                    continue;
+                };
+
+                let label_pos = self.place_label_aabb_with_anchor_range(
+                    grid,
+                    viewport,
+                    screen_anchor_range,
+                    annot_data.size,
+                    &mut label_move_buf,
+                );
+                label_pos
+            };
+
+            // at this point, any annotation that can be visible on screen, given
+            // the current view, will have a rigid body; if the body is disabled,
+            // it is lacking a position
+            let Some(rigid_body) = body_handle.and_then(|h| self.rigid_body_set.get_mut(h)) else {
+                continue;
+            };
+
+            if !rigid_body.is_enabled() {
+                // now, try to find a position for the body
+                // if successful, update the position and enable the body
+                // if the rigid body is already enabled, just move on to the next step
+
+                /*
+
+                let screen_anchor_range = annot_data.world_range.target_range().map(|range| {
+                    let left = *range.start();
+                    let right = *range.end();
+                    let s_left = world_screen_d.transform_point2([left, 0.0].into()).x as f32;
+                    let s_right = world_screen_d.transform_point2([right, 0.0].into()).x as f32;
+
+                    let s_left = s_left.clamp(canvas_left, canvas_right);
+                    let s_right = s_right.clamp(canvas_left, canvas_right);
+
+                    s_left..=s_right
+                });
+
+                let Some(screen_anchor_range) = screen_anchor_range else {
+                    continue;
+                };
+
+                let label_pos = self.place_label_aabb_with_anchor_range(
+                    grid,
+                    viewport,
+                    screen_anchor_range,
+                    annot_data.size,
+                    &mut label_move_buf,
+                );
+                */
+
+                // let label_pos: Option<Vec2> = None;
+                // TODO
+
+                if let Some(pos) = label_pos {
+                    rigid_body.set_translation(pos.as_na().into(), true);
+                    rigid_body.set_enabled(true);
+                }
+            }
+
+            // apply forces
+        }
 
         //- move anchor to closest point on annotation range (on screen) to the label
         //  - if that point is directly below/overlapping the label, there's no need
@@ -264,6 +400,13 @@ impl LabelPhysics {
 
         // alternatively, use the overlap of the label with the annot. range (project
         // the label onto the world range) -- need some normalization but might make sense
+
+        // *finally* (???) create the labels for the newly anchored annotations (i.e.
+        // those that entered the screen on the last frame or for some other reason
+        // are on the screen but lack a label position & body)
+
+        // this includes labels that have a rigid body already, but have been disabled
+        // due to leaving the screen bounds at some point
 
         /*
         for (annot_id, annot_data) in self.annotations.iter() {
@@ -1423,4 +1566,34 @@ fn u128_usize_pair(v: u128) -> (usize, usize) {
     let a = (v >> (std::mem::size_of::<usize>() as u128)) as usize;
     let b = v as usize;
     (a, b)
+}
+
+/*
+fn label_collider(annot_id: super::AnnotationId, size: impl Into<[f32; 2]>) -> ColliderBuilder {
+    let size = size.into();
+    ColliderBuilder::cuboid(size[0] * 0.5, size[1] * 0.5)
+        .mass(1.0)
+        .friction(0.0)
+        .user_data(usize_pair_u128(annot_id))
+}
+*/
+
+// fn label_rigid_body(
+
+fn label_collider_body(
+    annot_id: super::AnnotationId,
+    size: impl Into<[f32; 2]>,
+) -> (ColliderBuilder, RigidBodyBuilder) {
+    let size = size.into();
+    let collider = ColliderBuilder::cuboid(size[0] * 0.5, size[1] * 0.5)
+        .mass(1.0)
+        .friction(0.0)
+        .user_data(usize_pair_u128(annot_id));
+
+    // let collider = label_collider(annot_id, size);
+    let rigid_body = RigidBodyBuilder::dynamic()
+        .enabled(false)
+        .lock_rotations()
+        .linear_damping(3.0);
+    (collider, rigid_body)
 }
