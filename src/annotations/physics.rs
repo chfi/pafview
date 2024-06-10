@@ -1,3 +1,4 @@
+use rapier2d::parry::partitioning::IndexedData;
 use rapier2d::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
 use ultraviolet::Vec2;
@@ -211,61 +212,30 @@ impl LabelPhysics {
         viewport: &Viewport,
     ) {
         let world_screen_d = viewport.world_screen_dmat3();
+        let mut label_move_buf: Vec<(ColliderHandle, ultraviolet::Vec2)> =
+            self.handle_label_stack_and_swap(grid);
 
-        let mut covered_top: FxHashSet<ColliderHandle> = FxHashSet::default();
-        let mut stack_parents: FxHashMap<ColliderHandle, ColliderHandle> = FxHashMap::default();
+        let mut touched_handles = Vec::with_capacity(label_move_buf.len());
 
-        let mut label_move_buf: Vec<(ColliderHandle, ultraviolet::Vec2)> = Vec::new();
-
-        // step through all (of last frame's) contacts, identifying
-        // which labels can be stacked on which
-        for pair in self.physics.narrow_phase.contact_pairs() {
-            // need to track which labels
-            // - *should* stack -- which labels would be "better off" sitting on top
-            //     of one of its neighbors
-            // - *can* be stacked *on* -- which labels have *no* contacts on top (?)
-
-            let Some((manifold, contact)) = pair.find_deepest_contact() else {
+        for (c_handle, new_pos) in label_move_buf.drain(..) {
+            let Some(collider) = self.collider_set.get(c_handle) else {
                 continue;
             };
 
-            let covered1 = manifold.local_n1.y < 0.0;
-            let covered2 = manifold.local_n2.y < 0.0;
-            if covered1 {
-                covered_top.insert(pair.collider1);
-            }
-            if covered2 {
-                covered_top.insert(pair.collider2);
-            }
-
-            let collider1 = self.collider_set.get(pair.collider1);
-            let collider2 = self.collider_set.get(pair.collider2);
-
-            let Some((collider1, collider2)) = collider1.zip(collider2) else {
-                continue;
-            };
-
-            let annot1: super::AnnotationId = u128_usize_pair(collider1.user_data);
-            let annot2: super::AnnotationId = u128_usize_pair(collider2.user_data);
-
-            let get_anchor_and_data = |a| {
-                self.annotations.get(&a).and_then(|a_data| {
-                    let anchor = self.target_labels.anchor_screen_pos[a_data.target_label_ix]?;
-                    let body_handle = self.target_labels.label_rigid_body[a_data.target_label_ix]?;
-                    let rigid_body = self.rigid_body_set.get(body_handle)?;
-                    Some((anchor, a_data, rigid_body))
-                })
-            };
-
-            let Some(((anchor1, data1, body1), (anchor2, data2, body2))) =
-                get_anchor_and_data(annot1).zip(get_anchor_and_data(annot2))
+            let Some(body) = collider
+                .parent()
+                .and_then(|h| self.rigid_body_set.get_mut(h))
             else {
                 continue;
             };
 
-            // if one of the labels is _pushing_ into the other, it's a stacking candidate...
-            // i.e. using the custom forces applied last frame
+            let position = Isometry::translation(new_pos.x, new_pos.y);
+            body.set_position(position, false);
+            touched_handles.push(c_handle);
         }
+
+        self.query_pipeline
+            .update_incremental(&self.collider_set, &touched_handles, &[], false);
 
         for (annot_id, annot_data) in self.annotations.iter() {
             let handle_ix = annot_data.target_label_ix;
@@ -290,8 +260,13 @@ impl LabelPhysics {
                 continue;
             };
 
+            let mut label_pos: Option<Vec2> = None;
+
             // initialize rigid body if necessary
-            if body_handle.is_none() {
+            if let Some(body) = body_handle.and_then(|h| self.rigid_body_set.get(h)) {
+                label_pos = Some(body.position().translation.as_uv());
+            } else {
+                // if body_handle.is_none() {
                 // body initialized as disabled
                 let (collider, rigid_body) = label_collider_body(*annot_id, annot_data.size);
 
@@ -310,7 +285,9 @@ impl LabelPhysics {
                 );
             }
 
-            let label_pos = {
+            // NB: computing potential label position before retrieving the rigid body
+            // due to aliasing (self.place_label... vs. mutable rigid body);
+            if label_pos.is_none() {
                 let (canvas_left, canvas_right) = {
                     let l = viewport.canvas_offset.x;
                     let r = l + viewport.canvas_size.x;
@@ -333,14 +310,13 @@ impl LabelPhysics {
                     continue;
                 };
 
-                let label_pos = self.place_label_aabb_with_anchor_range(
+                label_pos = self.place_label_aabb_with_anchor_range(
                     grid,
                     viewport,
                     screen_anchor_range,
                     annot_data.size,
                     &mut label_move_buf,
                 );
-                label_pos
             };
 
             // at this point, any annotation that can be visible on screen, given
@@ -351,47 +327,15 @@ impl LabelPhysics {
             };
 
             if !rigid_body.is_enabled() {
-                // now, try to find a position for the body
-                // if successful, update the position and enable the body
-                // if the rigid body is already enabled, just move on to the next step
-
-                /*
-
-                let screen_anchor_range = annot_data.world_range.target_range().map(|range| {
-                    let left = *range.start();
-                    let right = *range.end();
-                    let s_left = world_screen_d.transform_point2([left, 0.0].into()).x as f32;
-                    let s_right = world_screen_d.transform_point2([right, 0.0].into()).x as f32;
-
-                    let s_left = s_left.clamp(canvas_left, canvas_right);
-                    let s_right = s_right.clamp(canvas_left, canvas_right);
-
-                    s_left..=s_right
-                });
-
-                let Some(screen_anchor_range) = screen_anchor_range else {
-                    continue;
-                };
-
-                let label_pos = self.place_label_aabb_with_anchor_range(
-                    grid,
-                    viewport,
-                    screen_anchor_range,
-                    annot_data.size,
-                    &mut label_move_buf,
-                );
-                */
-
-                // let label_pos: Option<Vec2> = None;
-                // TODO
-
+                // if a position for the label was successfully found,
+                // update the position and enable the body if the
+                // rigid body is already enabled, just move on to the
+                // next step
                 if let Some(pos) = label_pos {
                     rigid_body.set_translation(pos.as_na().into(), true);
                     rigid_body.set_enabled(true);
                 }
             }
-
-            // apply forces
         }
 
         //- move anchor to closest point on annotation range (on screen) to the label
@@ -1172,6 +1116,127 @@ impl LabelPhysics {
         } else {
             None
         }
+    }
+
+    fn handle_label_stack_and_swap(
+        &mut self,
+        grid: &AlignmentGrid,
+    ) -> Vec<(ColliderHandle, ultraviolet::Vec2)> {
+        /*
+
+        step through the contact pairs from last frame/step, identifying
+        which labels would be "better off" stacked on top of another label,
+        or swapped with another label
+
+        - if there's a horizontal contact
+
+        --  compute the anchor position & (horizontal) forces that
+        --   would result if the two labels had their positions
+        --   swapped; if they'd both be lower, it's a swapping
+        --   candidate, if only one would be lower, it may be a
+        --   stacking candidate
+
+
+        - if there's a vertical pair
+
+
+        */
+
+        // let mut swap_candidates: FxHashSet<(ColliderHandle, ColliderHandle)> = FxHashSet::default();
+
+        // let mut covered_top: FxHashSet<ColliderHandle> = FxHashSet::default();
+        // let mut stack_parents: FxHashMap<ColliderHandle, ColliderHandle> = FxHashMap::default();
+
+        let mut label_move_buf: Vec<(ColliderHandle, ultraviolet::Vec2)> = Vec::new();
+
+        // step through all (of last frame's) contacts, identifying
+        // which labels can be stacked on which
+        for pair in self.physics.narrow_phase.contact_pairs() {
+            // need to track which labels
+            // - *should* stack -- which labels would be "better off" sitting on top
+            //     of one of its neighbors
+            // - *can* be stacked *on* -- which labels have *no* contacts on top (?)
+
+            dbg!();
+            let Some((manifold, contact)) = pair.find_deepest_contact() else {
+                continue;
+            };
+
+            /*
+            let covered1 = manifold.local_n1.y < 0.0;
+            let covered2 = manifold.local_n2.y < 0.0;
+            if covered1 {
+                covered_top.insert(pair.collider1);
+            }
+            if covered2 {
+                covered_top.insert(pair.collider2);
+            }
+            */
+
+            let collider1 = self.collider_set.get(pair.collider1);
+            let collider2 = self.collider_set.get(pair.collider2);
+
+            dbg!();
+            let Some((collider1, collider2)) = collider1.zip(collider2) else {
+                continue;
+            };
+
+            let annot1: super::AnnotationId = u128_usize_pair(collider1.user_data);
+            let annot2: super::AnnotationId = u128_usize_pair(collider2.user_data);
+
+            let get_anchor_and_data = |a| {
+                self.annotations.get(&a).and_then(|a_data| {
+                    let anchor = self.target_labels.anchor_screen_pos[a_data.target_label_ix]?;
+                    let body_handle = self.target_labels.label_rigid_body[a_data.target_label_ix]?;
+                    let rigid_body = self.rigid_body_set.get(body_handle)?;
+                    Some((anchor, a_data, rigid_body))
+                })
+            };
+
+            dbg!();
+            let Some(((anchor1, data1, body1), (anchor2, data2, body2))) =
+                get_anchor_and_data(annot1).zip(get_anchor_and_data(annot2))
+            else {
+                continue;
+            };
+
+            // if both labels would experience lower "tension" wrt
+            // their anchor (or at least neither would experience
+            // higher), (consider) swap them
+            let label_pos1 = body1.position().translation;
+            let label_pos2 = body2.position().translation;
+
+            // current
+            let diff_a1b1 = anchor1.x - label_pos1.x;
+            let diff_a2b2 = anchor2.x - label_pos2.x;
+
+            // after swap
+            let diff_a1b2 = anchor1.x - label_pos2.x;
+            let diff_a2b1 = anchor2.x - label_pos1.x;
+
+            let closer1 = diff_a1b1.abs() > diff_a1b2.abs();
+            let closer2 = diff_a2b2.abs() > diff_a2b1.abs();
+
+            println!("before: [{diff_a1b1}, {diff_a2b2}]\t => [{diff_a1b2}, {diff_a2b1}]");
+
+            if (closer1 && diff_a2b2.abs() >= diff_a2b1.abs())
+                || (closer2 && diff_a1b1.abs() >= diff_a1b2.abs())
+            {
+                println!("swapping!");
+                // at least one would be closer, the other not further
+
+                // if diff_a1b1 > diff_a1b2 && diff_a2b2 > diff_a2b1 {
+                // both would be closer
+
+                // should probably check whether it's possible to move them;
+                // but whatever
+
+                label_move_buf.push((pair.collider1, label_pos2.as_uv()));
+                label_move_buf.push((pair.collider2, label_pos1.as_uv()));
+            }
+        }
+
+        label_move_buf
     }
 }
 
