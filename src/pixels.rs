@@ -1,13 +1,3 @@
-use egui::{load::SizedTexture, ColorImage, ImageData, TextureOptions};
-use rustc_hash::FxHashMap;
-use ultraviolet::UVec2;
-
-use crate::{
-    cigar::{CigarOp, ProcessedCigar},
-    grid::{AxisRange, GridAxis},
-    sequences::SeqId,
-};
-
 pub struct PixelBuffer {
     pub width: u32,
     pub height: u32,

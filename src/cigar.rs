@@ -5,33 +5,7 @@ use anyhow::anyhow;
 
 use crate::sequences::SeqId;
 
-// TODO needs a thorough cleaning
-pub struct ProcessedCigar {
-    pub target_id: SeqId,
-    #[deprecated]
-    pub target_offset: u64,
-    pub target_len: u64,
-
-    pub query_id: SeqId,
-    #[deprecated]
-    pub query_offset: u64,
-    pub query_len: u64,
-
-    pub strand_rev: bool,
-
-    pub match_edges: Vec<[DVec2; 2]>,
-    pub match_offsets: Vec<[u64; 2]>,
-    pub match_lens: Vec<u64>,
-    // TODO these flags should be in a struct & single vec
-    pub match_is_match: Vec<bool>,
-    // pub match_is_rev: Vec<bool>,
-    pub match_cigar_index: Vec<usize>,
-
-    pub aabb_min: DVec2,
-    pub aabb_max: DVec2,
-
-    pub cigar: Vec<(CigarOp, u64)>,
-}
+pub mod implicit;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
@@ -369,26 +343,6 @@ impl CigarIndex {
         CigarIter::new(self, target_range)
     }
 
-    /*
-    /// Returns the target and query range of the `{op_ix}`th operation in this cigar.
-    /// The ranges are mapped into the intervals defined by `{target_start_end}` and
-    /// `{query_start_end}`, with the correct offset depending on strandedness.
-    pub fn map_op_range(
-        &self,
-        op_ix: usize,
-        target_start_end: std::ops::Range<u64>,
-        query_start_end: std::ops::Range<u64>,
-        query_strand: Strand,
-    ) -> Option<[std::ops::Range<u64>; 2]> {
-        if op_ix >= self.op_target_offsets.len() {
-            return None;
-        }
-        let local_tgt = self.op_target_offsets[op_ix];
-        let local_qry = self.op_query_offsets[op_ix];
-        //
-    }
-    */
-
     // these provide the offsets for the operation *within the context of the cigar*,
     // i.e. they do not account for target/query start & end fields in PAF, or strand
     fn op_target_range(&self, op_ix: usize) -> Option<std::ops::Range<u64>> {
@@ -516,129 +470,6 @@ impl CigarIndex {
         let query_len = paf_line.query_seq_end - paf_line.query_seq_start;
 
         Self::from_cigar_string(&paf_line.cigar, target_len, query_len, query_strand)
-    }
-}
-
-impl ProcessedCigar {
-    pub fn from_line_local(
-        seq_names: &BiMap<String, SeqId>,
-        paf_line: &crate::PafLine<&str>,
-    ) -> anyhow::Result<Self> {
-        Self::from_line(seq_names, paf_line, [0, 0])
-    }
-
-    pub fn from_line(
-        seq_names: &BiMap<String, SeqId>,
-        paf_line: &crate::PafLine<&str>,
-        origin: [u64; 2],
-    ) -> anyhow::Result<Self> {
-        let ops = CigarOp::parse_str_into_vec(&paf_line.cigar);
-
-        let strand_rev = paf_line.strand_rev;
-
-        let [mut target_pos, mut query_pos] = origin;
-
-        if strand_rev {
-            target_pos = paf_line.tgt_seq_len - 1;
-        }
-
-        let target_id = *seq_names
-            .get_by_left(paf_line.tgt_name)
-            .ok_or_else(|| anyhow!("Target sequence `{}` not found", paf_line.tgt_name))?;
-        let query_id = *seq_names
-            .get_by_left(paf_line.query_name)
-            .ok_or_else(|| anyhow!("Query sequence `{}` not found", paf_line.query_name))?;
-
-        let mut match_edges = Vec::new();
-        let mut match_offsets = Vec::new();
-        let mut match_lens = Vec::new();
-        let mut match_is_match = Vec::new();
-        // let mut match_is_rev = Vec::new();
-
-        let mut match_cigar_index = Vec::new();
-
-        let mut aabb_min = DVec2::broadcast(std::f64::MAX);
-        let mut aabb_max = DVec2::broadcast(std::f64::MIN);
-
-        for (cg_ix, &(op, count)) in ops.iter().enumerate() {
-            match char::from(op) {
-                'M' | '=' | 'X' => {
-                    let x = target_pos;
-                    let y = query_pos;
-
-                    {
-                        let x0 = x as f64;
-                        let y0 = y as f64;
-
-                        let x_end = if paf_line.strand_rev {
-                            x.checked_sub(count).unwrap_or_default()
-                        } else {
-                            x + count
-                        };
-                        let x1 = x_end as f64;
-                        let y1 = (y + count) as f64;
-
-                        let p0 = DVec2::new(x0, y0);
-                        let p1 = DVec2::new(x1, y1);
-
-                        aabb_min = aabb_min.min_by_component(p0).min_by_component(p1);
-                        aabb_max = aabb_max.max_by_component(p0).max_by_component(p1);
-
-                        match_edges.push([p0, p1]);
-                        match_offsets.push([target_pos, query_pos]);
-                        match_lens.push(count);
-
-                        match_is_match.push(op.is_match());
-                        // match_is_rev.push(paf_line.strand_rev);
-                        match_cigar_index.push(cg_ix);
-                    }
-
-                    target_pos += count;
-                    if paf_line.strand_rev {
-                        query_pos = query_pos.checked_sub(count).unwrap_or_default()
-                    } else {
-                        query_pos += count;
-                    }
-                }
-                'D' => {
-                    target_pos += count;
-                }
-                'I' => {
-                    if paf_line.strand_rev {
-                        query_pos = query_pos.checked_sub(count).unwrap_or_default()
-                    } else {
-                        query_pos += count;
-                    }
-                }
-                _ => (),
-            }
-        }
-
-        let target_len = target_pos - origin[0];
-        let query_len = query_pos - origin[1];
-
-        Ok(Self {
-            target_id,
-            target_offset: origin[0],
-            target_len,
-
-            query_id,
-            query_offset: origin[1],
-            query_len,
-
-            strand_rev,
-
-            match_edges,
-            match_offsets,
-            match_lens,
-            match_is_match,
-
-            match_cigar_index,
-            cigar: ops,
-
-            aabb_min,
-            aabb_max,
-        })
     }
 }
 
