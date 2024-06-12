@@ -1,16 +1,6 @@
-use egui::{load::SizedTexture, ColorImage, ImageData, TextureOptions};
-use rustc_hash::FxHashMap;
 use ultraviolet::UVec2;
 
-use crate::{
-    cigar::{CigarOp, ProcessedCigar},
-    grid::{AxisRange, GridAxis},
-    sequences::SeqId,
-};
-
 pub mod detail;
-
-use crate::PixelBuffer;
 
 #[derive(Default)]
 pub struct CpuViewRasterizerEgui {

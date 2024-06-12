@@ -106,6 +106,13 @@ impl SelectionHandler {
         self.selection_target.is_some()
     }
 
+    pub fn set_target_if_not_selecting(&mut self, target: SelectionTarget) {
+        // ignore if someone's already waiting for a region selection
+        if !self.has_active_selection_request() {
+            self.selection_target = Some(target);
+        }
+    }
+
     // TODO: this logic is super messy and does too much;
     // need to rewrite & clean up
     pub fn run(&mut self, ctx: &egui::Context, view: &mut crate::view::View) {

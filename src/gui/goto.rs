@@ -1,11 +1,8 @@
-use bimap::BiMap;
-use egui::{util::IdTypeMap, Color32, DragValue, FontId, Ui};
-use rustc_hash::FxHashMap;
-use ultraviolet::{Mat4, Vec2};
-
 use crate::grid::AxisRange;
+use crate::view::View;
+
+#[allow(unused_imports)]
 use crate::math_conv::*;
-use crate::{annotations::AnnotationStore, sequences::SeqId, view::View, AlignedSeq, PafViewerApp};
 
 pub fn goto_region_window(
     ctx: &egui::Context,

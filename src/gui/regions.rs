@@ -1,19 +1,15 @@
-use bimap::BiMap;
-use egui::{color_picker::Alpha, util::IdTypeMap, Color32, DragValue, FontId, Ui};
-use rustc_hash::FxHashMap;
-use ultraviolet::{Mat4, Vec2};
+use egui::{color_picker::Alpha, Ui};
 use winit::event_loop::EventLoopProxy;
 
 use crate::{
     annotations::{
         draw::{AnnotShapeId, AnnotationPainter, AnnotationWorldRegion},
         label_layout::compute_layout_for_labels,
-        AnnotationStore,
     },
     grid::{AlignmentGrid, AxisRange},
     regions::SelectionTarget,
     view::View,
-    AlignedSeq, PafViewerApp,
+    PafViewerApp,
 };
 
 use super::AppWindowStates;

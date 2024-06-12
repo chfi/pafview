@@ -1,9 +1,7 @@
-use bimap::BiMap;
-use egui::{util::IdTypeMap, Color32, DragValue, FontId, Ui};
-use rustc_hash::FxHashMap;
-use ultraviolet::{Mat4, Vec2};
+use egui::{Color32, FontId};
+use ultraviolet::Vec2;
 
-use crate::{annotations::AnnotationStore, sequences::SeqId, view::View, AlignedSeq, PafViewerApp};
+use crate::{annotations::AnnotationStore, sequences::SeqId, PafViewerApp};
 
 pub mod debug;
 pub mod goto;

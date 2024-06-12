@@ -26,30 +26,30 @@ use std::io::prelude::*;
 
 use anyhow::anyhow;
 
-pub mod cigar;
-pub mod math_conv;
-pub mod paf;
-pub mod pixels;
+use pafview::paf;
+use pafview::pixels;
+use pafview::{cigar, AppEvent};
+use pafview::{math_conv, PafViewerApp};
 
-mod config;
-use config::AppConfig;
+use pafview::config;
+use pafview::config::AppConfig;
 
-mod annotations;
-mod cli;
-mod grid;
-mod gui;
-mod regions;
-mod render;
-mod sequences;
-mod view;
+use pafview::annotations;
+use pafview::cli;
+use pafview::grid;
+use pafview::gui;
+use pafview::regions;
+use pafview::render;
+use pafview::sequences;
+use pafview::view;
 
-pub use cigar::*;
-pub use paf::PafLine;
-pub use pixels::*;
+use cigar::*;
+use paf::PafLine;
+use pixels::*;
 use render::*;
 use view::View;
 
-use crate::{
+use pafview::{
     annotations::AnnotationStore, gui::AppWindowStates, paf::parse_paf_line, sequences::SeqId,
 };
 
@@ -75,10 +75,10 @@ pub fn main() -> anyhow::Result<()> {
         console_log::init().expect("could not initialize logger");
     }
 
-    let args = crate::cli::Cli::parse();
+    let args = pafview::cli::Cli::parse();
 
     // Load PAF and optional FASTA
-    let (alignments, sequences) = crate::paf::load_input_files(&args)?;
+    let (alignments, sequences) = pafview::paf::load_input_files(&args)?;
 
     println!("drawing {} alignments", alignments.pairs.len());
 
@@ -124,15 +124,12 @@ pub fn main() -> anyhow::Result<()> {
 
     let app_config = config::load_app_config().unwrap_or_default();
 
-    let seq_names = sequences.names().clone();
-
     let app = PafViewerApp {
         app_config,
         alignments: Arc::new(alignments),
         alignment_grid: Arc::new(alignment_grid),
         sequences,
         // paf_input: todo!(),
-        seq_names,
         annotations: AnnotationStore::default(),
     };
 
@@ -147,18 +144,6 @@ struct LineVertex {
     p0: [f32; 2],
     p1: [f32; 2],
     // color: u32,
-}
-
-#[derive(Clone)]
-pub enum AppEvent {
-    LoadAnnotationFile { path: std::path::PathBuf },
-    // AnnotationShapeDisplay {
-    //     shape_id: annotations::draw::AnnotShapeId,
-    //     enable: Option<bool>,
-    // },
-
-    // idk if this is a good idea but worth a try
-    RequestSelection { target: regions::SelectionTarget },
 }
 
 async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewerApp) {
@@ -385,7 +370,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
     let event_loop_proxy = event_loop.create_proxy();
 
-    let args = crate::cli::Cli::parse();
+    let args = pafview::cli::Cli::parse();
 
     if let Some(bed_path) = &args.bed {
         event_loop_proxy.send_event(AppEvent::LoadAnnotationFile {
@@ -473,10 +458,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                         }
                     }
                     AppEvent::RequestSelection { target } => {
-                        // ignore if someone's already waiting for a region selection
-                        if !selection_handler.has_active_selection_request() {
-                            selection_handler.selection_target = Some(target);
-                        }
+                        selection_handler.set_target_if_not_selecting(target);
                     }
                 }
 
@@ -694,7 +676,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 //     ctx, &app, &app_view,
                                 // );
 
-                                crate::gui::goto::goto_region_window(
+                                pafview::gui::goto::goto_region_window(
                                     ctx,
                                     &mut window_states.goto_region_open,
                                     &app.alignment_grid,
@@ -753,7 +735,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
                                 gui::draw_cursor_position_rulers(
                                     &app.alignment_grid,
-                                    &app.seq_names,
+                                    &app.alignment_grid.sequence_names,
                                     ctx,
                                     &app_view,
                                 );
@@ -933,16 +915,3 @@ pub fn write_png(
     Ok(())
 }
 */
-
-struct PafViewerApp {
-    alignments: Arc<Alignments>,
-    alignment_grid: Arc<AlignmentGrid>,
-    sequences: Sequences,
-
-    // paf_input: PafInput,
-    #[deprecated]
-    seq_names: Arc<bimap::BiMap<String, SeqId>>,
-    annotations: AnnotationStore,
-
-    app_config: config::AppConfig,
-}

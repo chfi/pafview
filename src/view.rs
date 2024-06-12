@@ -1,6 +1,6 @@
 use std::ops::{Range, RangeInclusive};
 
-use ultraviolet::{DMat3, DMat4, DVec2, DVec4, Mat3, Mat4, Vec2, Vec3};
+use ultraviolet::{DMat3, DMat4, DVec2, DVec4, Mat3, Mat4, Vec2};
 
 use crate::math_conv::*;
 

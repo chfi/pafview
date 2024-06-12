@@ -1,17 +1,10 @@
-use std::{
-    collections::{BTreeMap, VecDeque},
-    path::PathBuf,
-    sync::Arc,
-};
+use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
-use bimap::BiMap;
 use egui::Galley;
 use rustc_hash::FxHashMap;
-use ultraviolet::{DVec2, Vec2};
+use ultraviolet::DVec2;
 
-use crate::{gui::AppWindowStates, PafViewerApp};
-
+#[allow(unused_imports)]
 use crate::math_conv::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

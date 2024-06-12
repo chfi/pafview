@@ -4,7 +4,7 @@ use anyhow::{anyhow, Result};
 use bimap::BiMap;
 use egui::Galley;
 use rustc_hash::FxHashMap;
-use ultraviolet::{DVec2, Vec2};
+use ultraviolet::DVec2;
 
 use crate::{
     grid::{AlignmentGrid, AxisRange},

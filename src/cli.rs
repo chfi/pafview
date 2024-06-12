@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(version, about)]
-pub(crate) struct Cli {
+pub struct Cli {
     /// Path to input PAF
     pub paf: PathBuf,
 

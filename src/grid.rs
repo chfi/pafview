@@ -1,10 +1,8 @@
 use std::sync::Arc;
 
 use bimap::BiMap;
-use nalgebra::Isometry2;
 use rapier2d::dynamics::RigidBodySet;
 use rapier2d::geometry::ColliderSet;
-use rapier2d::parry::simba::scalar::SubsetOf;
 use rapier2d::pipeline::QueryPipeline;
 use rustc_hash::FxHashMap;
 use ultraviolet::{DVec2, Vec2};

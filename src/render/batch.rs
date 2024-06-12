@@ -1,4 +1,3 @@
-use bimap::BiMap;
 use bytemuck::{Pod, Zeroable};
 use rustc_hash::FxHashMap;
 use ultraviolet::{Mat4, Vec2, Vec3};

@@ -4,7 +4,7 @@ use ultraviolet::DVec2;
 
 use crate::{
     sequences::{SeqId, Sequences},
-    Cigar, CigarIndex, CigarIter, CigarOp, ProcessedCigar, Strand,
+    CigarIndex, CigarIter, CigarOp, Strand,
 };
 
 /// Location and orientation of an alignment of two sequences of
@@ -353,7 +353,7 @@ pub struct Alignments {
     pub pairs: FxHashMap<(SeqId, SeqId), Alignment>,
 }
 
-pub(crate) fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Sequences)> {
+pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Sequences)> {
     use std::io::prelude::*;
 
     let reader = std::fs::File::open(&cli.paf).map(std::io::BufReader::new)?;
@@ -448,9 +448,7 @@ pub struct PafLine<S> {
     pub cigar: S,
 }
 
-pub(crate) fn parse_paf_line<'a>(
-    mut fields: impl Iterator<Item = &'a str>,
-) -> Option<PafLine<&'a str>> {
+pub fn parse_paf_line<'a>(mut fields: impl Iterator<Item = &'a str>) -> Option<PafLine<&'a str>> {
     let (query_name, query_seq_len, query_seq_start, query_seq_end) =
         parse_name_range(&mut fields)?;
     let strand = fields.next()?;
