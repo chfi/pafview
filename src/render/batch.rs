@@ -124,13 +124,13 @@ impl MatchDrawBatchData {
             vertex_position_tmp.clear();
             vertex_color_tmp.clear();
 
-            let match_count = alignment.cigar.op_line_vertices.len() as u32;
+            let match_count = alignment.cigar_op_line_vertices.len() as u32;
 
             // for (&[from, to], &is_match) in alignment.cigar.op_line_vertices.iter()
             for (&[from, to], (op, _count)) in alignment
                 .cigar_op_line_vertices
                 .iter()
-                .zip(alignment.cigar.cigar.iter())
+                .zip(alignment.cigar.iter())
             {
                 use crate::CigarOp::{D, I};
                 if matches!(op, I | D) {

@@ -4,7 +4,7 @@ use ultraviolet::DVec2;
 
 use crate::{
     sequences::{SeqId, Sequences},
-    CigarIndex, CigarIter, CigarOp, Strand,
+    CigarIndex, CigarIter, CigarOp, IndexedCigar, Strand,
 };
 
 /// Location and orientation of an alignment of two sequences of
@@ -74,19 +74,31 @@ impl AlignmentLocation {
     }
 }
 
+// pub struct AlignmentNew {
+//     pub target_id: SeqId,
+//     pub query_id: SeqId,
+
+//     pub location: AlignmentLocation,
+//     pub cigar: std::sync::Arc<dyn IndexedCigar>,
+//     // pub cigar_op_vertices: Vec<[DVec2; 2]>,
+//     pub cigar_op_line_vertices: Vec<[DVec2; 2]>,
+// }
+
 pub struct Alignment {
     pub target_id: SeqId,
     pub query_id: SeqId,
 
     pub location: AlignmentLocation,
-    pub cigar: CigarIndex,
+    // pub cigar: CigarIndex,
+    pub cigar: std::sync::Arc<dyn IndexedCigar + Send + Sync + 'static>,
     // pub cigar_op_vertices: Vec<[DVec2; 2]>,
     pub cigar_op_line_vertices: Vec<[DVec2; 2]>,
 }
 
 pub struct AlignmentIter<'cg> {
     // cigar: &'cg CigarIndex,
-    cigar_iter: CigarIter<'cg>,
+    // cigar_iter: CigarIter<'cg>,
+    cigar_iter: crate::cigar::BoxedCigarIter<'cg>,
     location: AlignmentLocation,
     // op_index_range: std::ops::Range<usize>,
     // target_range: std::ops::Range<u64>,
@@ -272,7 +284,8 @@ impl Alignment {
             target_id,
             query_id,
             location,
-            cigar: cigar_index,
+            // cigar: cigar_index,
+            cigar: std::sync::Arc::new(cigar_index),
             cigar_op_line_vertices: op_line_vertices,
         }
     }
@@ -284,6 +297,7 @@ impl Alignment {
         AlignmentIter::new(&self, target_range)
     }
 
+    /*
     pub fn query_offset_at_target(&self, target_offset: u64) -> u64 {
         /*
         use std::cmp::Ordering;
@@ -347,6 +361,7 @@ impl Alignment {
             self.location.map_from_local_query_offset(query_offset)
         }
     }
+    */
 }
 
 pub struct Alignments {
@@ -518,7 +533,12 @@ mod tests {
                 query_range: 0..query_len,
                 query_strand: Strand::Reverse,
             },
-            cigar: CigarIndex::from_cigar(cg_ops, target_len, query_len, Strand::Reverse),
+            cigar: std::sync::Arc::new(CigarIndex::from_cigar(
+                cg_ops,
+                target_len,
+                query_len,
+                Strand::Reverse,
+            )),
 
             cigar_op_line_vertices: Vec::new(), // not needed for testing
         };

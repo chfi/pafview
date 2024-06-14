@@ -7,6 +7,34 @@ use crate::sequences::SeqId;
 
 pub mod implicit;
 
+pub type BoxedCigarIter<'a> = Box<dyn Iterator<Item = CigarIterItem> + 'a>;
+
+pub trait IndexedCigar {
+    // fn iter(&self) -> Box<dyn Iterator<Item = CigarIterItem> + '_>;
+    fn iter(&self) -> Box<dyn Iterator<Item = (CigarOp, u32)> + '_>;
+
+    fn iter_target_range(
+        &self,
+        target_range: std::ops::Range<u64>,
+    ) -> Box<dyn Iterator<Item = CigarIterItem> + '_>;
+}
+
+impl IndexedCigar for CigarIndex {
+    // fn iter(&self) -> Box<dyn Iterator<Item = CigarIterItem> + '_> {
+    fn iter(&self) -> Box<dyn Iterator<Item = (CigarOp, u32)> + '_> {
+        let iter = self.cigar.iter();
+        Box::new(iter)
+    }
+
+    fn iter_target_range(
+        &self,
+        target_range: std::ops::Range<u64>,
+    ) -> Box<dyn Iterator<Item = CigarIterItem> + '_> {
+        let iter = self.iter_target_range_impl(target_range);
+        Box::new(iter)
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(u8)]
 pub enum Strand {
@@ -339,7 +367,10 @@ pub struct CigarIndex {
 }
 
 impl CigarIndex {
-    pub(crate) fn iter_target_range(&self, target_range: std::ops::Range<u64>) -> CigarIter<'_> {
+    pub(crate) fn iter_target_range_impl(
+        &self,
+        target_range: std::ops::Range<u64>,
+    ) -> CigarIter<'_> {
         CigarIter::new(self, target_range)
     }
 

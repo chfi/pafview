@@ -60,6 +60,7 @@ one approach, to part of the solution...
 
 */
 
+/*
 pub fn debug_window(ctx: &egui::Context, app: &PafViewerApp, view: &crate::view::View) {
     let labels = vec![
         ("LABEL ONE".to_string(), 3000f64..20_000f64),
@@ -134,7 +135,9 @@ pub fn debug_window(ctx: &egui::Context, app: &PafViewerApp, view: &crate::view:
         //
     });
 }
+*/
 
+/*
 // target only for now; coordinates are world, but focusing on a single tile for now
 // (in practice, using only the top visible tile in the relevant column(s) might work)
 pub fn place_labels(
@@ -310,6 +313,7 @@ where
 
     placed_labels
 }
+*/
 
 // Binned linear approximation of the "height" of the alignment
 // above the major axis
@@ -461,6 +465,7 @@ impl BinnedCigarIndex {
 }
 */
 
+/*
 struct LabelState {
     galley: Arc<Galley>,
 
@@ -545,3 +550,4 @@ impl LabelLayoutTest {
         });
     }
 }
+*/

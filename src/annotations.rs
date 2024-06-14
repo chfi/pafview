@@ -16,7 +16,7 @@ use crate::{
 use self::draw::AnnotShapeId;
 
 pub mod draw;
-pub mod label_layout;
+// pub mod label_layout;
 
 pub mod physics;
 

@@ -4,7 +4,7 @@ use winit::event_loop::EventLoopProxy;
 use crate::{
     annotations::{
         draw::{AnnotShapeId, AnnotationPainter, AnnotationWorldRegion},
-        label_layout::compute_layout_for_labels,
+        // label_layout::compute_layout_for_labels,
     },
     grid::{AlignmentGrid, AxisRange},
     regions::SelectionTarget,
@@ -22,8 +22,7 @@ pub struct RegionsOfInterestGui {
     bookmarks: Vec<RegionOfInterest>,
 
     selection_request: Option<SelectionTarget>,
-
-    label_debug: Vec<(egui::Pos2, std::sync::Arc<egui::Galley>)>,
+    // label_debug: Vec<(egui::Pos2, std::sync::Arc<egui::Galley>)>,
 }
 
 #[derive(Default, Clone)]
@@ -153,9 +152,9 @@ impl RegionsOfInterestGui {
     ) {
         let painter = ui.ctx().debug_painter();
 
-        for (pos, galley) in &self.label_debug {
-            painter.galley(*pos, galley.clone(), egui::Color32::BLACK);
-        }
+        // for (pos, galley) in &self.label_debug {
+        //     painter.galley(*pos, galley.clone(), egui::Color32::BLACK);
+        // }
 
         // 2 panes, left/right
 
@@ -243,6 +242,7 @@ impl RegionsOfInterestGui {
         };
 
         ui.vertical(|ui| {
+            /*
             if ui.button("test label layout").clicked() {
                 let ctx = ui.ctx();
 
@@ -269,6 +269,7 @@ impl RegionsOfInterestGui {
                 self.label_debug =
                     compute_layout_for_labels(ctx.screen_rect().size(), view, labels);
             }
+            */
 
             let mut filter_text = ui.data(|data| {
                 data.get_temp::<String>(ui.id().with("filter_text"))
