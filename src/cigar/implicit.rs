@@ -1,5 +1,5 @@
-use std::path::Path;
 use std::sync::Arc;
+use std::{collections::VecDeque, path::Path};
 
 use impg::impg::{AdjustedInterval, Impg};
 
@@ -39,6 +39,7 @@ pub struct ImpgCigar {
 
     impg: Arc<Impg>,
     impg_target_id: u32,
+    impg_query_id: u32,
 }
 
 impl ImpgCigar {
@@ -53,10 +54,31 @@ impl ImpgCigar {
     // from_cigar?
 
     // iter_target_range(&self, target_range: std::ops::Range<u64>) ->
+
+    pub fn iter_target_range(&self, target_range: std::ops::Range<u64>) -> Option<ImpgCigarIter> {
+        let interval = self
+            .query(target_range)
+            .into_iter()
+            .find(|(query, _cigar, _target_i_guess)| query.metadata == self.impg_query_id);
+
+        let (query, cigar, target) = interval?;
+
+        let cigar = VecDeque::from(cigar);
+
+        Some(ImpgCigarIter {
+            target,
+            query,
+            cigar,
+        })
+    }
 }
 
 pub struct ImpgCigarIter {
-    cigar: AdjustedInterval,
+    target: coitrees::Interval<u32>,
+    query: coitrees::Interval<u32>,
+
+    cigar: VecDeque<impg::impg::CigarOp>,
+    // cigar: AdjustedInterval,
     // cigar: Vec<u8>,
 }
 
@@ -64,7 +86,33 @@ impl Iterator for ImpgCigarIter {
     type Item = super::CigarIterItem;
 
     fn next(&mut self) -> Option<Self::Item> {
-        todo!()
+        if self.target.first >= self.target.last {
+            return None;
+        }
+
+        let next_op = self.cigar.pop_front()?;
+
+        let op = super::CigarOp::try_from(next_op.op()).ok()?;
+        let op_count = next_op.len() as u32;
+
+        let tgt_start = self.target.first as u64;
+        let tgt_end = tgt_start + op_count as u64;
+
+        let qry_start = self.query.first as u64;
+        let qry_end = qry_start + op_count as u64;
+
+        // NB: maybe an off-by-one here; fix later
+        let item = super::CigarIterItem {
+            target_range: tgt_start..tgt_end,
+            query_range: qry_start..qry_end,
+            op,
+            op_count,
+        };
+
+        self.target.first += op_count as i32;
+        self.query.first += op_count as i32;
+
+        Some(item)
     }
 }
 

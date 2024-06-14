@@ -1843,6 +1843,7 @@ dependencies = [
  "bincode",
  "bytemuck",
  "clap",
+ "coitrees",
  "crossbeam",
  "ctrlc",
  "directories",

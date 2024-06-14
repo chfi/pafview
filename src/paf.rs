@@ -501,7 +501,7 @@ mod tests {
         let cg_str = "50=10I5X7D20M";
         // let cg_str = "5=5I5X5D5M";
 
-        let cg_ops = Cigar::parse_str(cg_str);
+        let cg_ops = crate::Cigar::parse_str(cg_str);
         let [target_len, query_len] = cg_ops.target_and_query_len();
 
         let target_total = target_len + 30;
