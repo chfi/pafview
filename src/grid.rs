@@ -479,10 +479,8 @@ impl GridAABBs {
             let width = alignment.location.target_total_len as f32;
             let height = alignment.location.query_total_len as f32;
 
-            let pair_id = [tgt_id, qry_id];
-            let &[pair_id]: &[u128] = bytemuck::cast_slice(&pair_id) else {
-                unreachable!();
-            };
+            let pair_u128 =
+                (tgt_id.0 as u128) << (std::mem::size_of::<usize>() as u128) | qry_id.0 as u128;
             let halfwidth = width * 0.5;
             let halfheight = height * 0.5;
 
@@ -492,7 +490,7 @@ impl GridAABBs {
                         x_offset as f32 + halfwidth,
                         y_offset as f32 + halfheight,
                     ))
-                    .user_data(pair_id),
+                    .user_data(pair_u128),
             );
 
             pair_collider_map.insert((tgt_id, qry_id), handle);
