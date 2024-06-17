@@ -326,14 +326,16 @@ pub fn draw_alignments(
     Some(dst_pixels)
 }
 
+/*
 pub fn draw_alignments_impg(
     tile_buffers: &FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>,
-    // sequences: &crate::sequences::Sequences,
+    sequences: &crate::sequences::Sequences,
     grid: &crate::AlignmentGrid,
-    // alignments: &crate::paf::Alignments,
+    alignments: &crate::paf::Alignments,
     view: &crate::view::View,
     canvas_size: impl Into<UVec2>,
 ) -> Option<PixelBuffer> {
     //
     todo!();
 }
+*/

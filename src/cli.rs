@@ -15,6 +15,10 @@ pub struct Cli {
     #[arg(long)]
     pub bed: Option<PathBuf>,
 
+    /// Path to impg index file
+    #[arg(long)]
+    pub impg: Option<PathBuf>,
+
     /// Optional list of sequences to include as targets (X axis)
     #[arg(long)]
     pub target_seqs: Option<Vec<String>>,

@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use ultraviolet::DVec2;
 
 use crate::{
+    cigar::implicit::ImpgIndex,
     sequences::{SeqId, Sequences},
     CigarIndex, CigarIter, CigarOp, IndexedCigar, Strand,
 };
@@ -89,8 +92,8 @@ pub struct Alignment {
     pub query_id: SeqId,
 
     pub location: AlignmentLocation,
-    pub cigar: CigarIndex,
-    // pub cigar: std::sync::Arc<dyn IndexedCigar + Send + Sync + 'static>,
+    // pub cigar: CigarIndex,
+    pub cigar: std::sync::Arc<dyn IndexedCigar + Send + Sync + 'static>,
     // pub cigar_op_vertices: Vec<[DVec2; 2]>,
     pub cigar_op_line_vertices: Vec<[DVec2; 2]>,
 }
@@ -284,8 +287,8 @@ impl Alignment {
             target_id,
             query_id,
             location,
-            cigar: cigar_index,
-            // cigar: std::sync::Arc::new(cigar_index),
+            // cigar: cigar_index,
+            cigar: Arc::new(cigar_index),
             cigar_op_line_vertices: op_line_vertices,
         }
     }
@@ -422,7 +425,11 @@ pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Se
 
     println!("using {} sequences", sequences.len());
 
-    let alignments = Alignments::from_paf_lines(&sequences, paf_lines);
+    let alignments = if let Some(impg_path) = cli.impg.as_ref() {
+        Alignments::from_impg(&sequences, impg_path, &cli.paf)?
+    } else {
+        Alignments::from_paf_lines(&sequences, paf_lines)
+    };
 
     Ok((alignments, sequences))
 }
@@ -444,6 +451,33 @@ impl Alignments {
         }
 
         Self { pairs }
+    }
+
+    pub fn from_impg(
+        sequences: &Sequences,
+        impg_path: impl AsRef<std::path::Path>,
+        paf_path: impl AsRef<std::path::Path>,
+    ) -> anyhow::Result<Self> {
+        let impg_index = Arc::new(ImpgIndex::deserialize_file(sequences, impg_path, paf_path)?);
+
+        let impg_cigars = ImpgIndex::impg_cigars(&impg_index, sequences);
+
+        let pairs = impg_cigars
+            .into_iter()
+            .map(|(pair, impg_cg)| {
+                let target_id = todo!();
+                let query_id = todo!();
+
+                // let location = AlignmentLocation {};
+
+                // let cigar =
+
+                //
+                todo!();
+            })
+            .collect::<FxHashMap<_, _>>();
+
+        Ok(Self { pairs })
     }
 }
 

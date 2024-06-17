@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::borrow::Borrow;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -7,19 +8,59 @@ use coitrees::IntervalTree;
 use impg::impg::{AdjustedInterval, Impg};
 use rustc_hash::FxHashMap;
 
-use crate::sequences::SeqId;
+use crate::sequences::{SeqId, Sequences};
 
 pub struct ImpgIndex {
     impg: Arc<Impg>,
 
     paf_path: PathBuf,
-
-    cigar_range_index: FxHashMap<(SeqId, SeqId), std::ops::Range<u64>>,
+    // cigar_range_index: FxHashMap<(SeqId, SeqId), std::ops::Range<u64>>,
 }
 
 impl ImpgIndex {
+    pub fn impg_cigars(
+        index: &Arc<ImpgIndex>,
+        sequences: &Sequences,
+    ) -> FxHashMap<(SeqId, SeqId), ImpgCigar> {
+        let mut cigars = FxHashMap::default();
+
+        for (&impg_target_id, tree) in index.impg.trees.iter() {
+            // get name from impg
+            let tgt_name = index.impg.seq_index.get_name(impg_target_id).unwrap();
+            // then get pafview id from sequences
+            let tgt_id = *sequences.names().get_by_left(tgt_name).unwrap();
+
+            for query in tree.iter() {
+                let meta = query.metadata;
+
+                let impg_query_id = meta.query_id;
+                let qry_name = index.impg.seq_index.get_name(impg_query_id).unwrap();
+                let qry_id = *sequences.names().get_by_left(qry_name).unwrap();
+                let target_len = meta.target_end as u64 - meta.target_start as u64;
+                let query_len = meta.query_end as u64 - meta.query_start as u64;
+
+                let impg_cigar = ImpgCigar {
+                    target_len,
+                    query_len,
+                    query_strand: meta.strand.into(),
+                    impg: index.clone(),
+                    impg_target_id,
+                    impg_query_id,
+                };
+
+                cigars.insert((tgt_id, qry_id), impg_cigar);
+            }
+        }
+
+        cigars
+    }
+
+    // pub fn impg_cigar_for_pair(&self, target_id: SeqId, query_id: SeqId) -> Option<ImpgCigar> {
+    //     todo!();
+    // }
+
     pub fn deserialize_file(
-        sequences: &crate::sequences::Sequences,
+        sequences: &Sequences,
         impg_path: impl AsRef<Path>,
         paf_path: impl AsRef<Path>,
         // paf_path: &str,
@@ -39,7 +80,7 @@ impl ImpgIndex {
         let paf_str = paf_path.as_ref().to_str().unwrap();
         let impg = Impg::from_paf_and_serializable(paf_str, serializable);
 
-        let mut cigar_range_index = FxHashMap::default();
+        // let mut cigar_range_index = FxHashMap::default();
         let mut paf_reader = File::open(&paf_path).map(io::BufReader::new)?;
 
         let mut paf_buf = String::new();
@@ -72,7 +113,7 @@ impl ImpgIndex {
         Ok(Self {
             impg: impg.into(),
             paf_path,
-            cigar_range_index,
+            // cigar_range_index,
         })
     }
 }
