@@ -89,8 +89,8 @@ pub struct Alignment {
     pub query_id: SeqId,
 
     pub location: AlignmentLocation,
-    // pub cigar: CigarIndex,
-    pub cigar: std::sync::Arc<dyn IndexedCigar + Send + Sync + 'static>,
+    pub cigar: CigarIndex,
+    // pub cigar: std::sync::Arc<dyn IndexedCigar + Send + Sync + 'static>,
     // pub cigar_op_vertices: Vec<[DVec2; 2]>,
     pub cigar_op_line_vertices: Vec<[DVec2; 2]>,
 }
@@ -284,8 +284,8 @@ impl Alignment {
             target_id,
             query_id,
             location,
-            // cigar: cigar_index,
-            cigar: std::sync::Arc::new(cigar_index),
+            cigar: cigar_index,
+            // cigar: std::sync::Arc::new(cigar_index),
             cigar_op_line_vertices: op_line_vertices,
         }
     }

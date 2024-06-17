@@ -3,7 +3,7 @@ use rustc_hash::FxHashMap;
 use ultraviolet::{Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
-use crate::sequences::SeqId;
+use crate::{sequences::SeqId, IndexedCigar};
 
 pub struct MatchDrawBatchData {
     alignment_pair_index: FxHashMap<(SeqId, SeqId), usize>,
@@ -124,13 +124,15 @@ impl MatchDrawBatchData {
             vertex_position_tmp.clear();
             vertex_color_tmp.clear();
 
-            let match_count = alignment.cigar_op_line_vertices.len() as u32;
+            // let match_count = alignment.cigar_op_line_vertices.len() as u32;
+            // let match_count = alignment.cigar.op_line_vertices.len() as u32;
 
             // for (&[from, to], &is_match) in alignment.cigar.op_line_vertices.iter()
             for (&[from, to], (op, _count)) in alignment
                 .cigar_op_line_vertices
                 .iter()
                 .zip(alignment.cigar.iter())
+            // .zip(alignment.cigar.cigar.iter())
             {
                 use crate::CigarOp::{D, I};
                 if matches!(op, I | D) {
@@ -150,6 +152,7 @@ impl MatchDrawBatchData {
                 vertex_position_tmp.push(LineVertex { p0, p1 });
                 vertex_color_tmp.push(color);
             }
+            let match_count = vertex_position_tmp.len();
 
             let pos_buffer = device.create_buffer_init(&BufferInitDescriptor {
                 label: None,
@@ -165,7 +168,7 @@ impl MatchDrawBatchData {
 
             buffers.vertex_pos_buffers.push(pos_buffer);
             buffers.vertex_color_buffers.push(color_buffer);
-            buffers.vertex_instances.push(0..match_count);
+            buffers.vertex_instances.push(0..match_count as u32);
 
             let x_offset = alignment_grid
                 .x_axis

@@ -1208,7 +1208,6 @@ checksum = "029d73f573d8e8d63e6d5020011d3255b28c3ba85d6cf870a07184ed23de9284"
 [[package]]
 name = "impg"
 version = "0.2.0"
-source = "git+https://github.com/pangenome/impg.git?rev=bb1ad8d14676e6307bd9f0ed218b06ca15183886#bb1ad8d14676e6307bd9f0ed218b06ca15183886"
 dependencies = [
  "bincode",
  "clap",

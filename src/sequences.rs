@@ -5,7 +5,7 @@ use bytemuck::{Pod, Zeroable};
 use rustc_hash::FxHashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Pod, Zeroable)]
-#[repr(transparent)]
+#[repr(C)]
 pub struct SeqId(pub usize);
 
 pub struct Sequences {
