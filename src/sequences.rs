@@ -16,6 +16,10 @@ pub struct Sequences {
 }
 
 impl Sequences {
+    pub fn get(&self, seq: SeqId) -> Option<&SequenceData> {
+        self.sequences.get(&seq)
+    }
+
     pub fn names(&self) -> &Arc<bimap::BiMap<String, SeqId>> {
         &self.sequence_names
     }

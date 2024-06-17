@@ -262,13 +262,25 @@ pub fn draw_alignments(
 
     for &target_id in &x_tiles {
         for &query_id in &y_tiles {
-            let Some(alignment) = alignments.pairs.get(&(target_id, query_id)) else {
+            let Some(pair_alignments) = alignments.pairs.get(&(target_id, query_id)) else {
                 continue;
             };
 
             // clamped ranges + pixel ranges
             let clamped_target = clamped_range(&grid.x_axis, target_id, view.x_range()).unwrap();
             let clamped_query = clamped_range(&grid.y_axis, query_id, view.y_range()).unwrap();
+
+            // TODO make this not bad
+            let alignment = pair_alignments.iter().find(|al| {
+                let loc = &al.location;
+                let x = (clamped_target.start as f64 + clamped_target.end as f64) * 0.5;
+                let x = x as u64;
+                x >= loc.target_range.start && x <= loc.target_range.end
+            });
+
+            let Some(alignment) = alignment else {
+                continue;
+            };
 
             // world coordinates of the visible screen rectangle corresponding to this alignment
             let world_min = map_to_point(

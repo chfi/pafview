@@ -112,7 +112,7 @@ impl MatchDrawBatchData {
 
         let mut alignment_pair_index = FxHashMap::default();
 
-        for (&(target_id, query_id), alignment) in alignments.pairs.iter() {
+        for (&(target_id, query_id), alignments) in alignments.pairs.iter() {
             // for (line_ix, input_line) in input.processed_lines.iter().enumerate() {
             let buf_ix = buffers.vertex_pos_buffers.len();
 
@@ -127,30 +127,32 @@ impl MatchDrawBatchData {
             // let match_count = alignment.cigar_op_line_vertices.len() as u32;
             // let match_count = alignment.cigar.op_line_vertices.len() as u32;
 
-            // for (&[from, to], &is_match) in alignment.cigar.op_line_vertices.iter()
-            for (&[from, to], (op, _count)) in alignment
-                .cigar_op_line_vertices
-                .iter()
-                .zip(alignment.cigar.iter())
-            // .zip(alignment.cigar.cigar.iter())
-            {
-                use crate::CigarOp::{D, I};
-                if matches!(op, I | D) {
-                    continue;
+            for alignment in alignments {
+                // for (&[from, to], &is_match) in alignment.cigar.op_line_vertices.iter()
+                for (&[from, to], (op, _count)) in alignment
+                    .cigar_op_line_vertices
+                    .iter()
+                    .zip(alignment.cigar.whole_cigar())
+                // .zip(alignment.cigar.cigar.iter())
+                {
+                    use crate::CigarOp::{D, I};
+                    if matches!(op, I | D) {
+                        continue;
+                    }
+
+                    let is_match = op.is_match();
+                    let color = if is_match {
+                        egui::Color32::BLACK
+                    } else {
+                        egui::Color32::RED
+                    };
+
+                    let p0 = Vec2::new(from.x as f32, from.y as f32);
+                    let p1 = Vec2::new(to.x as f32, to.y as f32);
+
+                    vertex_position_tmp.push(LineVertex { p0, p1 });
+                    vertex_color_tmp.push(color);
                 }
-
-                let is_match = op.is_match();
-                let color = if is_match {
-                    egui::Color32::BLACK
-                } else {
-                    egui::Color32::RED
-                };
-
-                let p0 = Vec2::new(from.x as f32, from.y as f32);
-                let p1 = Vec2::new(to.x as f32, to.y as f32);
-
-                vertex_position_tmp.push(LineVertex { p0, p1 });
-                vertex_color_tmp.push(color);
             }
             let match_count = vertex_position_tmp.len();
 
@@ -214,4 +216,60 @@ pub(super) struct DrawBatchBuffers {
 
     grid_pos_uniforms: Vec<wgpu::Buffer>,
     grid_pos_bind_groups: Vec<wgpu::BindGroup>,
+}
+
+pub fn line_vertices_from_cigar(
+    location: &crate::paf::AlignmentLocation,
+    cigar_ops: impl Iterator<Item = (crate::cigar::CigarOp, u32)>,
+) -> Vec<[ultraviolet::DVec2; 2]> {
+    use crate::cigar::CigarOp;
+    use ultraviolet::DVec2;
+
+    let mut vertices = Vec::new();
+
+    let mut tgt_cg = 0;
+    let mut qry_cg = 0;
+
+    for (op, count) in cigar_ops {
+        // tgt_cg and qry_cg are offsets from the start of the cigar
+        let tgt_start = tgt_cg;
+        let qry_start = qry_cg;
+
+        let (tgt_end, qry_end) = match op {
+            CigarOp::Eq | CigarOp::X | CigarOp::M => {
+                tgt_cg += count as u64;
+                qry_cg += count as u64;
+                //
+                (tgt_start + count as u64, qry_start + count as u64)
+            }
+            CigarOp::I => {
+                qry_cg += count as u64;
+                //
+                (tgt_start, qry_start + count as u64)
+            }
+            CigarOp::D => {
+                tgt_cg += count as u64;
+                //
+                (tgt_start + count as u64, qry_start)
+            }
+        };
+
+        if tgt_end < tgt_start || qry_end < qry_start {
+            dbg!(tgt_start..tgt_end);
+            dbg!(qry_start..qry_end);
+        }
+        let tgt_range = location.map_from_aligned_target_range(tgt_start..tgt_end);
+        let qry_range = location.map_from_aligned_query_range(qry_start..qry_end);
+
+        let mut from = DVec2::new(tgt_range.start as f64, qry_range.start as f64);
+        let mut to = DVec2::new(tgt_range.end as f64, qry_range.end as f64);
+
+        if location.query_strand.is_rev() {
+            std::mem::swap(&mut from.y, &mut to.y);
+        }
+
+        vertices.push([from, to]);
+    }
+
+    vertices
 }

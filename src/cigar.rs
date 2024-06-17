@@ -11,7 +11,7 @@ pub type BoxedCigarIter<'a> = Box<dyn Iterator<Item = CigarIterItem> + 'a>;
 
 pub trait IndexedCigar {
     // fn iter(&self) -> Box<dyn Iterator<Item = CigarIterItem> + '_>;
-    fn iter(&self) -> Box<dyn Iterator<Item = (CigarOp, u32)> + '_>;
+    fn whole_cigar(&self) -> Box<dyn Iterator<Item = (CigarOp, u32)> + '_>;
 
     fn iter_target_range(
         &self,
@@ -21,7 +21,7 @@ pub trait IndexedCigar {
 
 impl IndexedCigar for CigarIndex {
     // fn iter(&self) -> Box<dyn Iterator<Item = CigarIterItem> + '_> {
-    fn iter(&self) -> Box<dyn Iterator<Item = (CigarOp, u32)> + '_> {
+    fn whole_cigar(&self) -> Box<dyn Iterator<Item = (CigarOp, u32)> + '_> {
         let iter = self.cigar.iter();
         Box::new(iter)
     }

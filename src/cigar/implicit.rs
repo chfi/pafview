@@ -1,5 +1,6 @@
 use std::any::Any;
 use std::borrow::Borrow;
+use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::{collections::VecDeque, path::Path};
@@ -21,8 +22,8 @@ impl ImpgIndex {
     pub fn impg_cigars(
         index: &Arc<ImpgIndex>,
         sequences: &Sequences,
-    ) -> FxHashMap<(SeqId, SeqId), ImpgCigar> {
-        let mut cigars = FxHashMap::default();
+    ) -> FxHashMap<(SeqId, SeqId), Vec<ImpgCigar>> {
+        let mut pair_cigars: FxHashMap<_, Vec<_>> = FxHashMap::default();
 
         for (&impg_target_id, tree) in index.impg.trees.iter() {
             // get name from impg
@@ -36,23 +37,34 @@ impl ImpgIndex {
                 let impg_query_id = meta.query_id;
                 let qry_name = index.impg.seq_index.get_name(impg_query_id).unwrap();
                 let qry_id = *sequences.names().get_by_left(qry_name).unwrap();
-                let target_len = meta.target_end as u64 - meta.target_start as u64;
-                let query_len = meta.query_end as u64 - meta.query_start as u64;
+                // let target_len = meta.target_end as u64 - meta.target_start as u64;
+                // let query_len = meta.query_end as u64 - meta.query_start as u64;
+
+                let target_range = (meta.target_start as u64)..(meta.target_end as u64);
+                let query_range = (meta.query_start as u64)..(meta.query_end as u64);
 
                 let impg_cigar = ImpgCigar {
-                    target_len,
-                    query_len,
+                    target_range,
+                    query_range,
                     query_strand: meta.strand.into(),
                     impg: index.clone(),
                     impg_target_id,
                     impg_query_id,
                 };
 
-                cigars.insert((tgt_id, qry_id), impg_cigar);
+                pair_cigars
+                    .entry((tgt_id, qry_id))
+                    .or_default()
+                    .push(impg_cigar);
+                // cigars.insert((tgt_id, qry_id), impg_cigar);
             }
         }
 
-        cigars
+        for cigars in pair_cigars.values_mut() {
+            cigars.sort_by_key(|cg| cg.target_range.start);
+        }
+
+        pair_cigars
     }
 
     // pub fn impg_cigar_for_pair(&self, target_id: SeqId, query_id: SeqId) -> Option<ImpgCigar> {
@@ -119,8 +131,10 @@ impl ImpgIndex {
 }
 
 pub struct ImpgCigar {
-    pub target_len: u64,
-    pub query_len: u64,
+    // pub target_len: u64,
+    // pub query_len: u64,
+    pub target_range: std::ops::Range<u64>,
+    pub query_range: std::ops::Range<u64>,
     pub query_strand: super::Strand,
     // pub op_line_vertices: Vec<[ultraviolet::DVec2; 2]>,
     impg: Arc<ImpgIndex>,
@@ -207,7 +221,7 @@ impl ImpgCigar {
 }
 
 impl super::IndexedCigar for ImpgCigar {
-    fn iter(&self) -> Box<dyn Iterator<Item = (crate::CigarOp, u32)> + '_> {
+    fn whole_cigar(&self) -> Box<dyn Iterator<Item = (crate::CigarOp, u32)> + '_> {
         let cigar = self.iter_full_cigar_impl().unwrap();
         let iter = cigar.into_iter().map(|i_op| {
             let op = crate::CigarOp::try_from(i_op.op()).unwrap();

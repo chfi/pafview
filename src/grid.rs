@@ -29,6 +29,7 @@ impl AlignmentGrid {
         let mut targets = alignments
             .pairs
             .values()
+            .filter_map(|als| als.first())
             .map(|al| (al.target_id, al.location.target_total_len))
             .collect::<Vec<_>>();
         targets.sort_by_key(|(_, l)| std::cmp::Reverse(*l));
@@ -38,6 +39,7 @@ impl AlignmentGrid {
         let mut queries = alignments
             .pairs
             .values()
+            .filter_map(|als| als.first())
             .map(|al| (al.query_id, al.location.query_total_len))
             .collect::<Vec<_>>();
         queries.sort_by_key(|(_, l)| std::cmp::Reverse(*l));
@@ -467,7 +469,26 @@ impl GridAABBs {
 
         let mut pair_collider_map = FxHashMap::default();
 
-        for (&(tgt_id, qry_id), alignment) in alignments.pairs.iter() {
+        for (&(tgt_id, qry_id), pair_aligns) in alignments.pairs.iter() {
+            /*
+            let mut mins = Vec2::broadcast(std::f32::MAX);
+            let mut maxs = Vec2::broadcast(std::f32::MIN);
+
+            pair_aligns.iter().for_each(|al| {
+                let tgt = al.location.target_range;
+                let qry = al.location.query_range;
+                let p0 = [tgt.start as f32, qry.start as f32].as_uv();
+                let p1 = [tgt.end as f32, qry.end as f32].as_uv();
+                let min = p0.min_by_component(p1);
+                let max = p0.max_by_component(p1);
+                mins = mins.min_by_component(min);
+                maxs = maxs.max_by_component(max);
+            });
+            */
+            let Some(alignment) = pair_aligns.first() else {
+                continue;
+            };
+
             let offsets = x_axis
                 .sequence_offset(tgt_id)
                 .zip(y_axis.sequence_offset(qry_id));
