@@ -1,4 +1,4 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, hash::Hash, sync::Arc};
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -87,6 +87,7 @@ impl AlignmentLocation {
 //     pub cigar_op_line_vertices: Vec<[DVec2; 2]>,
 // }
 
+#[derive(Clone)]
 pub struct Alignment {
     pub target_id: SeqId,
     pub query_id: SeqId,
@@ -96,6 +97,30 @@ pub struct Alignment {
     pub cigar: std::sync::Arc<dyn IndexedCigar + Send + Sync + 'static>,
     // pub cigar_op_vertices: Vec<[DVec2; 2]>,
     pub cigar_op_line_vertices: Vec<[DVec2; 2]>,
+}
+
+impl std::fmt::Debug for Alignment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let cigar = self
+            .cigar
+            .whole_cigar()
+            .take(10)
+            .map(|(op, len)| {
+                let c = char::from(op);
+                format!("{c}{len}")
+            })
+            .collect::<String>();
+
+        let verts = format!("{} segments", self.cigar_op_line_vertices.len());
+
+        f.debug_struct("Alignment")
+            .field("target_id", &self.target_id)
+            .field("query_id", &self.query_id)
+            .field("location", &self.location)
+            .field("cigar", &cigar)
+            .field("cigar_op_line_vertices", &verts)
+            .finish()
+    }
 }
 
 pub struct AlignmentIter<'cg> {
@@ -243,8 +268,12 @@ impl Alignment {
 
         let cigar_index = CigarIndex::from_paf_line(&paf_line);
 
+        let pair = (target_id, query_id);
+        // log::warn!("<CLASSIC> creating vertices for {pair:?} @ {location:?}");
+        // log::error!("<CLASSIC> creating vertices for {pair:?} @ {location:?}");
         let new_op_line_vertices =
-            crate::render::batch::line_vertices_from_cigar(&location, cigar_index.cigar.iter());
+            crate::render::batch::line_vertices_from_cigar(&location, cigar_index.whole_cigar());
+        // crate::render::batch::line_vertices_from_cigar(&location, cigar_index.cigar.iter());
 
         let op_line_vertices = new_op_line_vertices;
         /*
@@ -436,9 +465,113 @@ pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Se
     println!("using {} sequences", sequences.len());
 
     let alignments = if let Some(impg_path) = cli.impg.as_ref() {
-        let impg_alignments = Alignments::from_impg(&sequences, impg_path, &cli.paf)?;
+        // let impg_cigars = ImpgIndex::
 
+        let paf_alignments = Alignments::from_paf_lines(&sequences, paf_lines);
+        {
+            println!("__________");
+            println!("<CLASSIC>");
+            let tgt = SeqId(64);
+            let qry = SeqId(80);
+            let aligns = paf_alignments.pairs.get(&(tgt, qry)).unwrap();
+            let tgt_name = sequences.names().get_by_right(&tgt).unwrap();
+            let qry_name = sequences.names().get_by_right(&qry).unwrap();
+
+            for al in aligns {
+                let loc = &al.location;
+                println!(
+                    " > T/Q: {:?} / {:?}, {:?}",
+                    loc.target_range, loc.query_range, loc.query_strand
+                );
+                print!("  whole_cigar(): ");
+                al.cigar.whole_cigar().take(10).for_each(|(op, len)| {
+                    let c = char::from(op);
+                    print!("{c}{len}");
+                    //
+                });
+                println!();
+
+                print!("range(500..600): ");
+                al.cigar
+                    .iter_target_range(500..600)
+                    .take(10)
+                    .map(|item| (item.op, item.op_count))
+                    .for_each(|(op, len)| {
+                        let c = char::from(op);
+                        print!("{c}{len}");
+                    });
+                println!();
+            }
+            println!("----------");
+        }
+
+        let mut impg_alignments = Alignments::from_impg(&sequences, impg_path, &cli.paf)?;
+
+        /*
+        for (pair, alignments) in impg_alignments.pairs.iter_mut() {
+            let alt_al = paf_alignments.pairs.get(pair).unwrap();
+
+            for (paf_al, impg_al) in std::iter::zip(alt_al, alignments) {
+                impg_al.cigar_op_line_vertices = paf_al.cigar_op_line_vertices.clone();
+            }
+            // for img_al in alignments.iter_mut().enumer
+        }
+        */
+
+        /*
         let alignments = Alignments::from_paf_lines(&sequences, paf_lines);
+
+        let mut keys = impg_alignments.pairs.keys().cloned().collect::<Vec<_>>();
+        keys.sort();
+
+        // let impg_pairs = impg_alignments.pairs.iter();
+        // let old_pairs = alignments.pairs.iter();
+        let impg_als = impg_alignments.pairs.iter();
+        let old_als = alignments.pairs.iter();
+
+        for pair in keys {
+            let impg = impg_alignments.pairs.get(&pair).unwrap();
+            let old = alignments.pairs.get(&pair).unwrap();
+
+            for (o, i) in std::iter::zip(old, impg) {
+                //
+                let old_loc = o.location.clone();
+                let new_loc = i.location.clone();
+                println!("   - old: {old_loc:?}");
+                println!("   - new: {new_loc:?}");
+                assert_eq!(old_loc, new_loc);
+            }
+
+            // assert_eq!(old, impg);
+        }
+
+        // for (old, impg) in std::iter::zip(old_pairs, impg_pairs) {
+        /*
+        for ((p_old), impg) in old_als.zip(impg_als) {
+            //
+
+            println!("
+
+            /*
+            let mut old = old.clone();
+            let mut impg = impg.clone();
+
+            let key_fn = |al: &Alignment| al.location.target_range.start;
+
+            old.sort_by_key(&key_fn);
+            impg.sort_by_key(&key_fn);
+
+            for (o, i) in std::iter::zip(old, impg) {
+                //
+                let old_loc = o.location.clone();
+                let new_loc = i.location.clone();
+                println!("   - old: {old_loc:?}");
+                println!("   - new: {new_loc:?}");
+                assert_eq!(old_loc, new_loc);
+            }
+            */
+        }
+        */
 
         /*
         for (pair @ (tgt_id, qry_id), alignments) in alignments.pairs.iter() {
@@ -458,6 +591,7 @@ pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Se
                 assert_eq!(old_loc, new_loc);
             }
         }
+        */
         */
 
         impg_alignments
@@ -501,9 +635,48 @@ impl Alignments {
     ) -> anyhow::Result<Self> {
         let impg_index = Arc::new(ImpgIndex::deserialize_file(sequences, impg_path, paf_path)?);
 
+        // impg_index.debug_print();
         // impg_index.impg.tr
 
         let impg_cigars = ImpgIndex::impg_cigars(&impg_index, sequences);
+
+        {
+            println!("__________");
+            println!("<IMPG>");
+            let tgt = SeqId(64);
+            let qry = SeqId(80);
+            let cigars = impg_cigars.get(&(tgt, qry)).unwrap();
+            let tgt_name = sequences.names().get_by_right(&tgt).unwrap();
+            let qry_name = sequences.names().get_by_right(&qry).unwrap();
+            println!("cigars for [{tgt_name}, {qry_name}]");
+
+            // println!("location:
+
+            for cigar in cigars {
+                println!(
+                    " > T/Q: {:?} / {:?}, {:?}",
+                    cigar.target_range, cigar.query_range, cigar.query_strand
+                );
+                print!("  whole_cigar(): ");
+                cigar.whole_cigar().take(10).for_each(|(op, len)| {
+                    let c = char::from(op);
+                    print!("{c}{len}");
+                    //
+                });
+                println!();
+                print!("range(500..600): ");
+                cigar
+                    .iter_target_range(500..600)
+                    .take(10)
+                    .map(|item| (item.op, item.op_count))
+                    .for_each(|(op, len)| {
+                        let c = char::from(op);
+                        print!("{c}{len}");
+                    });
+                println!();
+            }
+            println!("----------");
+        }
 
         let mut pairs: FxHashMap<_, Vec<_>> = FxHashMap::default();
 
@@ -522,19 +695,34 @@ impl Alignments {
                     query_range: impg_cg.query_range.clone(),
                     query_strand: impg_cg.query_strand,
                 };
+
+                if location.query_strand.is_rev() {
+                    continue;
+                };
+
+                // log::error!("<IMPG> creating vertices for {pair:?} @ {location:?}");
+                let line_vertices = crate::render::batch::line_vertices_from_cigar(
+                    &location,
+                    impg_cg.whole_cigar(),
+                );
+
                 let alignment = Alignment {
                     target_id,
                     query_id,
                     location,
                     cigar: Arc::new(impg_cg),
-                    // cigar_op_line_vertices: line_vertices,
-                    cigar_op_line_vertices: Vec::new(),
+                    cigar_op_line_vertices: line_vertices,
+                    // cigar_op_line_vertices: Vec::new(),
                 };
 
                 pairs.entry(pair).or_default().push(alignment);
             }
 
             //
+        }
+
+        for alignments in pairs.values_mut() {
+            alignments.sort_by_key(|al| al.location.target_range.start);
         }
 
         /*

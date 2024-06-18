@@ -19,6 +19,28 @@ pub struct ImpgIndex {
 }
 
 impl ImpgIndex {
+    pub fn debug_print(&self) {
+        println!("<ImpgIndex Debug>");
+        println!("<<<<<<<< >>>>>>>>");
+        println!(" >> treemap keys ");
+        let mut keys = self.impg.trees.keys().collect::<Vec<_>>();
+        keys.sort();
+        println!();
+
+        for &key in &keys {
+            let tree = self.impg.trees.get(&key).unwrap();
+            // for (key, tree) in self.impg.trees.iter() {
+            // key ~ target id?
+            let tgt_name = self.impg.seq_index.get_name(*key).unwrap();
+            println!("{key} - {tgt_name}");
+            // let queries = tree.
+        }
+        // println!("{keys:?}");
+        println!("<End ImpgIndex Debug>");
+        println!("<<<<<<<<<< >>>>>>>>>>");
+        println!();
+    }
+
     pub fn impg_cigars(
         index: &Arc<ImpgIndex>,
         sequences: &Sequences,
@@ -144,8 +166,10 @@ pub struct ImpgCigar {
 
 impl ImpgCigar {
     fn query(&self, range: std::ops::Range<u64>) -> Vec<impg::impg::AdjustedInterval> {
-        let start = range.start as i32;
-        let end = range.end as i32;
+        let start = (self.target_range.start + range.start) as i32;
+        let end = (self.target_range.start + range.end) as i32;
+        // let start = range.start as i32;
+        // let end = range.end as i32;
         self.impg.impg.query(self.impg_target_id, start, end)
     }
 
@@ -203,19 +227,45 @@ impl ImpgCigar {
         &self,
         target_range: std::ops::Range<u64>,
     ) -> Option<ImpgCigarIter> {
-        let interval = self
-            .query(target_range)
+        let query = self.query(target_range);
+        // let interval = self
+        //     .query(target_range)
+
+        println!("in iter_target_range_impl");
+        for (a, cg, b) in &query {
+            let cigar = cg
+                .iter()
+                .take(10)
+                .map(|op| {
+                    let c = op.op();
+                    let len = op.len();
+                    format!("{c}{len}")
+                })
+                .collect::<String>();
+            println!("({a:?}, {cigar}..., {b:?}");
+            //
+        }
+
+        let interval = query
             .into_iter()
             .find(|(query, _cigar, _target_i_guess)| query.metadata == self.impg_query_id);
 
+        dbg!(&interval);
         let (query, cigar, target) = interval?;
 
+        // let target =
+
         let cigar = VecDeque::from(cigar);
+
+        let target_offset = self.target_range.start;
+        let query_offset = self.query_range.start;
 
         Some(ImpgCigarIter {
             target,
             query,
             cigar,
+            target_offset,
+            query_offset,
         })
     }
 }
@@ -236,12 +286,21 @@ impl super::IndexedCigar for ImpgCigar {
         &self,
         target_range: std::ops::Range<u64>,
     ) -> Box<dyn Iterator<Item = crate::CigarIterItem> + '_> {
-        let iter = self.iter_target_range_impl(target_range).unwrap();
-        Box::new(iter)
+        if let Some(iter) = self.iter_target_range_impl(target_range) {
+            Box::new(iter)
+        } else {
+            let iter = std::iter::empty();
+            Box::new(iter)
+        }
+        // let iter = self.iter_target_range_impl(target_range).unwrap();
+        // Box::new(iter)
     }
 }
 
 pub struct ImpgCigarIter {
+    target_offset: u64,
+    query_offset: u64,
+
     target: coitrees::Interval<u32>,
     query: coitrees::Interval<u32>,
 
@@ -263,10 +322,10 @@ impl Iterator for ImpgCigarIter {
         let op = super::CigarOp::try_from(next_op.op()).ok()?;
         let op_count = next_op.len() as u32;
 
-        let tgt_start = self.target.first as u64;
+        let tgt_start = self.target.first as u64 - self.target_offset;
         let tgt_end = tgt_start + op_count as u64;
 
-        let qry_start = self.query.first as u64;
+        let qry_start = self.query.first as u64 - self.query_offset;
         let qry_end = qry_start + op_count as u64;
 
         // NB: maybe an off-by-one here; fix later
