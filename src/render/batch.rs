@@ -116,23 +116,18 @@ impl MatchDrawBatchData {
             // for (line_ix, input_line) in input.processed_lines.iter().enumerate() {
             let buf_ix = buffers.vertex_pos_buffers.len();
 
-            // let target_id = input_line.target_id;
-            // let query_id = input_line.query_id;
-
             alignment_pair_index.insert((target_id, query_id), buf_ix);
 
             vertex_position_tmp.clear();
             vertex_color_tmp.clear();
 
-            // let match_count = alignment.cigar_op_line_vertices.len() as u32;
-            // let match_count = alignment.cigar.op_line_vertices.len() as u32;
-
             for alignment in alignments {
+                let op_line_vertices =
+                    line_vertices_from_cigar(&alignment.location, alignment.cigar.whole_cigar());
+
                 // for (&[from, to], &is_match) in alignment.cigar.op_line_vertices.iter()
-                for (&[from, to], (op, _count)) in alignment
-                    .cigar_op_line_vertices
-                    .iter()
-                    .zip(alignment.cigar.whole_cigar())
+                for (&[from, to], (op, _count)) in
+                    op_line_vertices.iter().zip(alignment.cigar.whole_cigar())
                 // .zip(alignment.cigar.cigar.iter())
                 {
                     use crate::CigarOp::{D, I};

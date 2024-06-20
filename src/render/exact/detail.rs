@@ -307,12 +307,7 @@ pub fn draw_alignments(
                 for item in alignment.iter_target_range(clamped_target.clone()) {
                     let op = item.op;
 
-                    let mut c = 0;
                     for [tgt, qry] in item {
-                        if c == 0 {
-                            println!("step: [{tgt}, {qry}]");
-                        }
-                        c += 1;
                         let nucls = seqs(op, tgt, qry);
 
                         let world_offset = seq_global_offset + [tgt as f64, qry as f64].into();

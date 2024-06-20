@@ -77,16 +77,6 @@ impl AlignmentLocation {
     }
 }
 
-// pub struct AlignmentNew {
-//     pub target_id: SeqId,
-//     pub query_id: SeqId,
-
-//     pub location: AlignmentLocation,
-//     pub cigar: std::sync::Arc<dyn IndexedCigar>,
-//     // pub cigar_op_vertices: Vec<[DVec2; 2]>,
-//     pub cigar_op_line_vertices: Vec<[DVec2; 2]>,
-// }
-
 #[derive(Clone)]
 pub struct Alignment {
     pub target_id: SeqId,
@@ -95,8 +85,6 @@ pub struct Alignment {
     pub location: AlignmentLocation,
     // pub cigar: CigarIndex,
     pub cigar: std::sync::Arc<dyn IndexedCigar + Send + Sync + 'static>,
-    // pub cigar_op_vertices: Vec<[DVec2; 2]>,
-    pub cigar_op_line_vertices: Vec<[DVec2; 2]>,
 }
 
 impl std::fmt::Debug for Alignment {
@@ -111,14 +99,11 @@ impl std::fmt::Debug for Alignment {
             })
             .collect::<String>();
 
-        let verts = format!("{} segments", self.cigar_op_line_vertices.len());
-
         f.debug_struct("Alignment")
             .field("target_id", &self.target_id)
             .field("query_id", &self.query_id)
             .field("location", &self.location)
             .field("cigar", &cigar)
-            .field("cigar_op_line_vertices", &verts)
             .finish()
     }
 }
@@ -268,65 +253,12 @@ impl Alignment {
 
         let cigar_index = CigarIndex::from_paf_line(&paf_line);
 
-        let pair = (target_id, query_id);
-        // log::warn!("<CLASSIC> creating vertices for {pair:?} @ {location:?}");
-        // log::error!("<CLASSIC> creating vertices for {pair:?} @ {location:?}");
-        let new_op_line_vertices =
-            crate::render::batch::line_vertices_from_cigar(&location, cigar_index.whole_cigar());
-        // crate::render::batch::line_vertices_from_cigar(&location, cigar_index.cigar.iter());
-
-        let op_line_vertices = new_op_line_vertices;
-        /*
-        let mut op_line_vertices = Vec::new();
-
-        let offsets_iter = std::iter::zip(
-            &cigar_index.op_target_offsets,
-            &cigar_index.op_query_offsets,
-        );
-
-        let ops_iter = std::iter::zip(cigar_index.cigar.iter(), offsets_iter);
-
-        for ((op, count), (&tgt_cg, &qry_cg)) in ops_iter {
-            // tgt_cg and qry_cg are offsets from the start of the cigar
-
-            let (tgt_end, qry_end) = match op {
-                CigarOp::Eq | CigarOp::X | CigarOp::M => {
-                    //
-                    (tgt_cg + count as u64, qry_cg + count as u64)
-                }
-                CigarOp::I => {
-                    //
-                    (tgt_cg, qry_cg + count as u64)
-                }
-                CigarOp::D => {
-                    //
-                    (tgt_cg + count as u64, qry_cg)
-                }
-            };
-
-            let tgt_range = location.map_from_aligned_target_range(tgt_cg..tgt_end);
-            let qry_range = location.map_from_aligned_query_range(qry_cg..qry_end);
-
-            let mut from = DVec2::new(tgt_range.start as f64, qry_range.start as f64);
-            let mut to = DVec2::new(tgt_range.end as f64, qry_range.end as f64);
-
-            if location.query_strand.is_rev() {
-                std::mem::swap(&mut from.y, &mut to.y);
-            }
-
-            op_line_vertices.push([from, to]);
-        }
-
-        assert_eq!(new_op_line_vertices, op_line_vertices);
-        */
-
         Self {
             target_id,
             query_id,
             location,
             // cigar: cigar_index,
             cigar: Arc::new(cigar_index),
-            cigar_op_line_vertices: op_line_vertices,
         }
     }
 
@@ -336,72 +268,6 @@ impl Alignment {
     ) -> AlignmentIter<'cg> {
         AlignmentIter::new(&self, target_range)
     }
-
-    /*
-    pub fn query_offset_at_target(&self, target_offset: u64) -> u64 {
-        /*
-        use std::cmp::Ordering;
-        let query_offset = match (
-            target_offset.cmp(&self.location.target_range.start),
-            self.location.query_strand,
-        ) {
-            (Ordering::Less, Strand::Forward)
-            | (Ordering::Greater, Strand::Reverse) => {
-                0
-                // self.location.query_range.start
-                // todo!()
-            }
-            (Ordering::Less, Strand::Reverse)
-            | (Ordering::Greater, Strand::Forward) => {
-                self.location.query_total_len
-                // self.location.query_range.end
-                // todo!()
-            }
-            (Ordering::Equal, Strand::Forward) => {
-                todo!()
-            }
-            (Ordering::Equal, Strand::Reverse) => {
-                todo!()
-            }
-        };
-        */
-
-        if target_offset < self.location.target_range.start {
-            if self.location.query_strand.is_rev() {
-                self.location.query_total_len
-                // self.location.query_range.end
-            } else {
-                0
-                // self.location.query_range.start
-            }
-        } else if target_offset >= self.location.target_range.end {
-            if self.location.query_strand.is_rev() {
-                0
-                // self.location.query_range.start
-            } else {
-                self.location.query_total_len
-                // self.location.query_range.end
-            }
-        } else {
-            let op_ix = self
-                .cigar
-                .op_target_offsets
-                .partition_point(|&offset| offset < target_offset);
-            let ix = op_ix.min(self.cigar.op_query_offsets.len() - 1);
-            let target_origin = self.cigar.op_target_offsets[ix];
-            let mut query_offset = self.cigar.op_query_offsets[ix];
-
-            if let Some((op, _count)) = self.cigar.cigar.get(ix) {
-                if op.consumes_query() && target_offset > target_origin {
-                    let delta = target_offset - target_origin;
-                    query_offset += delta;
-                }
-            }
-
-            self.location.map_from_local_query_offset(query_offset)
-        }
-    }
-    */
 }
 
 pub struct Alignments {
@@ -526,23 +392,15 @@ impl Alignments {
                     query_strand: impg_cg.query_strand,
                 };
 
-                let line_vertices = crate::render::batch::line_vertices_from_cigar(
-                    &location,
-                    impg_cg.whole_cigar(),
-                );
-
                 let alignment = Alignment {
                     target_id,
                     query_id,
                     location,
                     cigar: Arc::new(impg_cg),
-                    cigar_op_line_vertices: line_vertices,
                 };
 
                 pairs.entry(pair).or_default().push(alignment);
             }
-
-            //
         }
 
         Ok(Self { pairs })
@@ -641,8 +499,6 @@ mod tests {
                 query_len,
                 Strand::Reverse,
             )),
-
-            cigar_op_line_vertices: Vec::new(), // not needed for testing
         };
 
         for item in AlignmentIter::new(&alignment, 0..30) {

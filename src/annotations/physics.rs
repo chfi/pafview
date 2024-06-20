@@ -1399,9 +1399,12 @@ impl LabelHeightField {
         let mut bin_ix = 0;
         let mut current_bin_end = bin_size.floor() as usize;
 
-        // let cigar = &alignment.cigar;
-        for &[p0, p1] in &alignment.cigar_op_line_vertices {
-            // for (&x, &y) in std::iter::zip(&cigar.op_target_offsets, &cigar.op_query_offsets) {
+        let line_vertices = crate::render::batch::line_vertices_from_cigar(
+            &alignment.location,
+            alignment.cigar.whole_cigar(),
+        );
+
+        for &[p0, p1] in &line_vertices {
             // shouldn't happen, but
             if bin_ix >= bins.len() {
                 break;
