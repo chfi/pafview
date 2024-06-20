@@ -11,8 +11,12 @@ use rustc_hash::FxHashMap;
 
 use crate::sequences::{SeqId, Sequences};
 
+use anyhow::anyhow;
+
 pub struct ImpgIndex {
     pub impg: Arc<Impg>,
+
+    paf_bgz_index: Option<noodles::bgzf::gzi::Index>,
 
     paf_path: PathBuf,
     // cigar_range_index: FxHashMap<(SeqId, SeqId), std::ops::Range<u64>>,
@@ -106,53 +110,37 @@ impl ImpgIndex {
             })?;
 
         let paf_str = paf_path.as_ref().to_str().unwrap();
+        let paf_path = paf_path.as_ref();
         let impg = Impg::from_paf_and_serializable(paf_str, serializable);
 
-        // let mut cigar_range_index = FxHashMap::default();
-        let mut paf_reader = File::open(&paf_path).map(io::BufReader::new)?;
+        let paf_bgz_index_path = paf_path.extension().and_then(|ext| {
+            let new_ext = ["gz", "bgz"]
+                .iter()
+                .find_map(|e| (&ext == e).then(|| format!("{e}.gzi")))?;
+            Some(paf_path.with_extension(new_ext))
+        });
 
-        let mut paf_buf = String::new();
-
-        let mut file_offset = 0;
-
-        loop {
-            paf_buf.clear();
-
-            let this_offset = file_offset;
-
-            let read = paf_reader.read_line(&mut paf_buf)?;
-            if read == 0 {
-                break;
-            }
-
-            let line = &paf_buf[..read];
-
-            let Some(paf_line) = crate::paf::parse_paf_line(line.split('\t')) else {
-                continue;
-            };
-
-            file_offset += read;
-
-            // paf_reader.
-        }
-
-        let paf_path = paf_path.as_ref().to_owned();
+        let paf_bgz_index = if let Some(bgz_path) = paf_bgz_index_path.as_ref() {
+            Some(
+                noodles::bgzf::gzi::read(bgz_path)
+                    .map_err(|e| anyhow!("Error loading bgzip index for PAF: {e:?}"))?,
+            )
+        } else {
+            None
+        };
 
         Ok(Self {
             impg: impg.into(),
-            paf_path,
-            // cigar_range_index,
+            paf_bgz_index,
+            paf_path: paf_path.to_path_buf(),
         })
     }
 }
 
 pub struct ImpgCigar {
-    // pub target_len: u64,
-    // pub query_len: u64,
     pub target_range: std::ops::Range<u64>,
     pub query_range: std::ops::Range<u64>,
     pub query_strand: super::Strand,
-    // pub op_line_vertices: Vec<[ultraviolet::DVec2; 2]>,
     impg: Arc<ImpgIndex>,
     impg_target_id: u32,
     impg_query_id: u32,
@@ -167,31 +155,24 @@ impl ImpgCigar {
         self.impg.impg.query(self.impg_target_id, start, end)
     }
 
-    // pub fn
-
-    // from_cigar?
-
-    // iter_target_range(&self, target_range: std::ops::Range<u64>) ->
-
     fn iter_full_cigar_impl(&self) -> std::io::Result<Vec<impg::impg::CigarOp>> {
         let tree = self.impg.impg.trees.get(&self.impg_target_id).unwrap();
 
-        // TODO support bgzipped paf
-
-        let (interval, query_range) = tree
+        let interval = tree
             .iter()
             .find_map(|interval| {
                 let meta = interval.metadata;
-                let start = meta.query_start as u64;
-                let end = meta.query_end as u64;
                 let strand = super::Strand::from(meta.strand);
 
                 (interval.metadata.query_id == self.impg_query_id && strand == self.query_strand)
-                    .then_some((interval, start..end))
+                    .then_some(interval)
             })
             .unwrap();
 
-        let cigar = interval.metadata.get_cigar_ops(&self.impg.paf_path, None);
+        let gzi_index = self.impg.paf_bgz_index.as_ref();
+        let cigar = interval
+            .metadata
+            .get_cigar_ops(&self.impg.paf_path, gzi_index);
 
         Ok(cigar)
     }
