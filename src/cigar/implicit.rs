@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::{collections::VecDeque, path::Path};
 
-use coitrees::IntervalTree;
+use coitrees::{Interval, IntervalTree};
 use impg::impg::{AdjustedInterval, Impg};
 use rustc_hash::FxHashMap;
 
@@ -204,32 +204,41 @@ impl ImpgCigar {
 
     pub fn iter_target_range_impl(
         &self,
-        target_range: std::ops::Range<u64>,
+        local_target_range: std::ops::Range<u64>,
     ) -> Option<ImpgCigarIter> {
-        let query = self.query(target_range);
-        // let interval = self
-        //     .query(target_range)
+        let query = self.query(local_target_range.clone());
 
         let interval = query
             .into_iter()
             .find(|(query, _cigar, _target_i_guess)| query.metadata == self.impg_query_id);
 
-        // dbg!(&interval);
-        let (query, cigar, target) = interval?;
-
-        // let target =
+        let (query, cigar, _target) = interval?;
 
         let cigar = VecDeque::from(cigar);
 
-        let target_offset = self.target_range.start;
-        let query_offset = self.query_range.start;
+        let target_range = local_target_range;
+
+        let query_range = {
+            let is_rev = query.first > query.last;
+            let g_start = query.first.min(query.last) as u64;
+            let g_end = query.first.max(query.last) as u64;
+            let len = g_end - g_start;
+
+            if !is_rev {
+                let start = g_start - self.query_range.start;
+                let end = g_end;
+                start..end
+            } else {
+                let start = self.query_range.end - g_end;
+                let end = start + len;
+                start..end
+            }
+        };
 
         Some(ImpgCigarIter {
-            target,
-            query,
+            target_range,
+            query_range,
             cigar,
-            target_offset,
-            query_offset,
         })
     }
 }
@@ -243,12 +252,7 @@ impl super::IndexedCigar for ImpgCigar {
             (op, len)
         });
 
-        // if self.query_strand.is_rev() {
-        //     let iter = iter.rev();
-        //     Box::new(iter)
-        // } else {
         Box::new(iter)
-        // }
     }
 
     fn iter_target_range(
@@ -258,31 +262,23 @@ impl super::IndexedCigar for ImpgCigar {
         if let Some(iter) = self.iter_target_range_impl(target_range) {
             Box::new(iter)
         } else {
-            let iter = std::iter::empty();
-            Box::new(iter)
+            Box::new(std::iter::empty())
         }
-        // let iter = self.iter_target_range_impl(target_range).unwrap();
-        // Box::new(iter)
     }
 }
 
 pub struct ImpgCigarIter {
-    target_offset: u64,
-    query_offset: u64,
-
-    target: coitrees::Interval<u32>,
-    query: coitrees::Interval<u32>,
-
+    target_range: std::ops::Range<u64>,
+    query_range: std::ops::Range<u64>,
     cigar: VecDeque<impg::impg::CigarOp>,
-    // cigar: AdjustedInterval,
-    // cigar: Vec<u8>,
 }
 
 impl Iterator for ImpgCigarIter {
     type Item = super::CigarIterItem;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.target.first >= self.target.last {
+        if self.target_range.end == self.target_range.start {
+            // if self.target.first >= self.target.last {
             return None;
         }
 
@@ -291,17 +287,15 @@ impl Iterator for ImpgCigarIter {
         let op = super::CigarOp::try_from(next_op.op()).ok()?;
         let op_count = next_op.len() as u32;
 
-        let tgt_start = self.target.first as u64 - self.target_offset;
-        let tgt_len = op.consumes_target().then_some(op_count).unwrap_or_default();
-        let tgt_end = tgt_start + tgt_len as u64;
-        // let tgt_end = tgt_start + op_count as u64;
+        let tgt_len = op.consumes_target().then_some(op_count).unwrap_or(0) as u64;
+        let qry_len = op.consumes_query().then_some(op_count).unwrap_or(0) as u64;
 
-        let qry_start = self.query.first as u64 - self.query_offset;
-        let qry_len = op.consumes_query().then_some(op_count).unwrap_or_default();
-        let qry_end = qry_start + qry_len as u64;
-        // let qry_end = qry_start + op_count as u64;
+        let tgt_start = self.target_range.start;
+        let tgt_end = tgt_start + tgt_len;
 
-        // NB: maybe an off-by-one here; fix later
+        let qry_start = self.query_range.start;
+        let qry_end = qry_start + qry_len;
+
         let item = super::CigarIterItem {
             target_range: tgt_start..tgt_end,
             query_range: qry_start..qry_end,
@@ -309,8 +303,8 @@ impl Iterator for ImpgCigarIter {
             op_count,
         };
 
-        self.target.first += tgt_len as i32;
-        self.query.first += qry_len as i32;
+        self.target_range.start = tgt_end.min(self.target_range.end);
+        self.query_range.start = qry_end.min(self.query_range.end);
 
         Some(item)
     }
