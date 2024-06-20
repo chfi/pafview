@@ -249,10 +249,6 @@ pub fn line_vertices_from_cigar(
             }
         };
 
-        if tgt_end < tgt_start || qry_end < qry_start {
-            dbg!(tgt_start..tgt_end);
-            dbg!(qry_start..qry_end);
-        }
         let tgt_range = location.map_from_aligned_target_range(tgt_start..tgt_end);
         let qry_range = location.map_from_aligned_query_range(qry_start..qry_end);
 

@@ -12,7 +12,7 @@ use rustc_hash::FxHashMap;
 use crate::sequences::{SeqId, Sequences};
 
 pub struct ImpgIndex {
-    impg: Arc<Impg>,
+    pub impg: Arc<Impg>,
 
     paf_path: PathBuf,
     // cigar_range_index: FxHashMap<(SeqId, SeqId), std::ops::Range<u64>>,
@@ -89,15 +89,9 @@ impl ImpgIndex {
         pair_cigars
     }
 
-    // pub fn impg_cigar_for_pair(&self, target_id: SeqId, query_id: SeqId) -> Option<ImpgCigar> {
-    //     todo!();
-    // }
-
     pub fn deserialize_file(
-        sequences: &Sequences,
         impg_path: impl AsRef<Path>,
         paf_path: impl AsRef<Path>,
-        // paf_path: &str,
     ) -> anyhow::Result<Self> {
         use std::fs::File;
         use std::io::{self, prelude::*};

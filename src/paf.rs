@@ -4,6 +4,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 
 use ultraviolet::DVec2;
 
+use anyhow::anyhow;
+
 use crate::{
     cigar::implicit::ImpgIndex,
     sequences::{SeqId, Sequences},
@@ -271,72 +273,83 @@ impl Alignment {
 }
 
 pub struct Alignments {
-    // pub pairs: FxHashMap<(SeqId, SeqId), Alignment>,
-    // pub pairs: FxHashMap<(SeqId, SeqId), BTreeMap<[u64; 2], Alignment>>,
     pub pairs: FxHashMap<(SeqId, SeqId), Vec<Alignment>>,
 }
 
 pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Sequences)> {
     use std::io::prelude::*;
 
-    let reader = std::fs::File::open(&cli.paf).map(std::io::BufReader::new)?;
-    let mut lines = Vec::new();
+    if let Some(impg_path) = cli.impg.as_ref() {
+        let (alignments, mut sequences) = Alignments::from_impg(impg_path, &cli.paf)
+            .map_err(|e| anyhow!("Error loading PAF and impg index: {e:?}"))?;
 
-    for line in reader.lines() {
-        lines.push(line?);
-    }
-
-    let filter_line = {
-        let target_names = cli
-            .target_seqs
-            .as_ref()
-            .map(|names| names.iter().cloned().collect::<FxHashSet<_>>());
-
-        let query_names = cli
-            .query_seqs
-            .as_ref()
-            .map(|names| names.iter().cloned().collect::<FxHashSet<_>>());
-
-        move |paf_line: &PafLine<&str>| -> bool {
-            if let Some(targets) = &target_names {
-                if !targets.contains(paf_line.tgt_name) {
-                    return false;
-                }
-            }
-
-            if let Some(queries) = &query_names {
-                if !queries.contains(paf_line.query_name) {
-                    return false;
-                }
-            }
-
-            true
+        if let Some(fasta_path) = cli.fasta.as_ref() {
+            sequences
+                .extract_sequences_from_fasta(fasta_path)
+                .map_err(|e| anyhow!("Error loading sequences from FASTA: {e:?}"))?;
         }
-    };
-    println!("parsing {} lines", lines.len());
-    let paf_lines = lines
-        .iter()
-        .filter_map(|s| {
-            let line = parse_paf_line(s.split('\t'))?;
-            filter_line(&line).then_some(line)
-        })
-        .collect::<Vec<_>>();
 
-    let sequences = if let Some(fasta_path) = &cli.fasta {
-        Sequences::from_fasta(fasta_path)?
+        println!("using {} sequences", sequences.len());
+        Ok((alignments, sequences))
     } else {
-        Sequences::from_paf(&paf_lines).unwrap()
-    };
+        let reader = std::fs::File::open(&cli.paf)
+            .map(std::io::BufReader::new)
+            .map_err(|e| anyhow!("Error opening PAF file: {e:?}"))?;
+        let mut lines = Vec::new();
 
-    println!("using {} sequences", sequences.len());
+        for line in reader.lines() {
+            lines.push(line?);
+        }
 
-    let alignments = if let Some(impg_path) = cli.impg.as_ref() {
-        Alignments::from_impg(&sequences, impg_path, &cli.paf)?
-    } else {
-        Alignments::from_paf_lines(&sequences, paf_lines)
-    };
+        let filter_line = {
+            let target_names = cli
+                .target_seqs
+                .as_ref()
+                .map(|names| names.iter().cloned().collect::<FxHashSet<_>>());
 
-    Ok((alignments, sequences))
+            let query_names = cli
+                .query_seqs
+                .as_ref()
+                .map(|names| names.iter().cloned().collect::<FxHashSet<_>>());
+
+            move |paf_line: &PafLine<&str>| -> bool {
+                if let Some(targets) = &target_names {
+                    if !targets.contains(paf_line.tgt_name) {
+                        return false;
+                    }
+                }
+
+                if let Some(queries) = &query_names {
+                    if !queries.contains(paf_line.query_name) {
+                        return false;
+                    }
+                }
+
+                true
+            }
+        };
+
+        let paf_lines = lines
+            .iter()
+            .filter_map(|s| {
+                let line = parse_paf_line(s.split('\t'))?;
+                filter_line(&line).then_some(line)
+            })
+            .collect::<Vec<_>>();
+
+        let sequences = if let Some(fasta_path) = &cli.fasta {
+            Sequences::from_fasta(fasta_path)
+                .map_err(|e| anyhow!("Error building sequence index from FASTA: {e:?}"))?
+        } else {
+            Sequences::from_paf(&paf_lines).unwrap()
+        };
+
+        println!("using {} sequences", sequences.len());
+
+        let alignments = Alignments::from_paf_lines(&sequences, paf_lines);
+
+        Ok((alignments, sequences))
+    }
 }
 
 impl Alignments {
@@ -366,13 +379,15 @@ impl Alignments {
     }
 
     pub fn from_impg(
-        sequences: &Sequences,
+        // sequences: &Sequences,
         impg_path: impl AsRef<std::path::Path>,
         paf_path: impl AsRef<std::path::Path>,
-    ) -> anyhow::Result<Self> {
-        let impg_index = Arc::new(ImpgIndex::deserialize_file(sequences, impg_path, paf_path)?);
+    ) -> anyhow::Result<(Self, Sequences)> {
+        let impg_index = Arc::new(ImpgIndex::deserialize_file(impg_path, paf_path)?);
 
-        let impg_cigars = ImpgIndex::impg_cigars(&impg_index, sequences);
+        let sequences = Sequences::from_impg(&impg_index)?;
+
+        let impg_cigars = ImpgIndex::impg_cigars(&impg_index, &sequences);
 
         let mut pairs: FxHashMap<_, Vec<_>> = FxHashMap::default();
 
@@ -403,7 +418,7 @@ impl Alignments {
             }
         }
 
-        Ok(Self { pairs })
+        Ok((Self { pairs }, sequences))
     }
 }
 

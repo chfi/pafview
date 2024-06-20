@@ -32,7 +32,7 @@ impl AlignmentGrid {
             .filter_map(|als| als.first())
             .map(|al| (al.target_id, al.location.target_total_len))
             .collect::<Vec<_>>();
-        targets.sort_by_key(|(_, l)| std::cmp::Reverse(*l));
+        targets.sort_by_key(|(id, l)| (std::cmp::Reverse(*l), *id));
         targets.dedup_by_key(|(id, _)| *id);
 
         let x_axis = crate::grid::GridAxis::from_index_and_lengths(targets);
@@ -42,7 +42,7 @@ impl AlignmentGrid {
             .filter_map(|als| als.first())
             .map(|al| (al.query_id, al.location.query_total_len))
             .collect::<Vec<_>>();
-        queries.sort_by_key(|(_, l)| std::cmp::Reverse(*l));
+        queries.sort_by_key(|(id, l)| (std::cmp::Reverse(*l), *id));
         queries.dedup_by_key(|(id, _)| *id);
         let y_axis = crate::grid::GridAxis::from_index_and_lengths(queries);
 

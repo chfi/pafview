@@ -9,10 +9,9 @@ use rustc_hash::FxHashMap;
 pub struct SeqId(pub usize);
 
 pub struct Sequences {
-    sequence_names: Arc<bimap::BiMap<String, SeqId>>,
+    pub sequence_names: Arc<bimap::BiMap<String, SeqId>>,
 
-    sequences: FxHashMap<SeqId, SequenceData>,
-    // sequences: Option<FxHashMap<SeqId, Vec<u8>>>,
+    pub sequences: FxHashMap<SeqId, SequenceData>,
 }
 
 impl Sequences {
@@ -65,7 +64,38 @@ impl Sequences {
         })
     }
 
-    pub fn from_fasta<'a>(fasta_path: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
+    pub fn extract_sequences_from_fasta(
+        &mut self,
+        fasta_path: impl AsRef<std::path::Path>,
+    ) -> std::io::Result<()> {
+        let mut fasta_reader = std::fs::File::open(fasta_path)
+            .map(std::io::BufReader::new)
+            .map(noodles::fasta::Reader::new)?;
+
+        for record in fasta_reader.records() {
+            let record = record?;
+            let name = std::str::from_utf8(record.name()).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "Sequence name was not valid UTF-8",
+                )
+            })?;
+
+            let Some(id) = self.sequence_names.get_by_left(name) else {
+                continue;
+            };
+
+            let seq = record.sequence().as_ref().to_vec();
+
+            if let Some(seq_data) = self.sequences.get_mut(&id) {
+                seq_data.seq = Some(seq);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn from_fasta(fasta_path: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
         let mut seq_names = bimap::BiMap::new();
 
         let mut sequences = FxHashMap::default();
@@ -99,6 +129,29 @@ impl Sequences {
 
         Ok(Sequences {
             sequence_names: Arc::new(seq_names),
+            sequences,
+        })
+    }
+
+    pub fn from_impg(index: &crate::implicit::ImpgIndex) -> std::io::Result<Self> {
+        let mut sequence_names = bimap::BiMap::new();
+        let mut sequences = FxHashMap::default();
+
+        for (id, name, len) in index.impg.seq_index.sequences() {
+            let seq_id = SeqId(id as usize);
+
+            let seq_data = SequenceData {
+                name: name.into(),
+                len: len.unwrap() as u64,
+                seq: None,
+            };
+
+            sequence_names.insert(name.into(), seq_id);
+            sequences.insert(seq_id, seq_data);
+        }
+
+        Ok(Self {
+            sequence_names: sequence_names.into(),
             sequences,
         })
     }
