@@ -82,36 +82,6 @@ pub fn main() -> anyhow::Result<()> {
 
     println!("drawing {} alignments", alignments.pairs.len());
 
-    // construct AlignmentGrid
-    // let mut targets = alignments
-    //     .pairs
-    //     .values()
-    //     .map(|al| (al.target_id, al.location.target_total_len))
-    //     .collect::<Vec<_>>();
-    // targets.sort_by_key(|(_, l)| *l);
-    // targets.dedup_by_key(|(id, _)| *id);
-
-    // let x_axis = grid::GridAxis::from_index_and_lengths(targets);
-    // let mut queries = alignments
-    //     .pairs
-    //     .values()
-    //     .map(|al| (al.query_id, al.location.query_total_len))
-    //     .collect::<Vec<_>>();
-    // queries.sort_by_key(|(_, l)| *l);
-    // queries.dedup_by_key(|(id, _)| *id);
-    // let y_axis = grid::GridAxis::from_index_and_lengths(queries);
-
-    // println!(
-    //     "X axis {} tiles, total len {}",
-    //     x_axis.tile_count(),
-    //     x_axis.total_len
-    // );
-    // println!(
-    //     "Y axis {} tiles, total len {}",
-    //     y_axis.tile_count(),
-    //     y_axis.total_len
-    // );
-
     let alignment_grid = AlignmentGrid::from_alignments(&alignments, sequences.names().clone());
     // let alignment_grid = AlignmentGrid::from_axes(&alignments, sequences.names().clone(), x_axis, y_axis);
     // let alignment_grid = AlignmentGrid {
@@ -119,8 +89,6 @@ pub fn main() -> anyhow::Result<()> {
     //     y_axis,
     //     sequence_names: sequences.names().clone(),
     // };
-
-    // TODO replace PafInput everywhere...
 
     let app_config = config::load_app_config().unwrap_or_default();
 
@@ -362,8 +330,6 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
     let mut window_states = AppWindowStates::new(&app.annotations);
 
-    let mut annot_gui_handler = AnnotationGuiHandler::default();
-
     let mut roi_gui = gui::regions::RegionsOfInterestGui::default();
 
     let mut annotation_painter = AnnotationPainter::default();
@@ -373,9 +339,11 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
     let args = pafview::cli::Cli::parse();
 
     if let Some(bed_path) = &args.bed {
-        event_loop_proxy.send_event(AppEvent::LoadAnnotationFile {
-            path: bed_path.into(),
-        });
+        event_loop_proxy
+            .send_event(AppEvent::LoadAnnotationFile {
+                path: bed_path.into(),
+            })
+            .unwrap();
     }
 
     let quit_signal = Arc::new(AtomicBool::from(false));
@@ -393,9 +361,6 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
     // let rstar_match = spatial::RStarMatches::from_paf(&input);
 
     let mut selection_handler = SelectionHandler::default();
-
-    // let mut exact_render_dbg = exact::ExactRenderDebug::default();
-    // let mut exact_render_view_dbg = exact::ExactRenderViewDebug::default();
 
     let mut mouse_down = false;
     let mut last_pos = None;

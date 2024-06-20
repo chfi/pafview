@@ -101,6 +101,12 @@ pub struct SelectionTarget {
     pub result: Arc<Mutex<Option<crate::view::View>>>,
 }
 
+impl std::fmt::Debug for SelectionTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SelectionTarget").finish()
+    }
+}
+
 impl SelectionHandler {
     pub fn has_active_selection_request(&self) -> bool {
         self.selection_target.is_some()

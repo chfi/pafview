@@ -551,8 +551,6 @@ impl PafRenderer {
             .unwrap_or([0, 0]);
 
         if self.last_rendered_view != Some(*view) || front_image_dims != window_dims {
-            self.last_rendered_view = Some(*view);
-
             if view.bp_per_pixel(window_dims[0]) > Self::SCALE_LIMIT_BP_PER_PX {
                 self.submit_draw_matches(
                     device,
@@ -564,6 +562,7 @@ impl PafRenderer {
                 );
             } else {
                 cpu_rasterizer.draw_into_wgpu_texture(device, queue, window_dims, app, view);
+                self.last_rendered_view = Some(*view);
             }
         }
 
@@ -631,6 +630,7 @@ impl PafRenderer {
             self.active_task = None;
             self.draw_states.swap(0, 1);
             self.image_bind_groups.swap(0, 1);
+            self.last_rendered_view = Some(*view);
             debug_assert!(self.draw_states[0].draw_set.is_some());
         }
 

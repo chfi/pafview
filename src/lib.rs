@@ -33,7 +33,7 @@ pub struct PafViewerApp {
     pub app_config: config::AppConfig,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum AppEvent {
     LoadAnnotationFile { path: std::path::PathBuf },
     // AnnotationShapeDisplay {
