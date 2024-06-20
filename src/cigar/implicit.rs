@@ -292,10 +292,14 @@ impl Iterator for ImpgCigarIter {
         let op_count = next_op.len() as u32;
 
         let tgt_start = self.target.first as u64 - self.target_offset;
-        let tgt_end = tgt_start + op_count as u64;
+        let tgt_len = op.consumes_target().then_some(op_count).unwrap_or_default();
+        let tgt_end = tgt_start + tgt_len as u64;
+        // let tgt_end = tgt_start + op_count as u64;
 
         let qry_start = self.query.first as u64 - self.query_offset;
-        let qry_end = qry_start + op_count as u64;
+        let qry_len = op.consumes_query().then_some(op_count).unwrap_or_default();
+        let qry_end = qry_start + qry_len as u64;
+        // let qry_end = qry_start + op_count as u64;
 
         // NB: maybe an off-by-one here; fix later
         let item = super::CigarIterItem {
@@ -305,8 +309,8 @@ impl Iterator for ImpgCigarIter {
             op_count,
         };
 
-        self.target.first += op_count as i32;
-        self.query.first += op_count as i32;
+        self.target.first += tgt_len as i32;
+        self.query.first += qry_len as i32;
 
         Some(item)
     }

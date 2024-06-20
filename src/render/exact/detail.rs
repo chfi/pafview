@@ -270,72 +270,67 @@ pub fn draw_alignments(
             let clamped_target = clamped_range(&grid.x_axis, target_id, view.x_range()).unwrap();
             let clamped_query = clamped_range(&grid.y_axis, query_id, view.y_range()).unwrap();
 
-            // TODO make this not bad
-            let alignment = pair_alignments.iter().find(|al| {
-                let loc = &al.location;
-                let x = (clamped_target.start as f64 + clamped_target.end as f64) * 0.5;
-                let x = x as u64;
-                x >= loc.target_range.start && x <= loc.target_range.end
+            let visible_alignments = pair_alignments.iter().filter(|al| {
+                let loc = &al.location.target_range;
+                let screen = &clamped_target;
+                loc.end > screen.start && loc.start < screen.end
             });
-            dbg!(&alignment);
 
-            let Some(alignment) = alignment else {
-                continue;
-            };
+            for alignment in visible_alignments {
+                // world coordinates of the visible screen rectangle corresponding to this alignment
+                let world_min = map_to_point(
+                    target_id,
+                    query_id,
+                    clamped_target.start,
+                    clamped_query.start,
+                );
+                let world_max =
+                    map_to_point(target_id, query_id, clamped_target.end, clamped_query.end);
 
-            // world coordinates of the visible screen rectangle corresponding to this alignment
-            let world_min = map_to_point(
-                target_id,
-                query_id,
-                clamped_target.start,
-                clamped_query.start,
-            );
-            let world_max =
-                map_to_point(target_id, query_id, clamped_target.end, clamped_query.end);
+                let s0 = view.map_world_to_screen(screen_dims, world_min);
+                let s1 = view.map_world_to_screen(screen_dims, world_max);
 
-            let s0 = view.map_world_to_screen(screen_dims, world_min);
-            let s1 = view.map_world_to_screen(screen_dims, world_max);
+                let screen_max = s0.max_by_component(s1);
+                let screen_min = s0.min_by_component(s1);
 
-            let screen_max = s0.max_by_component(s1);
-            let screen_min = s0.min_by_component(s1);
+                let screen_size = screen_max - screen_min;
+                let px_per_bp = screen_size.x / (clamped_target.end - clamped_target.start) as f32;
 
-            let screen_size = screen_max - screen_min;
-            let px_per_bp = screen_size.x / (clamped_target.end - clamped_target.start) as f32;
+                let dst_size = Vec2::new(px_per_bp, px_per_bp);
 
-            let dst_size = Vec2::new(px_per_bp, px_per_bp);
+                let seqs = sequence_getter(target_id, query_id);
 
-            let seqs = sequence_getter(target_id, query_id);
+                let x_global_start = grid.x_axis.sequence_offset(target_id).unwrap();
+                let y_global_start = grid.y_axis.sequence_offset(query_id).unwrap();
+                let seq_global_offset = DVec2::new(x_global_start as f64, y_global_start as f64);
 
-            let x_global_start = grid.x_axis.sequence_offset(target_id).unwrap();
-            let y_global_start = grid.y_axis.sequence_offset(query_id).unwrap();
-            let seq_global_offset = DVec2::new(x_global_start as f64, y_global_start as f64);
+                for item in alignment.iter_target_range(clamped_target.clone()) {
+                    let op = item.op;
 
-            for item in alignment.iter_target_range(clamped_target.clone()) {
-                let op = item.op;
+                    let mut c = 0;
+                    for [tgt, qry] in item {
+                        if c == 0 {
+                            println!("step: [{tgt}, {qry}]");
+                        }
+                        c += 1;
+                        let nucls = seqs(op, tgt, qry);
 
-                let mut c = 0;
-                for [tgt, qry] in item {
-                    if c == 0 {
-                        println!("step: [{tgt}, {qry}]");
+                        let world_offset = seq_global_offset + [tgt as f64, qry as f64].into();
+                        let dst_offset = view.map_world_to_screen(screen_dims, world_offset);
+
+                        let Some(tile) = tile_buffers.get(&(op, nucls)) else {
+                            log::error!("Did not find tile for ({op:?}, {nucls:?}");
+                            continue;
+                        };
+
+                        tile.sample_subimage_nn_into(
+                            &mut dst_pixels,
+                            dst_offset.into(),
+                            dst_size.into(),
+                            [0, 0],
+                            [TILE_BUFFER_SIZE as u32, TILE_BUFFER_SIZE as u32],
+                        );
                     }
-                    c += 1;
-                    let nucls = seqs(op, tgt, qry);
-
-                    let world_offset = seq_global_offset + [tgt as f64, qry as f64].into();
-                    let dst_offset = view.map_world_to_screen(screen_dims, world_offset);
-
-                    let Some(tile) = tile_buffers.get(&(op, nucls)) else {
-                        log::error!("Did not find tile for ({op:?}, {nucls:?}");
-                        continue;
-                    };
-
-                    tile.sample_subimage_nn_into(
-                        &mut dst_pixels,
-                        dst_offset.into(),
-                        dst_size.into(),
-                        [0, 0],
-                        [TILE_BUFFER_SIZE as u32, TILE_BUFFER_SIZE as u32],
-                    );
                 }
             }
         }
@@ -343,17 +338,3 @@ pub fn draw_alignments(
 
     Some(dst_pixels)
 }
-
-/*
-pub fn draw_alignments_impg(
-    tile_buffers: &FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>,
-    sequences: &crate::sequences::Sequences,
-    grid: &crate::AlignmentGrid,
-    alignments: &crate::paf::Alignments,
-    view: &crate::view::View,
-    canvas_size: impl Into<UVec2>,
-) -> Option<PixelBuffer> {
-    //
-    todo!();
-}
-*/
