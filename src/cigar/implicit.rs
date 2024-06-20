@@ -180,19 +180,9 @@ impl ImpgCigar {
     // iter_target_range(&self, target_range: std::ops::Range<u64>) ->
 
     fn iter_full_cigar_impl(&self) -> std::io::Result<Vec<impg::impg::CigarOp>> {
-        // ) -> std::io::Result<impl Iterator<Item = (crate::CigarOp, u32)> + '_> {
-
         let tree = self.impg.impg.trees.get(&self.impg_target_id).unwrap();
 
-        // let cigar_range = tree
-        //     .iter()
-        //     .find_map(|interval| {
-        //         let meta = interval.metadata;
-        //         let start = meta.cigar_offset;
-        //         let end = meta.cigar_offset + meta.cigar_bytes as u64;
-        //         (interval.metadata.query_id == self.impg_query_id).then_some(start..end)
-        //     })
-        //     .unwrap();
+        // TODO support bgzipped paf
 
         let (interval, query_range) = tree
             .iter()
@@ -200,25 +190,14 @@ impl ImpgCigar {
                 let meta = interval.metadata;
                 let start = meta.query_start as u64;
                 let end = meta.query_end as u64;
-                (interval.metadata.query_id == self.impg_query_id).then_some((interval, start..end))
+                let strand = super::Strand::from(meta.strand);
+
+                (interval.metadata.query_id == self.impg_query_id && strand == self.query_strand)
+                    .then_some((interval, start..end))
             })
             .unwrap();
 
         let cigar = interval.metadata.get_cigar_ops(&self.impg.paf_path, None);
-
-        // for entry in tree.iter() {
-        //     let meta = entry.metadata;
-        //     let query = meta.query_id;
-
-        //     //
-        // }
-
-        // let paf_reader = std::fs::File::open(&self.impg.paf_path).map(std::io::BufReader::new)?;
-        // let query_metadata = self.impg.impg.trees.g
-
-        // paf_reader.seek(pos)
-
-        // TODO support bgzipped paf
 
         Ok(cigar)
     }
@@ -231,26 +210,11 @@ impl ImpgCigar {
         // let interval = self
         //     .query(target_range)
 
-        println!("in iter_target_range_impl");
-        for (a, cg, b) in &query {
-            let cigar = cg
-                .iter()
-                .take(10)
-                .map(|op| {
-                    let c = op.op();
-                    let len = op.len();
-                    format!("{c}{len}")
-                })
-                .collect::<String>();
-            println!("({a:?}, {cigar}..., {b:?}");
-            //
-        }
-
         let interval = query
             .into_iter()
             .find(|(query, _cigar, _target_i_guess)| query.metadata == self.impg_query_id);
 
-        dbg!(&interval);
+        // dbg!(&interval);
         let (query, cigar, target) = interval?;
 
         // let target =
@@ -279,7 +243,12 @@ impl super::IndexedCigar for ImpgCigar {
             (op, len)
         });
 
+        // if self.query_strand.is_rev() {
+        //     let iter = iter.rev();
+        //     Box::new(iter)
+        // } else {
         Box::new(iter)
+        // }
     }
 
     fn iter_target_range(

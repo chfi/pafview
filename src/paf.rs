@@ -245,7 +245,7 @@ impl Iterator for AlignmentIterItem {
 }
 
 impl Alignment {
-    pub fn new(seq_names: &bimap::BiMap<String, SeqId>, paf_line: PafLine<&'_ str>) -> Self {
+    pub fn new(seq_names: &bimap::BiMap<String, SeqId>, paf_line: &PafLine<&'_ str>) -> Self {
         let target_id = *seq_names.get_by_left(paf_line.tgt_name).unwrap();
         let query_id = *seq_names.get_by_left(paf_line.query_name).unwrap();
 
@@ -613,7 +613,7 @@ impl Alignments {
         for paf_line in lines {
             let target_id = sequences.names().get_by_left(paf_line.tgt_name).unwrap();
             let query_id = sequences.names().get_by_left(paf_line.query_name).unwrap();
-            let alignment = Alignment::new(&sequences.names(), paf_line);
+            let alignment = Alignment::new(&sequences.names(), &paf_line);
 
             pairs
                 .entry((*target_id, *query_id))
@@ -696,11 +696,6 @@ impl Alignments {
                     query_strand: impg_cg.query_strand,
                 };
 
-                if location.query_strand.is_rev() {
-                    continue;
-                };
-
-                // log::error!("<IMPG> creating vertices for {pair:?} @ {location:?}");
                 let line_vertices = crate::render::batch::line_vertices_from_cigar(
                     &location,
                     impg_cg.whole_cigar(),
@@ -712,7 +707,6 @@ impl Alignments {
                     location,
                     cigar: Arc::new(impg_cg),
                     cigar_op_line_vertices: line_vertices,
-                    // cigar_op_line_vertices: Vec::new(),
                 };
 
                 pairs.entry(pair).or_default().push(alignment);
@@ -724,43 +718,6 @@ impl Alignments {
         for alignments in pairs.values_mut() {
             alignments.sort_by_key(|al| al.location.target_range.start);
         }
-
-        /*
-        let pairs = impg_cigars
-            .into_iter()
-            .map(|(pair @ (target_id, query_id), impg_cg)| {
-                let tgt_seq = sequences.get(target_id).unwrap();
-                let target_total_len = tgt_seq.len();
-
-                let qry_seq = sequences.get(query_id).unwrap();
-                let query_total_len = qry_seq.len();
-
-                let location = AlignmentLocation {
-                    target_total_len,
-                    target_range: impg_cg.target_range.clone(),
-                    query_total_len,
-                    query_range: impg_cg.query_range.clone(),
-                    query_strand: impg_cg.query_strand,
-                };
-
-                // let line_vertices = crate::render::batch::line_vertices_from_cigar(
-                //     &location,
-                //     impg_cg.whole_cigar(),
-                // );
-
-                let alignment = Alignment {
-                    target_id,
-                    query_id,
-                    location,
-                    cigar: Arc::new(impg_cg),
-                    // cigar_op_line_vertices: line_vertices,
-                    cigar_op_line_vertices: Vec::new(),
-                };
-
-                (pair, alignment)
-            })
-            .collect::<FxHashMap<_, _>>();
-        */
 
         Ok(Self { pairs })
     }
