@@ -1208,7 +1208,7 @@ checksum = "029d73f573d8e8d63e6d5020011d3255b28c3ba85d6cf870a07184ed23de9284"
 [[package]]
 name = "impg"
 version = "0.2.0"
-source = "git+https://github.com/chfi/impg.git?rev=e26abeff366b03bf94bcd83ec75b7dcd1b0fdd73#e26abeff366b03bf94bcd83ec75b7dcd1b0fdd73"
+source = "git+https://github.com/chfi/impg.git?rev=dbedd57f8fed87507f191155758d95e3661ee963#dbedd57f8fed87507f191155758d95e3661ee963"
 dependencies = [
  "bincode",
  "clap",

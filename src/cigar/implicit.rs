@@ -1,12 +1,9 @@
-use std::any::Any;
-use std::borrow::Borrow;
-use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::{collections::VecDeque, path::Path};
 
-use coitrees::{Interval, IntervalTree};
-use impg::impg::{AdjustedInterval, Impg};
+use coitrees::IntervalTree;
+use impg::impg::Impg;
 use rustc_hash::FxHashMap;
 
 use crate::sequences::{SeqId, Sequences};
@@ -32,7 +29,7 @@ impl ImpgIndex {
         println!();
 
         for &key in &keys {
-            let tree = self.impg.trees.get(&key).unwrap();
+            // let tree = self.impg.trees.get(&key).unwrap();
             // for (key, tree) in self.impg.trees.iter() {
             // key ~ target id?
             let tgt_name = self.impg.seq_index.get_name(*key).unwrap();
@@ -60,11 +57,8 @@ impl ImpgIndex {
             for query in tree.iter() {
                 let meta = query.metadata;
 
-                let impg_query_id = meta.query_id;
-                let qry_name = index.impg.seq_index.get_name(impg_query_id).unwrap();
+                let qry_name = index.impg.seq_index.get_name(meta.query_id).unwrap();
                 let qry_id = *sequences.names().get_by_left(qry_name).unwrap();
-                // let target_len = meta.target_end as u64 - meta.target_start as u64;
-                // let query_len = meta.query_end as u64 - meta.query_start as u64;
 
                 let target_range = (meta.target_start as u64)..(meta.target_end as u64);
                 let query_range = (meta.query_start as u64)..(meta.query_end as u64);
@@ -74,15 +68,14 @@ impl ImpgIndex {
                     query_range,
                     query_strand: meta.strand.into(),
                     impg: index.clone(),
+                    impg_meta: meta.clone(),
                     impg_target_id,
-                    impg_query_id,
                 };
 
                 pair_cigars
                     .entry((tgt_id, qry_id))
                     .or_default()
                     .push(impg_cigar);
-                // cigars.insert((tgt_id, qry_id), impg_cigar);
             }
         }
 
@@ -98,7 +91,7 @@ impl ImpgIndex {
         paf_path: impl AsRef<Path>,
     ) -> anyhow::Result<Self> {
         use std::fs::File;
-        use std::io::{self, prelude::*};
+        use std::io;
 
         let impg_reader = File::open(impg_path).map(io::BufReader::new)?;
         let serializable: impg::impg::SerializableImpg = bincode::deserialize_from(impg_reader)
@@ -142,16 +135,14 @@ pub struct ImpgCigar {
     pub query_range: std::ops::Range<u64>,
     pub query_strand: super::Strand,
     impg: Arc<ImpgIndex>,
+    impg_meta: impg::impg::QueryMetadata,
     impg_target_id: u32,
-    impg_query_id: u32,
 }
 
 impl ImpgCigar {
     fn query(&self, range: std::ops::Range<u64>) -> Vec<impg::impg::AdjustedInterval> {
         let start = (self.target_range.start + range.start) as i32;
         let end = (self.target_range.start + range.end) as i32;
-        // let start = range.start as i32;
-        // let end = range.end as i32;
         self.impg.impg.query(self.impg_target_id, start, end)
     }
 
@@ -160,14 +151,8 @@ impl ImpgCigar {
 
         let interval = tree
             .iter()
-            .find_map(|interval| {
-                let meta = interval.metadata;
-                let strand = super::Strand::from(meta.strand);
-
-                (interval.metadata.query_id == self.impg_query_id && strand == self.query_strand)
-                    .then_some(interval)
-            })
-            .unwrap();
+            .find(|interval| interval.metadata == &self.impg_meta)
+            .expect("Interval not found in impg - should be impossible");
 
         let gzi_index = self.impg.paf_bgz_index.as_ref();
         let cigar = interval
@@ -185,7 +170,7 @@ impl ImpgCigar {
 
         let interval = query
             .into_iter()
-            .find(|(query, _cigar, _target_i_guess)| query.metadata == self.impg_query_id);
+            .find(|(query, _cigar, _target_i_guess)| query.metadata == self.impg_meta.query_id);
 
         let (query, cigar, _target) = interval?;
 
@@ -284,17 +269,6 @@ impl Iterator for ImpgCigarIter {
         Some(item)
     }
 }
-
-/*
-pub struct ImpgCigarIter<'cg> {
-    cigar: &'cg ImpgCigar,
-
-    op_index_range: std::ops::Range<usize>,
-    target_range: std::ops::Range<u64>,
-}
-
-impl<'cg> ImpgCigarIter<'cg> {}
-*/
 
 impl From<impg::paf::Strand> for super::Strand {
     fn from(value: impg::paf::Strand) -> Self {
