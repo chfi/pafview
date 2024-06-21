@@ -181,13 +181,21 @@ pub fn draw_cursor_position_rulers_impl(
 
     if let Some((tgt_id, loc_offset)) = grid.x_axis.global_to_axis_exact(world_pt.x as u64) {
         let name = seq_names.get_by_right(&tgt_id).unwrap();
-        let label = format!("{}:{loc_offset}", name);
+        let mut label = format!("{}:{loc_offset}", name);
+        #[cfg(debug_assertions)]
+        {
+            label = format!("({}) {label}", tgt_id.0);
+        }
         draw_ruler_v(painter, window_dims, pos.x, &label);
     }
 
     if let Some((qry_id, loc_offset)) = grid.y_axis.global_to_axis_exact(world_pt.y as u64) {
         let name = seq_names.get_by_right(&qry_id).unwrap();
-        let label = format!("{}:{loc_offset}", name);
+        let mut label = format!("{}:{loc_offset}", name);
+        #[cfg(debug_assertions)]
+        {
+            label = format!("({}) {label}", qry_id.0);
+        }
         draw_ruler_h(painter, window_dims, pos.y, &label);
     }
 }
