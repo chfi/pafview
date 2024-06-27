@@ -471,23 +471,14 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                         }
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
-                        if let PhysicalKey::Code(KeyCode::F12) = event.physical_key {
+                        if let PhysicalKey::Code(KeyCode::Escape) = event.physical_key {
                             if event.state != ElementState::Pressed {
                                 return;
                             }
-                            app_view = initial_view;
-
-                            /*
-                            // if event.state
-                            let [w, h]: [u32; 2] = window.inner_size().into();
-                            let path = "screenshot.png";
-                            log::info!("taking screenshot");
-                            match write_png(&app.paf_input, &app_view, w as usize, h as usize, path)
-                            {
-                                Ok(_) => log::info!("wrote screenshot to {path}"),
-                                Err(e) => log::info!("error writing screenshot: {e:?}"),
-                            }
-                            */
+                            app_view = app_view.fit_ranges_in_view_f64(
+                                Some(initial_view.x_range()),
+                                Some(initial_view.y_range()),
+                            );
                         }
                     }
                     WindowEvent::MouseWheel { delta, phase, .. } => match delta {
