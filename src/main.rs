@@ -506,11 +506,12 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                     WindowEvent::CursorMoved { position, .. } => {
                         let pos = DVec2::new(position.x, position.y);
                         if mouse_down {
-                            // TODO make panning 1-to-1
-                            // let vwidth = 2.0 / projection[0][0];
-                            // let vheight = 2.0 / projection[1][1];
                             if let Some(last) = last_pos {
                                 delta = (pos - last) * DVec2::new(1.0, -1.0);
+                                let win_size: [u32; 2] = window.inner_size().into();
+                                let dx = -delta.x * app_view.width() / win_size[0] as f64;
+                                let dy = -delta.y * app_view.height() / win_size[1] as f64;
+                                app_view.translate(dx, dy);
                             }
                             last_pos = Some(pos);
                         }
@@ -545,11 +546,13 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
                         let screen_size = egui_renderer.context.screen_rect().size();
 
+                        /*
                         if delta.x != 0.0 || delta.y != 0.0 {
                             let dx = -delta.x * app_view.width() / win_size[0] as f64;
                             let dy = -delta.y * app_view.height() / win_size[1] as f64;
                             app_view.translate(dx, dy);
                         }
+                         */
 
                         if delta_scale != 1.0 {
                             if let Some(pos) = egui_renderer.context.pointer_latest_pos() {
