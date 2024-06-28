@@ -16,7 +16,7 @@ use std::{
 use ultraviolet::{DVec2, Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
-    event::{ElementState, Event, MouseButton, WindowEvent},
+    event::{ElementState, Event, MouseButton, WindowEvent, Modifiers},
     event_loop::{EventLoop, EventLoopBuilder},
     keyboard::{KeyCode, PhysicalKey},
     window::Window,
@@ -104,6 +104,31 @@ pub fn main() -> anyhow::Result<()> {
     start_window(app);
 
     Ok(())
+}
+
+use std::collections::HashSet;
+
+struct InputState {
+    pressed_keys: HashSet<KeyCode>,
+}
+
+impl InputState {
+    fn new() -> Self {
+        Self {
+            pressed_keys: HashSet::new(),
+        }
+    }
+
+    fn update(&mut self, key: KeyCode, state: ElementState) {
+        match state {
+            ElementState::Pressed => self.pressed_keys.insert(key),
+            ElementState::Released => self.pressed_keys.remove(&key),
+        };
+    }
+
+    fn is_pressed(&self, key: KeyCode) -> bool {
+        self.pressed_keys.contains(&key)
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd, Pod, Zeroable)]
@@ -357,6 +382,10 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
     .expect("Error setting Ctrl-C handler");
     // }
 
+    let mut modifiers = Modifiers::default();
+
+    let mut input_state = InputState::new();
+
     // TODO build this on a separate thread
     // let rstar_match = spatial::RStarMatches::from_paf(&input);
 
@@ -471,6 +500,9 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                         }
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
+                        if let PhysicalKey::Code(key_code) = event.physical_key {
+                            input_state.update(key_code, event.state);
+                        }
                         if let PhysicalKey::Code(KeyCode::Escape) = event.physical_key {
                             if event.state != ElementState::Pressed {
                                 return;
@@ -480,23 +512,62 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 Some(initial_view.y_range()),
                             );
                         }
+                        // handle keyboard panning
+                        let pressed = event.state == ElementState::Pressed;
+                        if pressed {
+                            let pan_speed = if input_state.is_pressed(KeyCode::ShiftLeft) || input_state.is_pressed(KeyCode::ShiftRight) {
+                                50.0 // Fast
+                            } else if input_state.is_pressed(KeyCode::ControlLeft) || input_state.is_pressed(KeyCode::ControlRight) {
+                                2.5 // Slow
+                            } else {
+                                10.0 // Normal speed
+                            };
+                            
+                            let mut dx = 0.0_f64;
+                            let mut dy = 0.0_f64;
+
+                            if input_state.is_pressed(KeyCode::ArrowLeft) { dx -= pan_speed; }
+                            if input_state.is_pressed(KeyCode::ArrowRight) { dx += pan_speed; }
+                            if input_state.is_pressed(KeyCode::ArrowUp) { dy += pan_speed; }
+                            if input_state.is_pressed(KeyCode::ArrowDown) { dy -= pan_speed; }
+
+                            let win_size: [u32; 2] = window.inner_size().into();
+                            dx *= app_view.width() / win_size[0] as f64;
+                            dy *= app_view.height() / win_size[1] as f64;
+                            
+                            // Apply the movement
+                            app_view.translate(dx, dy);
+                        }
                     }
-                    WindowEvent::MouseWheel { delta, phase, .. } => match delta {
-                        winit::event::MouseScrollDelta::LineDelta(x, y) => {
-                            delta_scale = 1.0 - y as f64 * 0.01;
-                        }
-                        winit::event::MouseScrollDelta::PixelDelta(xy) => {
-                            delta_scale = 1.0 - xy.y * 0.001;
-                        }
+                    WindowEvent::ModifiersChanged(new_modifiers) => {
+                        modifiers = new_modifiers;
+                    }
+                    WindowEvent::MouseWheel { delta, .. } => {
+                        let zoom_factor = match delta {
+                            winit::event::MouseScrollDelta::LineDelta(_, y) => y as f64,
+                            winit::event::MouseScrollDelta::PixelDelta(xy) => xy.y * 0.001_f64,
+                        };
+
+                        let base_zoom_speed = 0.05_f64; // Increased from 0.01 for faster default zoom
+                        let zoom_multiplier = if modifiers.state().shift_key() {
+                            10.0_f64 // Fast zoom when Shift is pressed
+                        } else if modifiers.state().control_key() {
+                            0.1_f64 // Slow zoom when Ctrl is pressed
+                        } else {
+                            1.0_f64 // Normal zoom otherwise
+                        };
+
+                        delta_scale = 1.0 - zoom_factor * base_zoom_speed * zoom_multiplier;
                     },
                     WindowEvent::CursorMoved { position, .. } => {
                         let pos = DVec2::new(position.x, position.y);
                         if mouse_down {
-                            // TODO make panning 1-to-1
-                            // let vwidth = 2.0 / projection[0][0];
-                            // let vheight = 2.0 / projection[1][1];
                             if let Some(last) = last_pos {
                                 delta = (pos - last) * DVec2::new(1.0, -1.0);
+                                let win_size: [u32; 2] = window.inner_size().into();
+                                let dx = -delta.x * app_view.width() / win_size[0] as f64;
+                                let dy = -delta.y * app_view.height() / win_size[1] as f64;
+                                app_view.translate(dx, dy);
                             }
                             last_pos = Some(pos);
                         }
@@ -531,11 +602,13 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
                         let screen_size = egui_renderer.context.screen_rect().size();
 
+                        /*
                         if delta.x != 0.0 || delta.y != 0.0 {
                             let dx = -delta.x * app_view.width() / win_size[0] as f64;
                             let dy = -delta.y * app_view.height() / win_size[1] as f64;
                             app_view.translate(dx, dy);
                         }
+                         */
 
                         if delta_scale != 1.0 {
                             if let Some(pos) = egui_renderer.context.pointer_latest_pos() {
