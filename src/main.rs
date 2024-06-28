@@ -106,6 +106,31 @@ pub fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+use std::collections::HashSet;
+
+struct InputState {
+    pressed_keys: HashSet<KeyCode>,
+}
+
+impl InputState {
+    fn new() -> Self {
+        Self {
+            pressed_keys: HashSet::new(),
+        }
+    }
+
+    fn update(&mut self, key: KeyCode, state: ElementState) {
+        match state {
+            ElementState::Pressed => self.pressed_keys.insert(key),
+            ElementState::Released => self.pressed_keys.remove(&key),
+        };
+    }
+
+    fn is_pressed(&self, key: KeyCode) -> bool {
+        self.pressed_keys.contains(&key)
+    }
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, PartialOrd, Pod, Zeroable)]
 #[repr(C)]
 struct LineVertex {
@@ -359,6 +384,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
     let mut modifiers = Modifiers::default();
 
+    let mut input_state = InputState::new();
+
     // TODO build this on a separate thread
     // let rstar_match = spatial::RStarMatches::from_paf(&input);
 
@@ -473,6 +500,9 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                         }
                     }
                     WindowEvent::KeyboardInput { event, .. } => {
+                        if let PhysicalKey::Code(key_code) = event.physical_key {
+                            input_state.update(key_code, event.state);
+                        }
                         if let PhysicalKey::Code(KeyCode::Escape) = event.physical_key {
                             if event.state != ElementState::Pressed {
                                 return;
@@ -482,10 +512,36 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 Some(initial_view.y_range()),
                             );
                         }
+                        // handle keyboard panning
+                        let pressed = event.state == ElementState::Pressed;
+                        if pressed {
+                            let pan_speed = if input_state.is_pressed(KeyCode::ShiftLeft) || input_state.is_pressed(KeyCode::ShiftRight) {
+                                50.0 // Fast
+                            } else if input_state.is_pressed(KeyCode::ControlLeft) || input_state.is_pressed(KeyCode::ControlRight) {
+                                2.5 // Slow
+                            } else {
+                                10.0 // Normal speed
+                            };
+                            
+                            let mut dx = 0.0_f64;
+                            let mut dy = 0.0_f64;
+
+                            if input_state.is_pressed(KeyCode::ArrowLeft) { dx -= pan_speed; }
+                            if input_state.is_pressed(KeyCode::ArrowRight) { dx += pan_speed; }
+                            if input_state.is_pressed(KeyCode::ArrowUp) { dy += pan_speed; }
+                            if input_state.is_pressed(KeyCode::ArrowDown) { dy -= pan_speed; }
+
+                            let win_size: [u32; 2] = window.inner_size().into();
+                            dx *= app_view.width() / win_size[0] as f64;
+                            dy *= app_view.height() / win_size[1] as f64;
+                            
+                            // Apply the movement
+                            app_view.translate(dx, dy);
+                        }
                     }
                     WindowEvent::ModifiersChanged(new_modifiers) => {
                         modifiers = new_modifiers;
-                    },
+                    }
                     WindowEvent::MouseWheel { delta, .. } => {
                         let zoom_factor = match delta {
                             winit::event::MouseScrollDelta::LineDelta(_, y) => y as f64,
