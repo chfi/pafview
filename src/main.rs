@@ -16,7 +16,7 @@ use std::{
 use ultraviolet::{DVec2, Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
-    event::{ElementState, Event, MouseButton, WindowEvent},
+    event::{ElementState, Event, MouseButton, WindowEvent, Modifiers},
     event_loop::{EventLoop, EventLoopBuilder},
     keyboard::{KeyCode, PhysicalKey},
     window::Window,
@@ -357,6 +357,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
     .expect("Error setting Ctrl-C handler");
     // }
 
+    let mut modifiers = Modifiers::default();
+
     // TODO build this on a separate thread
     // let rstar_match = spatial::RStarMatches::from_paf(&input);
 
@@ -481,6 +483,27 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                             );
                         }
                     }
+                    WindowEvent::ModifiersChanged(new_modifiers) => {
+                        modifiers = new_modifiers;
+                    },
+                    WindowEvent::MouseWheel { delta, .. } => {
+                        let zoom_factor = match delta {
+                            winit::event::MouseScrollDelta::LineDelta(_, y) => y as f64,
+                            winit::event::MouseScrollDelta::PixelDelta(xy) => xy.y * 0.001,
+                        };
+
+                        let base_zoom_speed = 0.05; // Increased from 0.01 for faster default zoom
+                        let zoom_multiplier = if modifiers.state().shift_key() {
+                            10.0 // Fast zoom when Shift is pressed
+                        } else if modifiers.state().control_key() {
+                            0.1 // Slow zoom when Ctrl is pressed
+                        } else {
+                            1.0 // Normal zoom otherwise
+                        };
+
+                        delta_scale = 1.0 - zoom_factor * base_zoom_speed * zoom_multiplier;
+                    },
+                            /*
                     WindowEvent::MouseWheel { delta, phase, .. } => match delta {
                         winit::event::MouseScrollDelta::LineDelta(x, y) => {
                             delta_scale = 1.0 - y as f64 * 0.01;
@@ -488,7 +511,8 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                         winit::event::MouseScrollDelta::PixelDelta(xy) => {
                             delta_scale = 1.0 - xy.y * 0.001;
                         }
-                    },
+                },
+                    */
                     WindowEvent::CursorMoved { position, .. } => {
                         let pos = DVec2::new(position.x, position.y);
                         if mouse_down {
