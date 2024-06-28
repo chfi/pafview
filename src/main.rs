@@ -489,30 +489,20 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                     WindowEvent::MouseWheel { delta, .. } => {
                         let zoom_factor = match delta {
                             winit::event::MouseScrollDelta::LineDelta(_, y) => y as f64,
-                            winit::event::MouseScrollDelta::PixelDelta(xy) => xy.y * 0.001,
+                            winit::event::MouseScrollDelta::PixelDelta(xy) => xy.y * 0.001_f64,
                         };
 
-                        let base_zoom_speed = 0.05; // Increased from 0.01 for faster default zoom
+                        let base_zoom_speed = 0.05_f64; // Increased from 0.01 for faster default zoom
                         let zoom_multiplier = if modifiers.state().shift_key() {
-                            10.0 // Fast zoom when Shift is pressed
+                            10.0_f64 // Fast zoom when Shift is pressed
                         } else if modifiers.state().control_key() {
-                            0.1 // Slow zoom when Ctrl is pressed
+                            0.1_f64 // Slow zoom when Ctrl is pressed
                         } else {
-                            1.0 // Normal zoom otherwise
+                            1.0_f64 // Normal zoom otherwise
                         };
 
                         delta_scale = 1.0 - zoom_factor * base_zoom_speed * zoom_multiplier;
                     },
-                            /*
-                    WindowEvent::MouseWheel { delta, phase, .. } => match delta {
-                        winit::event::MouseScrollDelta::LineDelta(x, y) => {
-                            delta_scale = 1.0 - y as f64 * 0.01;
-                        }
-                        winit::event::MouseScrollDelta::PixelDelta(xy) => {
-                            delta_scale = 1.0 - xy.y * 0.001;
-                        }
-                },
-                    */
                     WindowEvent::CursorMoved { position, .. } => {
                         let pos = DVec2::new(position.x, position.y);
                         if mouse_down {
