@@ -20,6 +20,18 @@ pub struct Cli {
     pub impg: Option<PathBuf>,
 
     /// Path to alignment color schemes file
+    ///
+    /// File should be a tab-delimited text file, with the first 9
+    /// columns of each line corresponding (exactly) to an alignment
+    /// in the PAF.
+    ///
+    /// The last column is a comma-separated list of values in the
+    /// format `<op>:<color>:<color>`, where `<op>` is one of `{M, =,
+    /// X, I, D}`, and `<color>` is a hex-formatted RGB color (e.g.
+    /// `#FF1100`).
+    ///
+    /// The first color is the background color, the second the
+    /// foreground color, of the corresponding CIGAR operation.
     #[arg(long)]
     pub color_schemes: Option<PathBuf>,
 
