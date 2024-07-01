@@ -789,7 +789,11 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                     &app_view,
                                 );
 
-                                annotation_painter.draw(ctx, &app_view);
+                                annotation_painter.draw(
+                                    &app.app_config.annotation_draw_config,
+                                    ctx,
+                                    &app_view,
+                                );
                             },
                         );
 

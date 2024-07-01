@@ -17,7 +17,7 @@ pub struct AnnotationDrawConfig {
 impl std::default::Default for AnnotationDrawConfig {
     fn default() -> Self {
         Self {
-            color_region_opacity: 0.3,
+            color_region_opacity: 0.7,
             color_region_border: true,
         }
     }
@@ -113,7 +113,12 @@ impl AnnotationPainter {
         self.enabled[shape_id.0] = enabled;
     }
 
-    pub fn draw(&mut self, ctx: &egui::Context, view: &crate::view::View) {
+    pub fn draw(
+        &mut self,
+        config: &AnnotationDrawConfig,
+        ctx: &egui::Context,
+        view: &crate::view::View,
+    ) {
         //
         let painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Background,
@@ -124,7 +129,7 @@ impl AnnotationPainter {
         for (_id, (annot, enabled)) in std::iter::zip(&self.annotations, &self.enabled).enumerate()
         {
             if *enabled {
-                annot.draw(&mut self.galley_cache, &painter, view, screen_size);
+                annot.draw(config, &mut self.galley_cache, &painter, view, screen_size);
             }
 
             // todo draw labels separately; handle collision/avoid overlap (also handle tooltips, eventually?)
@@ -136,6 +141,7 @@ pub trait DrawAnnotation: std::any::Any {
     fn draw(
         &self,
         // galley_cache: &mut FxHashMap<(String, egui::TextFormat), Arc<Galley>>,
+        config: &AnnotationDrawConfig,
         galley_cache: &mut FxHashMap<String, Arc<Galley>>,
         painter: &egui::Painter,
         view: &crate::view::View,
@@ -159,13 +165,14 @@ impl DrawAnnotation for AnnotationDrawCollection {
     fn draw(
         &self,
         // galley_cache: &mut FxHashMap<(String, egui::TextFormat), Arc<Galley>>,
+        config: &AnnotationDrawConfig,
         galley_cache: &mut FxHashMap<String, Arc<Galley>>,
         painter: &egui::Painter,
         view: &crate::view::View,
         screen_size: egui::Vec2,
     ) {
         for item in self.draw.iter() {
-            item.draw(galley_cache, painter, view, screen_size);
+            item.draw(config, galley_cache, painter, view, screen_size);
         }
     }
 
@@ -196,10 +203,11 @@ pub struct AnnotationLabel {
 impl DrawAnnotation for AnnotationLabel {
     fn draw(
         &self,
+        _config: &AnnotationDrawConfig,
         galley_cache: &mut FxHashMap<String, Arc<Galley>>,
         painter: &egui::Painter,
-        view: &crate::view::View,
-        screen_size: egui::Vec2,
+        _view: &crate::view::View,
+        _screen_size: egui::Vec2,
     ) {
         if !galley_cache.contains_key(&self.text) {
             let mut job = egui::text::LayoutJob::default();
@@ -246,7 +254,7 @@ pub struct AnnotationWorldRegion {
 impl DrawAnnotation for AnnotationWorldRegion {
     fn draw(
         &self,
-        // galley_cache: &mut FxHashMap<(String, egui::TextFormat), Arc<Galley>>,
+        config: &AnnotationDrawConfig,
         _galley_cache: &mut FxHashMap<String, Arc<Galley>>,
         painter: &egui::Painter,
         view: &crate::view::View,
@@ -288,7 +296,13 @@ impl DrawAnnotation for AnnotationWorldRegion {
             rect.set_height(1.0);
         }
 
-        painter.rect_filled(rect, 0.0, self.color);
+        let fill_color = self.color.gamma_multiply(config.color_region_opacity);
+
+        if config.color_region_border {
+            painter.rect(rect, 0.0, fill_color, (1.0, self.color));
+        } else {
+            painter.rect_filled(rect, 0.0, fill_color);
+        }
     }
 
     fn set_color(&mut self, color: egui::Color32) {
