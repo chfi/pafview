@@ -16,7 +16,7 @@ use std::{
 use ultraviolet::{DVec2, Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use winit::{
-    event::{ElementState, Event, MouseButton, WindowEvent, Modifiers},
+    event::{ElementState, Event, Modifiers, MouseButton, WindowEvent},
     event_loop::{EventLoop, EventLoopBuilder},
     keyboard::{KeyCode, PhysicalKey},
     window::Window,
@@ -515,26 +515,38 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                         // handle keyboard panning
                         let pressed = event.state == ElementState::Pressed;
                         if pressed {
-                            let pan_speed = if input_state.is_pressed(KeyCode::ShiftLeft) || input_state.is_pressed(KeyCode::ShiftRight) {
+                            let pan_speed = if input_state.is_pressed(KeyCode::ShiftLeft)
+                                || input_state.is_pressed(KeyCode::ShiftRight)
+                            {
                                 50.0 // Fast
-                            } else if input_state.is_pressed(KeyCode::ControlLeft) || input_state.is_pressed(KeyCode::ControlRight) {
+                            } else if input_state.is_pressed(KeyCode::ControlLeft)
+                                || input_state.is_pressed(KeyCode::ControlRight)
+                            {
                                 2.5 // Slow
                             } else {
                                 10.0 // Normal speed
                             };
-                            
+
                             let mut dx = 0.0_f64;
                             let mut dy = 0.0_f64;
 
-                            if input_state.is_pressed(KeyCode::ArrowLeft) { dx -= pan_speed; }
-                            if input_state.is_pressed(KeyCode::ArrowRight) { dx += pan_speed; }
-                            if input_state.is_pressed(KeyCode::ArrowUp) { dy += pan_speed; }
-                            if input_state.is_pressed(KeyCode::ArrowDown) { dy -= pan_speed; }
+                            if input_state.is_pressed(KeyCode::ArrowLeft) {
+                                dx -= pan_speed;
+                            }
+                            if input_state.is_pressed(KeyCode::ArrowRight) {
+                                dx += pan_speed;
+                            }
+                            if input_state.is_pressed(KeyCode::ArrowUp) {
+                                dy += pan_speed;
+                            }
+                            if input_state.is_pressed(KeyCode::ArrowDown) {
+                                dy -= pan_speed;
+                            }
 
                             let win_size: [u32; 2] = window.inner_size().into();
                             dx *= app_view.width() / win_size[0] as f64;
                             dy *= app_view.height() / win_size[1] as f64;
-                            
+
                             // Apply the movement
                             app_view.translate(dx, dy);
                         }
@@ -558,7 +570,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                         };
 
                         delta_scale = 1.0 - zoom_factor * base_zoom_speed * zoom_multiplier;
-                    },
+                    }
                     WindowEvent::CursorMoved { position, .. } => {
                         let pos = DVec2::new(position.x, position.y);
                         if mouse_down {
@@ -719,6 +731,14 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                     &app,
                                     &label_physics,
                                     &viewport,
+                                );
+
+                                pafview::gui::config::application_settings_window(
+                                    ctx,
+                                    &mut window_states.config_open,
+                                    &mut app.app_config,
+                                    // &app.alignment_grid,
+                                    // &mut app_view,
                                 );
 
                                 selection_handler.run(ctx, &mut app_view);

@@ -113,14 +113,13 @@ impl ImpgIndex {
             Some(paf_path.with_extension(new_ext))
         });
 
-        let paf_bgz_index = if let Some(bgz_path) = paf_bgz_index_path.as_ref() {
-            Some(
-                noodles::bgzf::gzi::read(bgz_path)
-                    .map_err(|e| anyhow!("Error loading bgzip index for PAF: {e:?}"))?,
-            )
-        } else {
-            None
-        };
+        let paf_bgz_index = paf_bgz_index_path
+            .as_ref()
+            .map(|path| {
+                noodles::bgzf::gzi::read(path)
+                    .map_err(|e| anyhow!("Error loading bgzip index for PAF: {e:?}"))
+            })
+            .transpose()?;
 
         Ok(Self {
             impg: impg.into(),

@@ -2,10 +2,26 @@ use std::sync::Arc;
 
 use egui::Galley;
 use rustc_hash::FxHashMap;
+use serde::{Deserialize, Serialize};
 use ultraviolet::DVec2;
 
 #[allow(unused_imports)]
 use crate::math_conv::*;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AnnotationDrawConfig {
+    pub color_region_opacity: f32,
+    pub color_region_border: bool,
+}
+
+impl std::default::Default for AnnotationDrawConfig {
+    fn default() -> Self {
+        Self {
+            color_region_opacity: 0.3,
+            color_region_border: true,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct AnnotShapeId(usize);

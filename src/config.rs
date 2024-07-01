@@ -9,6 +9,8 @@ pub const CONFIG_FILE_NAME: &'static str = "config.ron";
 pub struct AppConfig {
     pub alignment_line_width: f32,
     pub grid_line_width: f32,
+
+    pub annotation_draw_config: crate::annotations::draw::AnnotationDrawConfig,
 }
 
 impl std::default::Default for AppConfig {
@@ -16,6 +18,8 @@ impl std::default::Default for AppConfig {
         Self {
             alignment_line_width: 8.0,
             grid_line_width: 1.0,
+
+            annotation_draw_config: Default::default(),
         }
     }
 }

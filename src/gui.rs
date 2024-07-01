@@ -3,6 +3,7 @@ use ultraviolet::Vec2;
 
 use crate::{annotations::AnnotationStore, sequences::SeqId, PafViewerApp};
 
+pub mod config;
 pub mod debug;
 pub mod goto;
 pub mod regions;
@@ -230,6 +231,9 @@ impl MenuBar {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
                     let open = &mut window_states.config_open;
+                    if ui.button("Settings").clicked {
+                        *open = !*open;
+                    }
 
                     #[cfg(debug_assertions)]
                     {
