@@ -21,8 +21,9 @@ struct VertexOut {
 @group(0) @binding(0) var<uniform> projection: mat4x4f;
 @group(0) @binding(1) var<uniform> config: VertConfig;
 
-@group(1) @binding(0) var<uniform> model: mat4x4f;
-@group(1) @binding(1) var<uniform> color_scheme: ColorScheme;
+@group(1) @binding(0) var<uniform> color_scheme: ColorScheme;
+
+@group(2) @binding(0) var<uniform> model: mat4x4f;
 
 @vertex
 fn vs_main(

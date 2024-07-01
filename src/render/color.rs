@@ -104,20 +104,20 @@ impl PafColorSchemes {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AlignmentColorScheme {
-    m_fg: egui::Color32,
-    m_bg: egui::Color32,
+    pub m_fg: egui::Color32,
+    pub m_bg: egui::Color32,
 
-    eq_fg: egui::Color32,
-    eq_bg: egui::Color32,
+    pub eq_fg: egui::Color32,
+    pub eq_bg: egui::Color32,
 
-    x_fg: egui::Color32,
-    x_bg: egui::Color32,
+    pub x_fg: egui::Color32,
+    pub x_bg: egui::Color32,
 
-    i_fg: egui::Color32,
-    i_bg: egui::Color32,
+    pub i_fg: egui::Color32,
+    pub i_bg: egui::Color32,
 
-    d_fg: egui::Color32,
-    d_bg: egui::Color32,
+    pub d_fg: egui::Color32,
+    pub d_bg: egui::Color32,
 }
 
 impl AlignmentColorScheme {
@@ -271,13 +271,27 @@ impl AlignmentColorScheme {
     }
 }
 
+#[derive(Default, Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
 pub struct GPUColorScheme {
-    m_fg: [f32; 4],
-    eq_fg: [f32; 4],
-    x_fg: [f32; 4],
-    i_fg: [f32; 4],
-    d_fg: [f32; 4],
+    pub m_fg: [f32; 4],
+    pub eq_fg: [f32; 4],
+    pub x_fg: [f32; 4],
+    pub i_fg: [f32; 4],
+    pub d_fg: [f32; 4],
+}
+
+impl GPUColorScheme {
+    pub fn from_color_scheme(color: &AlignmentColorScheme) -> Self {
+        let map_color = |c: egui::Color32| egui::Rgba::from(c).to_array();
+        Self {
+            m_fg: map_color(color.m_fg),
+            eq_fg: map_color(color.eq_fg),
+            x_fg: map_color(color.x_fg),
+            i_fg: map_color(color.i_fg),
+            d_fg: map_color(color.d_fg),
+        }
+    }
 }
 
 /*

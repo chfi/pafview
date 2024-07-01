@@ -5,10 +5,75 @@ use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 use crate::{sequences::SeqId, IndexedCigar};
 
+use super::{
+    color::{AlignmentColorScheme, GPUColorScheme},
+    lines::LineColorSchemePipeline,
+};
+
 pub struct MatchDrawBatchData {
+    // TODO: the cigars can't be combined if i want to color them separately
     alignment_pair_index: FxHashMap<(SeqId, SeqId), usize>,
 
     buffers: DrawBatchBuffers,
+}
+
+#[derive(Default)]
+pub struct ColorSchemeBuffers {
+    indices: FxHashMap<AlignmentColorScheme, usize>,
+
+    buffers: Vec<wgpu::Buffer>,
+    bind_groups: Vec<wgpu::BindGroup>,
+}
+
+impl ColorSchemeBuffers {
+    pub fn from_color_schemes(
+        device: &wgpu::Device,
+        pipeline: &LineColorSchemePipeline,
+        colors: &super::color::PafColorSchemes,
+    ) -> Self {
+        let mut result = Self::default();
+
+        result.append_color_scheme(device, pipeline, &colors.default);
+
+        for scheme in colors.overrides.values() {
+            result.append_color_scheme(device, pipeline, scheme);
+        }
+
+        result
+    }
+
+    fn append_color_scheme(
+        &mut self,
+        device: &wgpu::Device,
+        pipeline: &LineColorSchemePipeline,
+        color_scheme: &AlignmentColorScheme,
+    ) {
+        if self.indices.contains_key(color_scheme) {
+            return;
+        };
+
+        let ix = self.buffers.len();
+
+        let color_data = GPUColorScheme::from_color_scheme(color_scheme);
+
+        let buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some(&format!("Alignment color scheme #{ix} buffer")),
+            contents: bytemuck::cast_slice(&[color_data]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(&format!("Alignment color scheme #{ix} bind group")),
+            layout: &pipeline.bind_group_layout_1,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: buffer.as_entire_binding(),
+            }],
+        });
+
+        self.indices.insert(color_scheme.clone(), ix);
+        self.buffers.push(buffer);
+        self.bind_groups.push(bind_group);
+    }
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Pod, Zeroable)]
@@ -19,6 +84,72 @@ struct LineVertex {
 }
 
 impl super::PafRenderer {
+    pub(super) fn draw_frame_tiled_color_schemes(
+        line_pipeline: &super::LinePipeline,
+        color_scheme_pipeline: &LineColorSchemePipeline,
+        color_buffers: &ColorSchemeBuffers,
+        alignment_colors: &super::color::PafColorSchemes,
+        batch_data: &MatchDrawBatchData,
+        params: &super::PafDrawSet,
+        uniforms: &super::PafUniforms,
+        identity_uniform: &wgpu::BindGroup,
+        grid_data: &Option<(wgpu::Buffer, wgpu::Buffer, std::ops::Range<u32>)>,
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
+        let attch = if let Some(msaa_view) = &params.framebuffers.msaa_view {
+            wgpu::RenderPassColorAttachment {
+                view: msaa_view,
+                resolve_target: Some(&params.framebuffers.color_view),
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                    store: wgpu::StoreOp::Discard,
+                },
+            }
+        } else {
+            wgpu::RenderPassColorAttachment {
+                view: &params.framebuffers.color_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                    store: wgpu::StoreOp::Store,
+                },
+            }
+        };
+
+        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: None,
+            color_attachments: &[Some(attch)],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        rpass.set_pipeline(&line_pipeline.pipeline);
+
+        if let Some((grid_vertices, grid_colors, grid_instances)) = grid_data {
+            rpass.set_bind_group(0, &uniforms.grid_bind_group, &[]);
+            rpass.set_bind_group(1, identity_uniform, &[]);
+            rpass.set_vertex_buffer(0, grid_vertices.slice(..));
+            rpass.set_vertex_buffer(1, grid_colors.slice(..));
+            rpass.draw(0..6, grid_instances.clone());
+        }
+
+        rpass.set_pipeline(&color_scheme_pipeline.pipeline);
+        rpass.set_bind_group(0, &uniforms.line_bind_group, &[]);
+
+        todo!();
+        /*
+        for (&(_tgt, _qry), &buf_ix) in &batch_data.alignment_pair_index {
+            // if let Some(color_scheme) =
+            // rpass.set_bind_group(1, &col
+            // rpass.set_bind_group(1, &batch_data.buffers.tile_pos_bind_groups[buf_ix], &[]);
+            // rpass.set_vertex_buffer(0, batch_data.buffers.vertex_pos_buffers[buf_ix].slice(..));
+            // rpass.set_vertex_buffer(1, batch_data.buffers.vertex_color_buffers[buf_ix].slice(..));
+            // rpass.draw(0..6, batch_data.buffers.vertex_instances[buf_ix].clone());
+        }
+        */
+    }
+
     pub(super) fn draw_frame_tiled(
         batch_data: &MatchDrawBatchData,
         line_pipeline: &super::LinePipeline,
@@ -69,7 +200,7 @@ impl super::PafRenderer {
         rpass.set_bind_group(0, &uniforms.line_bind_group, &[]);
 
         for (&(_tgt, _qry), &buf_ix) in &batch_data.alignment_pair_index {
-            rpass.set_bind_group(1, &batch_data.buffers.grid_pos_bind_groups[buf_ix], &[]);
+            rpass.set_bind_group(1, &batch_data.buffers.tile_pos_bind_groups[buf_ix], &[]);
             rpass.set_vertex_buffer(0, batch_data.buffers.vertex_pos_buffers[buf_ix].slice(..));
             rpass.set_vertex_buffer(1, batch_data.buffers.vertex_color_buffers[buf_ix].slice(..));
             rpass.draw(0..6, batch_data.buffers.vertex_instances[buf_ix].clone());
@@ -91,7 +222,7 @@ impl MatchDrawBatchData {
         rpass.set_bind_group(0, &uniforms.line_bind_group, &[]);
 
         for (&(_tgt, _qry), &buf_ix) in index {
-            rpass.set_bind_group(1, &buffers.grid_pos_bind_groups[buf_ix], &[]);
+            rpass.set_bind_group(1, &buffers.tile_pos_bind_groups[buf_ix], &[]);
             rpass.set_vertex_buffer(0, buffers.vertex_pos_buffers[buf_ix].slice(..));
             rpass.set_vertex_buffer(1, buffers.vertex_color_buffers[buf_ix].slice(..));
             rpass.draw(0..6, buffers.vertex_instances[buf_ix].clone());
@@ -192,8 +323,8 @@ impl MatchDrawBatchData {
                 }],
             });
 
-            buffers.grid_pos_uniforms.push(pos_uniform);
-            buffers.grid_pos_bind_groups.push(bind_group);
+            buffers.tile_pos_uniforms.push(pos_uniform);
+            buffers.tile_pos_bind_groups.push(bind_group);
         }
 
         Self {
@@ -209,8 +340,8 @@ pub(super) struct DrawBatchBuffers {
     vertex_color_buffers: Vec<wgpu::Buffer>,
     vertex_instances: Vec<std::ops::Range<u32>>,
 
-    grid_pos_uniforms: Vec<wgpu::Buffer>,
-    grid_pos_bind_groups: Vec<wgpu::BindGroup>,
+    tile_pos_uniforms: Vec<wgpu::Buffer>,
+    tile_pos_bind_groups: Vec<wgpu::BindGroup>,
 }
 
 pub fn line_vertices_from_cigar(
