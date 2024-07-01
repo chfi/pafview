@@ -361,6 +361,14 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
     //     exact::CpuViewRasterizerEgui::initialize(fonts)
     // });
     let mut cpu_rasterizer = exact::CpuViewRasterizerEgui::initialize();
+    {
+        cpu_rasterizer
+            .tile_cache
+            .cache_tile_buffers_for(&paf_color_schemes.default);
+        paf_color_schemes.overrides.values().for_each(|colors| {
+            cpu_rasterizer.tile_cache.cache_tile_buffers_for(colors);
+        });
+    }
 
     let mut window_states = AppWindowStates::new(&app.annotations);
 

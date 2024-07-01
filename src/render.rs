@@ -177,7 +177,14 @@ impl PafRenderer {
                     window_dims,
                 );
             } else {
-                cpu_rasterizer.draw_into_wgpu_texture(device, queue, window_dims, app, view);
+                cpu_rasterizer.draw_into_wgpu_texture(
+                    device,
+                    queue,
+                    alignment_colors,
+                    window_dims,
+                    app,
+                    view,
+                );
                 self.last_rendered_view = Some(*view);
             }
         }

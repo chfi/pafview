@@ -1,4 +1,3 @@
-use egui::TextBuffer;
 use rustc_hash::FxHashMap;
 
 use crate::paf::AlignmentIndex;

@@ -281,8 +281,6 @@ impl MatchDrawBatchData {
                         continue;
                     }
 
-                    let is_match = op.is_match();
-
                     let color_ix = match op {
                         M => 0u32,
                         Eq => 1,

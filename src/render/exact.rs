@@ -3,25 +3,33 @@ use std::sync::Arc;
 use rustc_hash::FxHashMap;
 use ultraviolet::{DVec2, UVec2, Vec2};
 
+use crate::paf::AlignmentIndex;
 use crate::render::color::AlignmentColorScheme;
 use crate::{sequences::SeqId, CigarOp};
 
 use crate::PixelBuffer;
 
+use super::color::PafColorSchemes;
+
 // pub mod detail;
 
-#[derive(Default)]
 pub struct CpuViewRasterizerEgui {
-    tile_buffers: TileBuffers,
+    pub tile_cache: TileBufferCache,
 
     pub(super) last_wgpu_texture: Option<(wgpu::Texture, wgpu::TextureView)>,
 }
 
+impl std::default::Default for CpuViewRasterizerEgui {
+    fn default() -> Self {
+        Self::initialize()
+    }
+}
+
 impl CpuViewRasterizerEgui {
     pub fn initialize() -> Self {
-        let tile_buffers = build_op_pixel_buffers();
+        let tile_cache = TileBufferCache::init();
         Self {
-            tile_buffers,
+            tile_cache,
             last_wgpu_texture: None,
         }
     }
@@ -62,6 +70,7 @@ impl CpuViewRasterizerEgui {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        alignment_colors: &PafColorSchemes,
         window_dims: [u32; 2],
         app: &crate::PafViewerApp,
         view: &crate::view::View,
@@ -107,9 +116,9 @@ impl CpuViewRasterizerEgui {
         let grid = &app.alignment_grid;
         let alignments = &app.alignments;
 
-        // if let Some(pixels) = draw_exact_to_cpu_buffer(app, window_dims, view) {
-        if let Some(pixels) = draw_alignments(
-            &self.tile_buffers,
+        if let Some(pixels) = draw_alignments_with_color_schemes(
+            &self.tile_cache,
+            alignment_colors,
             sequences,
             grid,
             alignments,
@@ -259,27 +268,23 @@ impl TileBufferCache {
             // add individual target/query bps for I & D
             // add both bp pairs for M/=/X
 
-            for (op, bg_color) in [
-                (Cg::M, egui::Color32::BLACK),
-                (Cg::Eq, egui::Color32::BLACK),
-                (Cg::X, egui::Color32::RED),
-                (Cg::I, egui::Color32::WHITE),
-                (Cg::D, egui::Color32::WHITE),
-            ] {
+            let ops = [Cg::M, Cg::Eq, Cg::X, Cg::I, Cg::D];
+
+            for &op in &ops {
+                let bg_color = color_scheme.get_bg(op);
                 let buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
                 tiles.insert((op, [None, None]), buffer);
             }
 
             let nucleotides = ['G', 'T', 'C', 'A', 'U', 'N'];
 
-            for (op, bg_color) in [
-                (Cg::I, egui::Color32::WHITE),
-                (Cg::D, egui::Color32::WHITE), // testing
-            ] {
+            for op in [Cg::I, Cg::D] {
+                //
+                let bg_color = color_scheme.get_bg(op);
                 for &nucl in nucleotides.iter() {
                     let mut buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
 
-                    let fg_color = egui::Color32::BLACK;
+                    let fg_color = color_scheme.get_fg(op);
 
                     let x = TILE_BUFFER_SIZE_F * 0.25;
                     draw_char(
@@ -299,17 +304,12 @@ impl TileBufferCache {
                 }
             }
 
-            // TODO Eq should show just one nucleotide
-            for (op, bg_color) in [
-                (Cg::M, egui::Color32::BLACK),
-                (Cg::Eq, egui::Color32::BLACK),
-                (Cg::X, egui::Color32::RED),
-            ] {
+            for op in [Cg::M, Cg::Eq, Cg::X] {
+                let bg_color = color_scheme.get_bg(op);
+                let fg_color = color_scheme.get_fg(op);
                 for &query in nucleotides.iter() {
                     for &target in nucleotides.iter() {
                         let mut buffer = PixelBuffer::new_color(tile_size, tile_size, bg_color);
-
-                        let fg_color = egui::Color32::WHITE;
 
                         let x0 = 0.0;
                         let y0 = -4.0;
@@ -518,6 +518,7 @@ pub(crate) fn build_op_pixel_buffers() -> FxHashMap<(CigarOp, [Option<char>; 2])
     tiles
 }
 
+#[allow(dead_code)]
 fn draw_alignments(
     tile_buffers: &FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>,
     sequences: &crate::sequences::Sequences,
@@ -676,7 +677,7 @@ fn draw_alignments(
 fn draw_alignments_with_color_schemes(
     // tile_buffers: &FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>,
     tile_cache: &TileBufferCache,
-    // alignment_color_schemes:
+    alignment_colors: &PafColorSchemes,
     sequences: &crate::sequences::Sequences,
     grid: &crate::AlignmentGrid,
     alignments: &crate::paf::Alignments,
@@ -757,6 +758,7 @@ fn draw_alignments_with_color_schemes(
 
     for &target_id in &x_tiles {
         for &query_id in &y_tiles {
+            let pair_id = (target_id, query_id);
             let Some(pair_alignments) = alignments.pairs.get(&(target_id, query_id)) else {
                 continue;
             };
@@ -765,15 +767,18 @@ fn draw_alignments_with_color_schemes(
             let clamped_target = clamped_range(&grid.x_axis, target_id, view.x_range()).unwrap();
             let clamped_query = clamped_range(&grid.y_axis, query_id, view.y_range()).unwrap();
 
-            let visible_alignments = pair_alignments.iter().filter(|al| {
+            let visible_alignments = pair_alignments.iter().enumerate().filter(|(_ix, al)| {
                 let loc = &al.location.target_range;
                 let screen = &clamped_target;
                 loc.end > screen.start && loc.start < screen.end
             });
 
-            for alignment in visible_alignments {
-                // TODO pull in from config & context
-                let alignment_color_scheme = AlignmentColorScheme::light_mode();
+            for (ix, alignment) in visible_alignments {
+                let align_ix = AlignmentIndex {
+                    pair: pair_id,
+                    index: ix,
+                };
+                let alignment_color_scheme = alignment_colors.get(align_ix);
 
                 let Some(tile_buffers) = tile_cache.cache.get(&alignment_color_scheme) else {
                     log::error!("Did not find tile buffer for alignment");
