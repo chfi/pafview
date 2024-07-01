@@ -752,8 +752,6 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
 
                                 // gui::debug::line_width_control(ctx, &mut paf_renderer);
 
-                                gui::MenuBar::show(ctx, &app, &mut window_states);
-
                                 // exact_render_view_dbg.show(ctx, &app, win_size, &app_view);
                                 // exact_render_dbg.show(ctx, &app);
 
@@ -781,6 +779,11 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 //     &mut window_states,
                                 // );
                                 // annot_gui_handler.draw_annotations(ctx, &app, &mut app_view);
+                                let menu_bar_rect =
+                                    gui::MenuBar::show(ctx, &app, &mut window_states);
+
+                                let mut clip_rect = ctx.screen_rect();
+                                clip_rect.set_top(menu_bar_rect.bottom());
 
                                 gui::draw_cursor_position_rulers(
                                     &app.alignment_grid,
@@ -792,6 +795,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                                 annotation_painter.draw(
                                     &app.app_config.annotation_draw_config,
                                     ctx,
+                                    clip_rect,
                                     &app_view,
                                 );
                             },

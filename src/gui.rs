@@ -209,8 +209,8 @@ impl MenuBar {
         ctx: &egui::Context,
         app: &PafViewerApp,
         window_states: &mut AppWindowStates,
-    ) {
-        egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
+    ) -> egui::Rect {
+        let resp = egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 if ui.button("Regions of Interest").clicked() {
                     window_states.regions_of_interest_open =
@@ -246,6 +246,8 @@ impl MenuBar {
                 // ui.spacing()
             })
         });
+
+        resp.response.rect
     }
 }
 

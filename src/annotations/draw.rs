@@ -117,13 +117,15 @@ impl AnnotationPainter {
         &mut self,
         config: &AnnotationDrawConfig,
         ctx: &egui::Context,
+        clip_rect: egui::Rect,
         view: &crate::view::View,
     ) {
         //
-        let painter = ctx.layer_painter(egui::LayerId::new(
+        let mut painter = ctx.layer_painter(egui::LayerId::new(
             egui::Order::Background,
             "annotation_painter_painter".into(),
         ));
+        painter.set_clip_rect(clip_rect);
         let screen_size = ctx.screen_rect().size();
 
         for (_id, (annot, enabled)) in std::iter::zip(&self.annotations, &self.enabled).enumerate()
