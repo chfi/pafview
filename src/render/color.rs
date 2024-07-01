@@ -3,6 +3,7 @@ use rustc_hash::FxHashMap;
 
 use crate::paf::AlignmentIndex;
 
+#[derive(Debug)]
 pub struct PafColorSchemes {
     pub overrides: FxHashMap<AlignmentIndex, AlignmentColorScheme>,
     pub default: AlignmentColorScheme,
@@ -18,6 +19,14 @@ impl std::default::Default for PafColorSchemes {
 }
 
 impl PafColorSchemes {
+    pub fn get(&self, alignment: AlignmentIndex) -> &AlignmentColorScheme {
+        if let Some(colors) = self.overrides.get(&alignment) {
+            colors
+        } else {
+            &self.default
+        }
+    }
+
     pub fn from_paf_like(
         sequences: &crate::sequences::Sequences,
         alignments: &crate::paf::Alignments,
@@ -274,22 +283,22 @@ impl AlignmentColorScheme {
 #[derive(Default, Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 #[repr(C)]
 pub struct GPUColorScheme {
-    pub m_fg: [f32; 4],
-    pub eq_fg: [f32; 4],
-    pub x_fg: [f32; 4],
-    pub i_fg: [f32; 4],
-    pub d_fg: [f32; 4],
+    pub m_bg: [f32; 4],
+    pub eq_bg: [f32; 4],
+    pub x_bg: [f32; 4],
+    pub i_bg: [f32; 4],
+    pub d_bg: [f32; 4],
 }
 
 impl GPUColorScheme {
     pub fn from_color_scheme(color: &AlignmentColorScheme) -> Self {
         let map_color = |c: egui::Color32| egui::Rgba::from(c).to_array();
         Self {
-            m_fg: map_color(color.m_fg),
-            eq_fg: map_color(color.eq_fg),
-            x_fg: map_color(color.x_fg),
-            i_fg: map_color(color.i_fg),
-            d_fg: map_color(color.d_fg),
+            m_bg: map_color(color.m_bg),
+            eq_bg: map_color(color.eq_bg),
+            x_bg: map_color(color.x_bg),
+            i_bg: map_color(color.i_bg),
+            d_bg: map_color(color.d_bg),
         }
     }
 }

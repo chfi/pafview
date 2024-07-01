@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crossbeam::channel::{self, Receiver, RecvError, Sender};
 use wgpu::{Device, Queue};
 
+/*
 pub struct PafRendererHandle {
     //
     send: Sender<()>,
@@ -48,3 +49,5 @@ fn start_renderer_thread(
     //
     todo!();
 }
+
+*/

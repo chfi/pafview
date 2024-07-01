@@ -19,6 +19,10 @@ pub struct Cli {
     #[arg(long)]
     pub impg: Option<PathBuf>,
 
+    /// Path to alignment color schemes file
+    #[arg(long)]
+    pub color_schemes: Option<PathBuf>,
+
     /// Optional list of sequences to include as targets (X axis)
     #[arg(long)]
     pub target_seqs: Option<Vec<String>>,

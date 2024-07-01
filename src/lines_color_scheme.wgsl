@@ -6,11 +6,11 @@ struct VertConfig {
 }
 
 struct ColorScheme {
- m_fg: vec4f,
- eq_fg: vec4f,
- x_fg: vec4f,
- i_fg: vec4f,
- d_fg: vec4f,
+ m_bg: vec4f,
+ eq_bg: vec4f,
+ x_bg: vec4f,
+ i_bg: vec4f,
+ d_bg: vec4f,
 }
 
 struct VertexOut {
@@ -74,22 +74,22 @@ fn vs_main(
 
   switch color % 5 {
       case 0u: {
-        result.color = color_scheme.m_fg;
+        result.color = color_scheme.m_bg;
       }
       case 1u: {
-        result.color = color_scheme.eq_fg;
+        result.color = color_scheme.eq_bg;
       }
       case 2u: {
-        result.color = color_scheme.x_fg;
+        result.color = color_scheme.x_bg;
       }
       case 3u: {
-        result.color = color_scheme.i_fg;
+        result.color = color_scheme.i_bg;
       }
       case 4u: {
-        result.color = color_scheme.d_fg;
+        result.color = color_scheme.d_bg;
       }
       default: {
-        result.color = color_scheme.m_fg;
+        result.color = color_scheme.m_bg;
       }
   }
 

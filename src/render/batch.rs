@@ -3,7 +3,7 @@ use rustc_hash::FxHashMap;
 use ultraviolet::{Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
-use crate::{sequences::SeqId, IndexedCigar};
+use crate::{paf::AlignmentIndex, sequences::SeqId, IndexedCigar};
 
 use super::{
     color::{AlignmentColorScheme, GPUColorScheme},
@@ -12,7 +12,8 @@ use super::{
 
 pub struct MatchDrawBatchData {
     // TODO: the cigars can't be combined if i want to color them separately
-    alignment_pair_index: FxHashMap<(SeqId, SeqId), usize>,
+    // alignment_pair_index: FxHashMap<(SeqId, SeqId), usize>,
+    alignment_buffer_index: FxHashMap<crate::paf::AlignmentIndex, usize>,
 
     buffers: DrawBatchBuffers,
 }
@@ -137,9 +138,20 @@ impl super::PafRenderer {
         rpass.set_pipeline(&color_scheme_pipeline.pipeline);
         rpass.set_bind_group(0, &uniforms.line_bind_group, &[]);
 
-        todo!();
-        /*
-        for (&(_tgt, _qry), &buf_ix) in &batch_data.alignment_pair_index {
+        for (&align_ix, &buf_ix) in &batch_data.alignment_buffer_index {
+            let color_scheme = alignment_colors.get(align_ix);
+
+            let Some(color_ix) = color_buffers.indices.get(color_scheme) else {
+                continue;
+            };
+            let color_bind_group = &color_buffers.bind_groups[*color_ix];
+
+            rpass.set_bind_group(1, color_bind_group, &[]);
+            rpass.set_bind_group(2, &batch_data.buffers.tile_pos_bind_groups[buf_ix], &[]);
+            rpass.set_vertex_buffer(0, batch_data.buffers.vertex_pos_buffers[buf_ix].slice(..));
+            rpass.set_vertex_buffer(1, batch_data.buffers.vertex_color_buffers[buf_ix].slice(..));
+            rpass.draw(0..6, batch_data.buffers.vertex_instances[buf_ix].clone());
+
             // if let Some(color_scheme) =
             // rpass.set_bind_group(1, &col
             // rpass.set_bind_group(1, &batch_data.buffers.tile_pos_bind_groups[buf_ix], &[]);
@@ -147,7 +159,6 @@ impl super::PafRenderer {
             // rpass.set_vertex_buffer(1, batch_data.buffers.vertex_color_buffers[buf_ix].slice(..));
             // rpass.draw(0..6, batch_data.buffers.vertex_instances[buf_ix].clone());
         }
-        */
     }
 
     pub(super) fn draw_frame_tiled(
@@ -199,7 +210,7 @@ impl super::PafRenderer {
 
         rpass.set_bind_group(0, &uniforms.line_bind_group, &[]);
 
-        for (&(_tgt, _qry), &buf_ix) in &batch_data.alignment_pair_index {
+        for (_align_ix, &buf_ix) in &batch_data.alignment_buffer_index {
             rpass.set_bind_group(1, &batch_data.buffers.tile_pos_bind_groups[buf_ix], &[]);
             rpass.set_vertex_buffer(0, batch_data.buffers.vertex_pos_buffers[buf_ix].slice(..));
             rpass.set_vertex_buffer(1, batch_data.buffers.vertex_color_buffers[buf_ix].slice(..));
@@ -239,96 +250,104 @@ impl MatchDrawBatchData {
         let mut buffers = DrawBatchBuffers::default();
 
         let mut vertex_position_tmp: Vec<LineVertex> = Vec::new();
-        let mut vertex_color_tmp: Vec<egui::Color32> = Vec::new();
+        // let mut vertex_color_tmp: Vec<egui::Color32> = Vec::new();
+        let mut vertex_color_tmp: Vec<u32> = Vec::new();
 
-        let mut alignment_pair_index = FxHashMap::default();
+        let mut alignment_buffer_index = FxHashMap::default();
 
-        for (&(target_id, query_id), alignments) in alignments.pairs.iter() {
+        for (pair @ &(target_id, query_id), alignments) in alignments.pairs.iter() {
             // for (line_ix, input_line) in input.processed_lines.iter().enumerate() {
-            let buf_ix = buffers.vertex_pos_buffers.len();
 
-            alignment_pair_index.insert((target_id, query_id), buf_ix);
+            for (cg_ix, alignment) in alignments.iter().enumerate() {
+                let buf_ix = buffers.vertex_pos_buffers.len();
 
-            vertex_position_tmp.clear();
-            vertex_color_tmp.clear();
+                let align_ix = AlignmentIndex {
+                    pair: *pair,
+                    index: cg_ix,
+                };
+                alignment_buffer_index.insert(align_ix, buf_ix);
 
-            for alignment in alignments {
+                vertex_position_tmp.clear();
+                vertex_color_tmp.clear();
+
                 let op_line_vertices =
                     line_vertices_from_cigar(&alignment.location, alignment.cigar.whole_cigar());
 
-                // for (&[from, to], &is_match) in alignment.cigar.op_line_vertices.iter()
                 for (&[from, to], (op, _count)) in
                     op_line_vertices.iter().zip(alignment.cigar.whole_cigar())
-                // .zip(alignment.cigar.cigar.iter())
                 {
-                    use crate::CigarOp::{D, I};
+                    use crate::CigarOp::{Eq, D, I, M, X};
                     if matches!(op, I | D) {
                         continue;
                     }
 
                     let is_match = op.is_match();
-                    let color = if is_match {
-                        egui::Color32::BLACK
-                    } else {
-                        egui::Color32::RED
+
+                    let color_ix = match op {
+                        M => 0u32,
+                        Eq => 1,
+                        X => 2,
+                        I => 3,
+                        D => 4,
                     };
 
                     let p0 = Vec2::new(from.x as f32, from.y as f32);
                     let p1 = Vec2::new(to.x as f32, to.y as f32);
 
                     vertex_position_tmp.push(LineVertex { p0, p1 });
-                    vertex_color_tmp.push(color);
+                    vertex_color_tmp.push(color_ix);
                 }
+
+                let match_count = vertex_position_tmp.len();
+
+                let pos_buffer = device.create_buffer_init(&BufferInitDescriptor {
+                    label: None,
+                    contents: bytemuck::cast_slice(&vertex_position_tmp),
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                });
+
+                let color_buffer = device.create_buffer_init(&BufferInitDescriptor {
+                    label: None,
+                    contents: bytemuck::cast_slice(&vertex_color_tmp),
+                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                });
+
+                buffers.vertex_pos_buffers.push(pos_buffer);
+                buffers.vertex_color_buffers.push(color_buffer);
+                buffers.vertex_instances.push(0..match_count as u32);
+
+                let x_offset = alignment_grid
+                    .x_axis
+                    .sequence_offset(target_id)
+                    .unwrap_or_default() as f32;
+                let y_offset = alignment_grid
+                    .y_axis
+                    .sequence_offset(query_id)
+                    .unwrap_or_default() as f32;
+
+                let pos_mat = Mat4::from_translation(Vec3::new(x_offset, y_offset, 0.0));
+                let pos_uniform = device.create_buffer_init(&BufferInitDescriptor {
+                    label: None,
+                    contents: bytemuck::cast_slice(&[pos_mat]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: None,
+                    layout: bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: pos_uniform.as_entire_binding(),
+                    }],
+                });
+
+                buffers.tile_pos_uniforms.push(pos_uniform);
+                buffers.tile_pos_bind_groups.push(bind_group);
             }
-            let match_count = vertex_position_tmp.len();
-
-            let pos_buffer = device.create_buffer_init(&BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(&vertex_position_tmp),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            });
-
-            let color_buffer = device.create_buffer_init(&BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(&vertex_color_tmp),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            });
-
-            buffers.vertex_pos_buffers.push(pos_buffer);
-            buffers.vertex_color_buffers.push(color_buffer);
-            buffers.vertex_instances.push(0..match_count as u32);
-
-            let x_offset = alignment_grid
-                .x_axis
-                .sequence_offset(target_id)
-                .unwrap_or_default() as f32;
-            let y_offset = alignment_grid
-                .y_axis
-                .sequence_offset(query_id)
-                .unwrap_or_default() as f32;
-
-            let pos_mat = Mat4::from_translation(Vec3::new(x_offset, y_offset, 0.0));
-            let pos_uniform = device.create_buffer_init(&BufferInitDescriptor {
-                label: None,
-                contents: bytemuck::cast_slice(&[pos_mat]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: None,
-                layout: bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: pos_uniform.as_entire_binding(),
-                }],
-            });
-
-            buffers.tile_pos_uniforms.push(pos_uniform);
-            buffers.tile_pos_bind_groups.push(bind_group);
         }
 
         Self {
-            alignment_pair_index,
+            alignment_buffer_index,
             buffers,
         }
     }

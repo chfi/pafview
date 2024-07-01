@@ -26,10 +26,10 @@ use std::io::prelude::*;
 
 use anyhow::anyhow;
 
-use pafview::paf;
 use pafview::pixels;
 use pafview::{cigar, AppEvent};
 use pafview::{math_conv, PafViewerApp};
+use pafview::{paf, render::color::PafColorSchemes};
 
 use pafview::config;
 use pafview::config::AppConfig;
@@ -318,10 +318,19 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
         .unwrap();
     surface.configure(&device, &config);
 
+    let args = pafview::cli::Cli::parse();
+
+    let paf_color_schemes = if let Some(path) = args.color_schemes {
+        PafColorSchemes::from_paf_like(&app.sequences, &app.alignments, path).unwrap_or_default()
+    } else {
+        PafColorSchemes::default()
+    };
+
     let mut paf_renderer = PafRenderer::new(
         &device,
         config.format,
         sample_count,
+        &paf_color_schemes,
         // match_buffer,
         // match_color_buffer,
         // match_instances,
@@ -360,8 +369,6 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
     let mut annotation_painter = AnnotationPainter::default();
 
     let event_loop_proxy = event_loop.create_proxy();
-
-    let args = pafview::cli::Cli::parse();
 
     if let Some(bed_path) = &args.bed {
         event_loop_proxy
@@ -693,6 +700,7 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
                             &queue,
                             &app,
                             &mut cpu_rasterizer,
+                            &paf_color_schemes,
                             &match_draw_data,
                             &app_view,
                             win_size,

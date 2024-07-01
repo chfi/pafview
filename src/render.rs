@@ -8,8 +8,11 @@ use wgpu::Texture;
 use wgpu::{CommandEncoder, Device, Queue, TextureFormat, TextureView};
 use winit::{event::WindowEvent, window::Window};
 
+use crate::render::batch::ColorSchemeBuffers;
+
 use self::exact::CpuRasterizerBindGroups;
 use self::exact::CpuViewRasterizerEgui;
+use self::lines::LineColorSchemePipeline;
 
 pub mod batch;
 pub mod color;
@@ -23,6 +26,8 @@ pub use lines::LinePipeline;
 
 pub struct PafRenderer {
     pub line_pipeline: LinePipeline,
+    pub line_color_scheme_pipeline: LineColorSchemePipeline,
+    pub color_scheme_buffers: ColorSchemeBuffers,
     msaa_samples: u32,
 
     pub line_width: f32,
@@ -54,12 +59,16 @@ impl PafRenderer {
         device: &wgpu::Device,
         swapchain_format: wgpu::TextureFormat,
         msaa_samples: u32,
+        alignment_colors: &color::PafColorSchemes,
         // match_vertices: wgpu::Buffer,
         // match_colors: wgpu::Buffer,
         // match_instances: std::ops::Range<u32>,
     ) -> Self {
         log::warn!("initializing PafRenderer");
         let line_pipeline = LinePipeline::new(&device, Self::COLOR_FORMAT, msaa_samples);
+
+        let line_color_scheme_pipeline =
+            LineColorSchemePipeline::new(&device, Self::COLOR_FORMAT, msaa_samples);
 
         let init_state = || PafDrawState::init(device, &line_pipeline.bind_group_layout_0);
 
@@ -93,8 +102,16 @@ impl PafRenderer {
 
         let exact_image_bind_groups = CpuRasterizerBindGroups::new(device, &image_renderer);
 
+        let color_scheme_buffers = ColorSchemeBuffers::from_color_schemes(
+            device,
+            &line_color_scheme_pipeline,
+            alignment_colors,
+        );
+
         Self {
             line_pipeline,
+            line_color_scheme_pipeline,
+            color_scheme_buffers,
             msaa_samples,
 
             line_width: 5.0,
@@ -132,6 +149,7 @@ impl PafRenderer {
         queue: &wgpu::Queue,
         app: &crate::PafViewerApp,
         cpu_rasterizer: &mut CpuViewRasterizerEgui,
+        alignment_colors: &color::PafColorSchemes,
         match_data: &batch::MatchDrawBatchData,
         view: &crate::view::View,
         window_dims: [u32; 2],
@@ -152,6 +170,7 @@ impl PafRenderer {
                 self.submit_draw_matches(
                     device,
                     queue,
+                    alignment_colors,
                     &app.app_config,
                     match_data,
                     view,
@@ -186,6 +205,7 @@ impl PafRenderer {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        // alignment_colors: &color::PafColorSchemes,
         view: &crate::view::View,
         window_dims: [u32; 2],
         swapchain_view: &TextureView,
@@ -216,6 +236,7 @@ impl PafRenderer {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        alignment_colors: &color::PafColorSchemes,
         config: &crate::config::AppConfig,
         match_data: &batch::MatchDrawBatchData,
         view: &crate::view::View,
@@ -290,9 +311,22 @@ impl PafRenderer {
                 label: Some("PafRenderer Lines"),
             });
 
-            Self::draw_frame_tiled(
-                match_data,
+            // Self::draw_frame_tiled(
+            //     match_data,
+            //     &self.line_pipeline,
+            //     draw_set,
+            //     uniforms,
+            //     &self.identity_bind_group,
+            //     &self.grid_data,
+            //     &mut encoder,
+            // );
+
+            Self::draw_frame_tiled_color_schemes(
                 &self.line_pipeline,
+                &self.line_color_scheme_pipeline,
+                &self.color_scheme_buffers,
+                alignment_colors,
+                match_data,
                 draw_set,
                 uniforms,
                 &self.identity_bind_group,
