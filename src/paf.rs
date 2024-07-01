@@ -272,6 +272,12 @@ impl Alignment {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct AlignmentIndex {
+    pub pair: (SeqId, SeqId),
+    pub index: usize,
+}
+
 pub struct Alignments {
     pub pairs: FxHashMap<(SeqId, SeqId), Vec<Alignment>>,
 }
@@ -353,6 +359,11 @@ pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Se
 }
 
 impl Alignments {
+    pub fn get(&self, index: AlignmentIndex) -> Option<&Alignment> {
+        let als = self.pairs.get(&index.pair)?;
+        als.get(index.index)
+    }
+
     pub fn from_paf_lines<'l>(
         // NB: construct Sequences from iterator over PafLines (or FASTA) before
         sequences: &Sequences,
@@ -440,9 +451,9 @@ pub struct PafLine<S> {
 
 pub fn parse_paf_line<'a>(mut fields: impl Iterator<Item = &'a str>) -> Option<PafLine<&'a str>> {
     let (query_name, query_seq_len, query_seq_start, query_seq_end) =
-        parse_name_range(&mut fields)?;
+        parse_paf_name_range(&mut fields)?;
     let strand = fields.next()?;
-    let (tgt_name, tgt_seq_len, tgt_seq_start, tgt_seq_end) = parse_name_range(&mut fields)?;
+    let (tgt_name, tgt_seq_len, tgt_seq_start, tgt_seq_end) = parse_paf_name_range(&mut fields)?;
 
     let cigar = fields.skip(3).find_map(|s| s.strip_prefix("cg:Z:"))?;
 
@@ -462,7 +473,7 @@ pub fn parse_paf_line<'a>(mut fields: impl Iterator<Item = &'a str>) -> Option<P
     })
 }
 
-fn parse_name_range<'a>(
+pub fn parse_paf_name_range<'a>(
     mut fields: impl Iterator<Item = &'a str>,
 ) -> Option<(&'a str, u64, u64, u64)> {
     let name = fields.next()?;

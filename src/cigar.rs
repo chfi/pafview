@@ -324,9 +324,6 @@ impl From<CigarOp> for char {
             CigarOp::Eq => '=',
             CigarOp::D => 'D',
             CigarOp::I => 'I',
-            // CigarOp::S => 'S',
-            // CigarOp::H => 'H',
-            // CigarOp::N => 'N',
         }
     }
 }
@@ -341,26 +338,17 @@ impl TryFrom<char> for CigarOp {
             '=' => Ok(Self::Eq),
             'D' => Ok(Self::D),
             'I' => Ok(Self::I),
-            // 'S' => Ok(Self::S),
-            // 'H' => Ok(Self::H),
-            // 'N' => Ok(Self::N),
             _ => Err("Unknown op"),
         }
     }
 }
 
-// #[derive(Debug)]
 pub struct CigarIndex {
-    // pub target_seq_id: usize,
-    // pub query_seq_id: usize,
-
-    // pub range_in_target_seq: std::ops::Range<u64>,
-    // pub range_in_query_seq: std::ops::Range<u64>,
     pub target_len: u64,
     pub query_len: u64,
     pub query_strand: Strand,
     pub cigar: Cigar,
-    // pub ops: Vec<(CigarOp, u64)>,
+
     pub op_line_vertices: Vec<[DVec2; 2]>,
     pub op_target_offsets: Vec<u64>,
     pub op_query_offsets: Vec<u64>,

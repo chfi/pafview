@@ -17,6 +17,7 @@ use self::exact::CpuRasterizerBindGroups;
 use self::exact::CpuViewRasterizerEgui;
 
 pub mod batch;
+pub mod color;
 pub mod exact;
 pub mod thread;
 
