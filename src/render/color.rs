@@ -271,6 +271,15 @@ impl AlignmentColorScheme {
     }
 }
 
+#[repr(C)]
+pub struct GPUColorScheme {
+    m_fg: [f32; 4],
+    eq_fg: [f32; 4],
+    x_fg: [f32; 4],
+    i_fg: [f32; 4],
+    d_fg: [f32; 4],
+}
+
 /*
 #[cfg(test)]
 mod tests {
