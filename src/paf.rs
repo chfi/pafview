@@ -83,6 +83,7 @@ impl AlignmentLocation {
 pub struct Alignment {
     pub target_id: SeqId,
     pub query_id: SeqId,
+    pub cigar_file_byte_range: std::ops::Range<u64>,
 
     pub location: AlignmentLocation,
     // pub cigar: CigarIndex,
@@ -260,6 +261,7 @@ impl Alignment {
             query_id,
             location,
             // cigar: cigar_index,
+            cigar_file_byte_range: paf_line.cigar_file_range.clone(),
             cigar: Arc::new(cigar_index),
         }
     }
@@ -280,6 +282,8 @@ pub struct AlignmentIndex {
 
 pub struct Alignments {
     pub pairs: FxHashMap<(SeqId, SeqId), Vec<Alignment>>,
+
+    cigar_range_index_map: bimap::BiHashMap<AlignmentIndex, std::ops::Range<u64>>,
 }
 
 pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Sequences)> {
@@ -301,10 +305,18 @@ pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Se
         let reader = std::fs::File::open(&cli.paf)
             .map(std::io::BufReader::new)
             .map_err(|e| anyhow!("Error opening PAF file: {e:?}"))?;
+
         let mut lines = Vec::new();
+        let mut offset = 0u64;
 
         for line in reader.lines() {
-            lines.push(line?);
+            let line = line?;
+            let len = line.as_bytes().len() as u64;
+            let end = offset + len;
+            let range = offset..end;
+            offset += len;
+
+            lines.push((line, range));
         }
 
         let filter_line = {
@@ -337,8 +349,8 @@ pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Se
 
         let paf_lines = lines
             .iter()
-            .filter_map(|s| {
-                let line = parse_paf_line(s.split('\t'))?;
+            .filter_map(|(raw_line, file_range)| {
+                let line = parse_paf_line(raw_line, file_range.start)?;
                 filter_line(&line).then_some(line)
             })
             .collect::<Vec<_>>();
@@ -376,17 +388,27 @@ impl Alignments {
             let query_id = sequences.names().get_by_left(paf_line.query_name).unwrap();
             let alignment = Alignment::new(&sequences.names(), &paf_line);
 
-            pairs
-                .entry((*target_id, *query_id))
-                .or_default()
-                .push(alignment);
+            let pair_id = (*target_id, *query_id);
+
+            pairs.entry(pair_id).or_default().push(alignment);
         }
 
-        for alignments in pairs.values_mut() {
+        let mut cigar_range_index_map: bimap::BiHashMap<AlignmentIndex, std::ops::Range<u64>> =
+            Default::default();
+
+        for (&pair, alignments) in pairs.iter_mut() {
             alignments.sort_by_key(|al| al.location.target_range.start);
+
+            for (index, al) in alignments.iter_mut().enumerate() {
+                let al_ix = AlignmentIndex { pair, index };
+                cigar_range_index_map.insert(al_ix, al.cigar_file_byte_range.clone());
+            }
         }
 
-        Self { pairs }
+        Self {
+            pairs,
+            cigar_range_index_map,
+        }
     }
 
     pub fn from_impg(
@@ -395,6 +417,9 @@ impl Alignments {
         paf_path: impl AsRef<std::path::Path>,
     ) -> anyhow::Result<(Self, Sequences)> {
         let impg_index = Arc::new(ImpgIndex::deserialize_file(impg_path, paf_path)?);
+
+        let cigar_range_index_map: bimap::BiHashMap<AlignmentIndex, std::ops::Range<u64>> =
+            Default::default();
 
         let sequences = Sequences::from_impg(&impg_index)?;
 
@@ -422,6 +447,7 @@ impl Alignments {
                     target_id,
                     query_id,
                     location,
+                    cigar_file_byte_range: impg_cg.cigar_file_byte_range.clone(),
                     cigar: Arc::new(impg_cg),
                 };
 
@@ -429,11 +455,17 @@ impl Alignments {
             }
         }
 
-        Ok((Self { pairs }, sequences))
+        Ok((
+            Self {
+                pairs,
+                cigar_range_index_map,
+            },
+            sequences,
+        ))
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PafLine<S> {
     pub query_name: S,
     pub query_seq_len: u64,
@@ -447,15 +479,26 @@ pub struct PafLine<S> {
 
     pub strand_rev: bool,
     pub cigar: S,
+    pub cigar_file_range: std::ops::Range<u64>,
 }
 
-pub fn parse_paf_line<'a>(mut fields: impl Iterator<Item = &'a str>) -> Option<PafLine<&'a str>> {
-    let (query_name, query_seq_len, query_seq_start, query_seq_end) =
-        parse_paf_name_range(&mut fields)?;
-    let strand = fields.next()?;
-    let (tgt_name, tgt_seq_len, tgt_seq_start, tgt_seq_end) = parse_paf_name_range(&mut fields)?;
+pub fn parse_paf_line<'a>(line: &'a str, line_offset: u64) -> Option<PafLine<&'a str>> {
+    let mut ranged_fields = line.split('\t').scan(line_offset, |offset, field| {
+        let len = field.len() as u64;
+        let range = *offset..len;
+        *offset += len;
+        Some((field, range))
+    });
 
-    let cigar = fields.skip(3).find_map(|s| s.strip_prefix("cg:Z:"))?;
+    let (query_name, query_seq_len, query_seq_start, query_seq_end) =
+        parse_ranged_paf_name_range(&mut ranged_fields)?;
+    let strand = ranged_fields.next()?.0;
+    let (tgt_name, tgt_seq_len, tgt_seq_start, tgt_seq_end) =
+        parse_ranged_paf_name_range(&mut ranged_fields)?;
+
+    let (cigar, cigar_file_range) = ranged_fields
+        .skip(3)
+        .find_map(|(s, r)| Some((s.strip_prefix("cg:Z:")?, r)))?;
 
     Some(PafLine {
         query_name,
@@ -470,6 +513,7 @@ pub fn parse_paf_line<'a>(mut fields: impl Iterator<Item = &'a str>) -> Option<P
 
         strand_rev: strand == "-",
         cigar,
+        cigar_file_range,
     })
 }
 
@@ -480,6 +524,16 @@ pub fn parse_paf_name_range<'a>(
     let len = fields.next()?.parse().ok()?;
     let start = fields.next()?.parse().ok()?;
     let end = fields.next()?.parse().ok()?;
+    Some((name, len, start, end))
+}
+
+fn parse_ranged_paf_name_range<'a>(
+    mut fields: impl Iterator<Item = (&'a str, std::ops::Range<u64>)>,
+) -> Option<(&'a str, u64, u64, u64)> {
+    let name = fields.next()?.0;
+    let len = fields.next()?.0.parse().ok()?;
+    let start = fields.next()?.0.parse().ok()?;
+    let end = fields.next()?.0.parse().ok()?;
     Some((name, len, start, end))
 }
 

@@ -63,6 +63,9 @@ impl ImpgIndex {
                 let target_range = (meta.target_start as u64)..(meta.target_end as u64);
                 let query_range = (meta.query_start as u64)..(meta.query_end as u64);
 
+                let cigar_file_byte_range =
+                    meta.cigar_offset..(meta.cigar_offset + meta.cigar_bytes as u64);
+
                 let impg_cigar = ImpgCigar {
                     target_range,
                     query_range,
@@ -70,6 +73,8 @@ impl ImpgIndex {
                     impg: index.clone(),
                     impg_meta: meta.clone(),
                     impg_target_id,
+
+                    cigar_file_byte_range,
                 };
 
                 pair_cigars
@@ -136,6 +141,8 @@ pub struct ImpgCigar {
     impg: Arc<ImpgIndex>,
     impg_meta: impg::impg::QueryMetadata,
     impg_target_id: u32,
+
+    pub cigar_file_byte_range: std::ops::Range<u64>,
 }
 
 impl ImpgCigar {
