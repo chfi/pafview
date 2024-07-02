@@ -109,7 +109,7 @@ impl ImpgIndex {
 
         let paf_str = paf_path.as_ref().to_str().unwrap();
         let paf_path = paf_path.as_ref();
-        let impg = Impg::from_paf_and_serializable(paf_str, serializable);
+        let impg = Impg::from_paf_and_serializable(paf_str, serializable)?;
 
         let paf_bgz_index_path = paf_path.extension().and_then(|ext| {
             let new_ext = ["gz", "bgz"]
@@ -146,10 +146,11 @@ pub struct ImpgCigar {
 }
 
 impl ImpgCigar {
-    fn query(&self, range: std::ops::Range<u64>) -> Vec<impg::impg::AdjustedInterval> {
-        let start = (self.target_range.start + range.start) as i32;
-        let end = (self.target_range.start + range.end) as i32;
-        self.impg.impg.query(self.impg_target_id, start, end)
+    // fn query(&self, range: std::ops::Range<u64>) -> Vec<impg::impg::AdjustedInterval> {
+    fn query(&self, range: std::ops::Range<u64>) -> Vec<impg::impg::QueryResult> {
+        let start = self.target_range.start + range.start;
+        let end = self.target_range.start + range.end;
+        self.impg.impg.query_new(self.impg_target_id, start..end)
     }
 
     fn iter_full_cigar_impl(&self) -> std::io::Result<Vec<impg::impg::CigarOp>> {
@@ -174,13 +175,14 @@ impl ImpgCigar {
     ) -> Option<ImpgCigarIter> {
         let query = self.query(local_target_range.clone());
 
-        let interval = query
+        let result = query
             .into_iter()
-            .find(|(query, _cigar, _target_i_guess)| query.metadata == self.impg_meta.query_id);
+            .find(|result| result.query_metadata == self.impg_meta)?;
 
-        let (query, cigar, _target) = interval?;
+        // let (query, cigar, _target) = interval?;
 
-        let cigar = VecDeque::from(cigar);
+        let cigar = VecDeque::from(result.cigar);
+        let query = result.query_interval;
 
         let target_range = local_target_range;
 

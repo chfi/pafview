@@ -80,7 +80,11 @@ pub fn main() -> anyhow::Result<()> {
     // Load PAF and optional FASTA
     let (alignments, sequences) = pafview::paf::load_input_files(&args)?;
 
-    println!("drawing {} alignments", alignments.pairs.len());
+    let align_count = alignments.pairs.values().map(|al| al.len()).sum::<usize>();
+    println!(
+        "drawing {align_count} alignments across {} sequence pairs",
+        alignments.pairs.len()
+    );
 
     let alignment_grid = AlignmentGrid::from_alignments(&alignments, sequences.names().clone());
     // let alignment_grid = AlignmentGrid::from_axes(&alignments, sequences.names().clone(), x_axis, y_axis);
