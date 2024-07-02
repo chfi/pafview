@@ -319,8 +319,8 @@ impl GridAxis {
         if self.seq_offsets[start_i] > start {
             start_i -= 1;
         }
-
-        Some(self.seq_order[start_i..end_i].iter().copied())
+        let count = end_i - start_i;
+        Some(self.seq_order.iter().skip(start_i).take(count).copied())
     }
 
     pub fn from_sequences<'a>(
