@@ -813,7 +813,7 @@ impl LabelPhysics {
             world_screen_d.transform_point2(hit_world).y as f32
         };
 
-        dbg!(&initial_y);
+        // dbg!(&initial_y);
         // should correspond to the spring distance factor but whatever
         const ANCHOR_EXTRA_RANGE: f32 = 300.0;
         // let initial_y =
@@ -1129,6 +1129,7 @@ impl LabelPhysics {
         }
     }
 
+    /*
     fn handle_label_stack_and_swap(
         &mut self,
         grid: &AlignmentGrid,
@@ -1168,7 +1169,7 @@ impl LabelPhysics {
             //     of one of its neighbors
             // - *can* be stacked *on* -- which labels have *no* contacts on top (?)
 
-            dbg!();
+            // dbg!();
             let Some((manifold, contact)) = pair.find_deepest_contact() else {
                 continue;
             };
@@ -1187,7 +1188,7 @@ impl LabelPhysics {
             let collider1 = self.collider_set.get(pair.collider1);
             let collider2 = self.collider_set.get(pair.collider2);
 
-            dbg!();
+            // dbg!();
             let Some((collider1, collider2)) = collider1.zip(collider2) else {
                 continue;
             };
@@ -1204,7 +1205,7 @@ impl LabelPhysics {
                 })
             };
 
-            dbg!();
+            // dbg!();
             let Some(((anchor1, data1, body1), (anchor2, data2, body2))) =
                 get_anchor_and_data(annot1).zip(get_anchor_and_data(annot2))
             else {
@@ -1228,12 +1229,12 @@ impl LabelPhysics {
             let closer1 = diff_a1b1.abs() > diff_a1b2.abs();
             let closer2 = diff_a2b2.abs() > diff_a2b1.abs();
 
-            println!("before: [{diff_a1b1}, {diff_a2b2}]\t => [{diff_a1b2}, {diff_a2b1}]");
+            // println!("before: [{diff_a1b1}, {diff_a2b2}]\t => [{diff_a1b2}, {diff_a2b1}]");
 
             if (closer1 && diff_a2b2.abs() >= diff_a2b1.abs())
                 || (closer2 && diff_a1b1.abs() >= diff_a1b2.abs())
             {
-                println!("swapping!");
+                // println!("swapping!");
                 // at least one would be closer, the other not further
 
                 // if diff_a1b1 > diff_a1b2 && diff_a2b2 > diff_a2b1 {
@@ -1249,6 +1250,7 @@ impl LabelPhysics {
 
         label_move_buf
     }
+    */
 }
 
 fn choose_anchor_tile_for_world_x(

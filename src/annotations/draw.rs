@@ -301,7 +301,8 @@ impl DrawAnnotation for AnnotationWorldRegion {
         let fill_color = self.color.gamma_multiply(config.color_region_opacity);
 
         if config.color_region_border {
-            painter.rect(rect, 0.0, fill_color, (1.0, self.color));
+            let stroke_color = self.color.gamma_multiply(0.5);
+            painter.rect(rect, 0.0, fill_color, (1.0, stroke_color));
         } else {
             painter.rect_filled(rect, 0.0, fill_color);
         }
