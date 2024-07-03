@@ -105,6 +105,50 @@ pub fn main() -> anyhow::Result<()> {
         annotations: AnnotationStore::default(),
     };
 
+    pafview::app::run(app)
+}
+
+pub fn old_main() -> anyhow::Result<()> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        env_logger::init();
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+        console_log::init().expect("could not initialize logger");
+    }
+
+    let args = pafview::cli::Cli::parse();
+
+    // Load PAF and optional FASTA
+    let (alignments, sequences) = pafview::paf::load_input_files(&args)?;
+
+    let align_count = alignments.pairs.values().map(|al| al.len()).sum::<usize>();
+    println!(
+        "drawing {align_count} alignments across {} sequence pairs",
+        alignments.pairs.len()
+    );
+
+    let alignment_grid = AlignmentGrid::from_alignments(&alignments, sequences.names().clone());
+    // let alignment_grid = AlignmentGrid::from_axes(&alignments, sequences.names().clone(), x_axis, y_axis);
+    // let alignment_grid = AlignmentGrid {
+    //     x_axis,
+    //     y_axis,
+    //     sequence_names: sequences.names().clone(),
+    // };
+
+    let app_config = config::load_app_config().unwrap_or_default();
+
+    let app = PafViewerApp {
+        app_config,
+        alignments: Arc::new(alignments),
+        alignment_grid: Arc::new(alignment_grid),
+        sequences,
+        // paf_input: todo!(),
+        annotations: AnnotationStore::default(),
+    };
+
     start_window(app);
 
     Ok(())

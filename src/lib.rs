@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+pub mod app;
+
 pub mod cigar;
 pub mod math_conv;
 pub mod paf;
