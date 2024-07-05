@@ -65,16 +65,6 @@ pub struct AlignedSeq {
 }
 
 pub fn main() -> anyhow::Result<()> {
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        env_logger::init();
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        std::panic::set_hook(Box::new(console_error_panic_hook::hook));
-        console_log::init().expect("could not initialize logger");
-    }
-
     let args = pafview::cli::Cli::parse();
 
     // Load PAF and optional FASTA

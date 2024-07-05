@@ -1,7 +1,8 @@
 use bevy::{
-    input::mouse::MouseMotion,
+    input::mouse::{MouseMotion, MouseWheel},
     prelude::*,
     render::camera::{CameraProjection, ScalingMode},
+    utils::tracing::Instrument,
 };
 
 use bevy_polyline::{
@@ -40,42 +41,68 @@ struct SequencePairTile {
 fn update_camera(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_button: Res<ButtonInput<MouseButton>>,
-    mouse_motion: EventReader<MouseMotion>,
+    mut mouse_wheel: EventReader<MouseWheel>,
+    mut mouse_motion: EventReader<MouseMotion>,
 
-    mut camera_query: Query<(&mut Transform, &Projection), With<Camera>>,
+    mut camera_query: Query<(&mut Transform, &mut Projection), With<Camera>>,
+    window: Query<&Window>,
 ) {
-    for (mut transform, proj) in camera_query.iter_mut() {
-        let Projection::Orthographic(proj) = proj else {
+    let window = window.single();
+
+    let win_size = Vec2::new(window.resolution.width(), window.resolution.height());
+
+    let scroll_delta = mouse_wheel
+        .read()
+        .map(|ev| {
+            // TODO scale based on ev.unit
+            ev.y
+        })
+        .sum::<f32>();
+
+    let mut mouse_delta = mouse_motion.read().map(|ev| ev.delta).sum::<Vec2>();
+    mouse_delta.y *= -1.0;
+
+    for (mut transform, mut proj) in camera_query.iter_mut() {
+        let Projection::Orthographic(proj) = proj.as_mut() else {
             continue;
         };
 
         let xv = proj.area.width() * 0.01;
         let yv = proj.area.height() * 0.01;
 
-        let mut dx = 0.0;
+        let mut dv = Vec2::ZERO;
 
         if keyboard.pressed(KeyCode::ArrowLeft) {
-            dx -= xv;
+            dv.x -= xv;
         }
         if keyboard.pressed(KeyCode::ArrowRight) {
-            dx += xv;
+            dv.x += xv;
         }
-
-        let mut dy = 0.0;
 
         if keyboard.pressed(KeyCode::ArrowUp) {
-            dy += yv;
+            dv.y += yv;
         }
         if keyboard.pressed(KeyCode::ArrowDown) {
-            dy -= yv;
+            dv.y -= yv;
         }
 
-        transform.translation.x += dx;
-        transform.translation.y += dy;
-        // println!("{:?}", transform.translation);
-    }
+        if mouse_button.pressed(MouseButton::Left) {
+            dv -= (mouse_delta / win_size) * proj.area.size()
+        }
 
-    //
+        transform.translation.x += dv.x;
+        transform.translation.y += dv.y;
+
+        if scroll_delta.abs() > 0.0 {
+            let zoom = if scroll_delta > 0.0 {
+                1.0 + scroll_delta * 0.05
+            } else {
+                1.0 - scroll_delta.abs() * 0.05
+            };
+
+            proj.scale *= zoom;
+        }
+    }
 }
 
 fn setup(mut commands: Commands, viewer: Res<PafViewer>) {
@@ -93,7 +120,7 @@ fn setup(mut commands: Commands, viewer: Res<PafViewer>) {
             // far: todo!(),
             // viewport_origin: todo!(),
             // scaling_mode: ScalingMode::AutoMin { min_width: (), min_height: () }
-            scale: 10_000.0,
+            scale: 100_000.0,
             // area: todo!(),
             ..default()
         }
