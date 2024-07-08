@@ -39,7 +39,9 @@ winit = "0.29.15"
 impg = { git = "https://github.com/chfi/impg.git", rev = "5a48b8c90ef7ae9c68933dd6dfd3aab62f25a362" }
 bincode = "1.3.3"
 coitrees = "0.4.0"
-bevy = "0.13.2"
+
+# bevy = "0.13.2"
+bevy = { version = "0.13.2", features = ["dynamic_linking"] }
 bevy_polyline = "0.9.0"
 
 [dev-dependencies]

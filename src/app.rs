@@ -26,11 +26,14 @@ pub struct PafViewerPlugin;
 impl Plugin for PafViewerPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<ViewEvent>()
+            .init_resource::<AlignmentRenderConfig>()
             .add_systems(Startup, setup_base_level_display_image)
             .add_systems(Startup, (setup, prepare_alignments).chain())
             .add_systems(
                 Update,
-                update_camera.before(bevy::render::camera::camera_system::<OrthographicProjection>),
+                (update_camera, send_base_level_view_events)
+                    .chain()
+                    .before(bevy::render::camera::camera_system::<OrthographicProjection>),
             )
             .add_systems(
                 Update,
@@ -57,6 +60,19 @@ pub struct AlignmentRasterizer {
 #[derive(Resource)]
 pub struct AlignmentColorSchemes {
     colors: PafColorSchemes,
+}
+
+#[derive(Resource)]
+pub struct AlignmentRenderConfig {
+    base_level_render_min_bp_per_px: f32,
+}
+
+impl std::default::Default for AlignmentRenderConfig {
+    fn default() -> Self {
+        Self {
+            base_level_render_min_bp_per_px: 1.0,
+        }
+    }
 }
 
 #[derive(Component, Debug, Clone, Copy)]
@@ -135,36 +151,23 @@ fn update_camera(
 fn setup(mut commands: Commands, viewer: Res<PafViewer>) {
     let grid = &viewer.app.alignment_grid;
 
-    let x_len = grid.x_axis.total_len as f32;
-    let y_len = grid.y_axis.total_len as f32;
+    // let x_len = grid.x_axis.total_len as f32;
+    // let y_len = grid.y_axis.total_len as f32;
 
     // prepare camera etc.
 
     commands.spawn(Camera3dBundle {
         transform: Transform::from_xyz(0.0, 0.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
         projection: OrthographicProjection {
-            // near: todo!(),
-            // far: todo!(),
-            // viewport_origin: todo!(),
-            // scaling_mode: ScalingMode::AutoMin { min_width: (), min_height: () }
             scale: 100_000.0,
-            // area: todo!(),
             ..default()
         }
         .into(),
-        // camera: Camera {
-        //     // hdr: true,
-        //     ..default()
-        // },
         ..default()
     });
-
-    // commands.spawn(Camera2dBundle
 }
 
 pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
-    // let args = crate::cli::Cli::parse();
-
     let args = crate::cli::Cli::parse();
 
     let paf_color_schemes = if let Some(path) = args.color_schemes {
@@ -375,11 +378,6 @@ fn setup_base_level_display_image(
         depth_or_array_layers: 1,
     };
 
-    // let img_handle = Image::new_fill(Extent3d {
-    //     width: size[0],
-    //     height: size[1],
-    //     depth_or_array_layers: 1,
-    // }, wgpu::TextureDimension::D2, &[0], wgpu::TextureFormat::, asset_usage)
     let mut image = Image {
         texture_descriptor: TextureDescriptor {
             label: None,
@@ -389,13 +387,11 @@ fn setup_base_level_display_image(
             mip_level_count: 1,
             sample_count: 1,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            // | TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         },
         ..default()
     };
 
-    // fill image.data with zeroes
     image.resize(size);
 
     let last_size = UVec2::new(window.physical_width(), window.physical_height());
@@ -424,16 +420,11 @@ fn setup_base_level_display_image(
 }
 
 fn resize_base_level_image_handle(
-    // mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-
     mut image_handle: ResMut<LastBaseLevelHandle>,
 
     cameras: Query<&Camera>,
-    // window: Query<&Window>,
 ) {
-    // let window = window.single();
-
     let new_size = cameras.single().physical_target_size().unwrap();
 
     let need_resize = new_size != image_handle.last_size;
@@ -452,22 +443,64 @@ fn resize_base_level_image_handle(
     }
 }
 
+fn send_base_level_view_events(
+    cameras: Query<(&Camera, &Transform, &Projection)>,
+    render_config: Res<AlignmentRenderConfig>,
+    mut view_events: EventWriter<ViewEvent>,
+) {
+    let (camera, camera_pos, camera_proj) = cameras.single();
+
+    let size = camera.physical_target_size().unwrap();
+    // let canvas_size = [size.x, size.y];
+
+    let Projection::Orthographic(proj) = camera_proj else {
+        log::error!("this should never happen");
+        return;
+    };
+
+    let bp_per_px = {
+        let pixels = size.x as f32;
+        let bp = proj.area.width();
+        bp / pixels
+    };
+
+    if bp_per_px > render_config.base_level_render_min_bp_per_px {
+        return;
+    }
+
+    let mid = camera_pos.translation.xy();
+
+    let x0 = mid.x as f64;
+    let y0 = mid.y as f64;
+
+    let hw = proj.area.width() as f64 * 0.5;
+    let hh = proj.area.height() as f64 * 0.5;
+
+    let view = crate::view::View {
+        x_min: x0 - hw,
+        y_min: y0 - hh,
+        x_max: x0 + hw,
+        y_max: y0 + hh,
+    };
+
+    view_events.send(ViewEvent { view });
+}
+
 //
 fn run_base_level_cpu_rasterizer(
     mut commands: Commands,
 
-    window: Query<&Window>,
+    cameras: Query<&Camera>,
     viewer: Res<PafViewer>,
     color_schemes: Res<AlignmentColorSchemes>,
     mut rasterizer: ResMut<AlignmentRasterizer>,
 
     mut view_events: EventReader<ViewEvent>,
 ) {
-    let window = window.single();
-    // let width = window.resolution.width();
-    // let height = window.resolution.height();
+    let camera = cameras.single();
 
-    let canvas_size = [window.physical_width(), window.physical_height()];
+    let size = camera.physical_target_size().unwrap();
+    let canvas_size = [size.x, size.y];
 
     let Some(view) = view_events.read().last() else {
         log::info!("no view events for CPU rasterizer");
@@ -495,18 +528,12 @@ fn run_base_level_cpu_rasterizer(
         view: view.view,
         pixel_buffer,
     });
-
-    //
 }
 
 fn update_base_level_image(
-    // mut commands: Commands,
-
-    //
     mut images: ResMut<Assets<Image>>,
     last_buffer: Option<Res<LastBaseLevelBuffer>>,
     image_handle: Res<LastBaseLevelHandle>,
-    // ui_root: Query<Entity, With<BaseLevelViewUiRoot>>,
 ) {
     let Some(last_buffer) = last_buffer else {
         log::info!("no base level image buffer available");
@@ -517,17 +544,4 @@ fn update_base_level_image(
 
     let pixels: &[u8] = bytemuck::cast_slice(&last_buffer.pixel_buffer.pixels);
     image.data = pixels.to_vec();
-    // image.data = bytemuck::
-
-    // let ui_root = ui_root.single();
-
-    // let mut ui_cmds = commands.entity(ui_root);
-
-    /*
-    let texture = if let Some(handle) = image_handle.as_ref()
-
-    // ui_cmds.insert(UiImage::new(texture)
-    */
-
-    //
 }
