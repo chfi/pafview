@@ -37,6 +37,10 @@ impl Plugin for PafViewerPlugin {
             )
             .add_systems(
                 Update,
+                update_base_level_display_visibility.after(update_camera),
+            )
+            .add_systems(
+                Update,
                 (
                     resize_base_level_image_handle,
                     run_base_level_cpu_rasterizer,
@@ -84,6 +88,7 @@ struct SequencePairTile {
 fn update_camera(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_button: Res<ButtonInput<MouseButton>>,
+
     mut mouse_wheel: EventReader<MouseWheel>,
     mut mouse_motion: EventReader<MouseMotion>,
 
@@ -451,7 +456,6 @@ fn send_base_level_view_events(
     let (camera, camera_pos, camera_proj) = cameras.single();
 
     let size = camera.physical_target_size().unwrap();
-    // let canvas_size = [size.x, size.y];
 
     let Projection::Orthographic(proj) = camera_proj else {
         log::error!("this should never happen");
@@ -544,4 +548,32 @@ fn update_base_level_image(
 
     let pixels: &[u8] = bytemuck::cast_slice(&last_buffer.pixel_buffer.pixels);
     image.data = pixels.to_vec();
+}
+
+fn update_base_level_display_visibility(
+    cameras: Query<(&Camera, &Projection)>,
+    render_config: Res<AlignmentRenderConfig>,
+    mut visibility: Query<&mut Visibility, With<BaseLevelViewUiRoot>>,
+) {
+    let (camera, camera_proj) = cameras.single();
+
+    let size = camera.physical_target_size().unwrap();
+
+    let Projection::Orthographic(proj) = camera_proj else {
+        unreachable!();
+    };
+
+    let bp_per_px = {
+        let pixels = size.x as f32;
+        let bp = proj.area.width();
+        bp / pixels
+    };
+
+    let mut visibility = visibility.single_mut();
+
+    if bp_per_px > render_config.base_level_render_min_bp_per_px {
+        *visibility = Visibility::Hidden;
+    } else {
+        *visibility = Visibility::Visible;
+    }
 }
