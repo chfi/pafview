@@ -1,3 +1,5 @@
+mod menubar;
+
 use bevy::{
     input::mouse::{MouseMotion, MouseWheel},
     prelude::*,
@@ -25,19 +27,21 @@ pub struct PafViewerPlugin;
 
 impl Plugin for PafViewerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<ViewEvent>()
+        app.add_plugins(bevy_egui::EguiPlugin)
+            .add_event::<ViewEvent>()
             .init_resource::<AlignmentRenderConfig>()
+            .add_plugins(menubar::MenubarPlugin)
             .add_systems(Startup, setup_base_level_display_image)
             .add_systems(Startup, (setup, prepare_alignments).chain())
             .add_systems(
                 Update,
-                (update_camera, send_base_level_view_events)
+                (input_update_camera, send_base_level_view_events)
                     .chain()
                     .before(bevy::render::camera::camera_system::<OrthographicProjection>),
             )
             .add_systems(
                 Update,
-                update_base_level_display_visibility.after(update_camera),
+                update_base_level_display_visibility.after(input_update_camera),
             )
             .add_systems(
                 Update,
@@ -85,7 +89,8 @@ struct SequencePairTile {
     query: SeqId,
 }
 
-fn update_camera(
+fn input_update_camera(
+    time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_button: Res<ButtonInput<MouseButton>>,
 
@@ -106,6 +111,8 @@ fn update_camera(
             ev.y
         })
         .sum::<f32>();
+
+    let dt = time.delta_seconds();
 
     let mut mouse_delta = mouse_motion.read().map(|ev| ev.delta).sum::<Vec2>();
     mouse_delta.y *= -1.0;
@@ -135,17 +142,17 @@ fn update_camera(
         }
 
         if mouse_button.pressed(MouseButton::Left) {
-            dv -= (mouse_delta / win_size) * proj.area.size()
+            dv -= (mouse_delta / win_size) * proj.area.size();
         }
 
         transform.translation.x += dv.x;
         transform.translation.y += dv.y;
 
         if scroll_delta.abs() > 0.0 {
-            let zoom = if scroll_delta > 0.0 {
-                1.0 + scroll_delta * 0.05
+            let zoom = if scroll_delta < 0.0 {
+                1.0 + scroll_delta.abs() * dt
             } else {
-                1.0 - scroll_delta.abs() * 0.05
+                1.0 - scroll_delta.abs() * dt
             };
 
             proj.scale *= zoom;
@@ -507,7 +514,7 @@ fn run_base_level_cpu_rasterizer(
     let canvas_size = [size.x, size.y];
 
     let Some(view) = view_events.read().last() else {
-        log::info!("no view events for CPU rasterizer");
+        log::trace!("no view events for CPU rasterizer");
         return;
     };
 
@@ -524,7 +531,7 @@ fn run_base_level_cpu_rasterizer(
     );
 
     let Some(pixel_buffer) = pixel_buffer else {
-        log::info!("no output for CPU rasterizer");
+        log::trace!("no output for CPU rasterizer");
         return;
     };
 
@@ -540,7 +547,7 @@ fn update_base_level_image(
     image_handle: Res<LastBaseLevelHandle>,
 ) {
     let Some(last_buffer) = last_buffer else {
-        log::info!("no base level image buffer available");
+        log::trace!("no base level image buffer available");
         return;
     };
 
