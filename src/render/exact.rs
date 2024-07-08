@@ -674,7 +674,7 @@ fn draw_alignments(
     Some(dst_pixels)
 }
 
-fn draw_alignments_with_color_schemes(
+pub(crate) fn draw_alignments_with_color_schemes(
     // tile_buffers: &FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>,
     tile_cache: &TileBufferCache,
     alignment_colors: &PafColorSchemes,
