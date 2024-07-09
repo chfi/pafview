@@ -95,17 +95,21 @@ fn input_update_camera(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_button: Res<ButtonInput<MouseButton>>,
 
+    mut egui_contexts: bevy_egui::EguiContexts,
+
     mut mouse_wheel: EventReader<MouseWheel>,
     mut mouse_motion: EventReader<MouseMotion>,
 
     mut camera_query: Query<(&mut Transform, &mut Projection), With<Camera>>,
     window: Query<&Window>,
 ) {
+    let egui_using_cursor = egui_contexts.ctx_mut().wants_pointer_input();
+
     let window = window.single();
 
     let win_size = Vec2::new(window.resolution.width(), window.resolution.height());
 
-    let scroll_delta = mouse_wheel
+    let mut scroll_delta = mouse_wheel
         .read()
         .map(|ev| {
             // TODO scale based on ev.unit
@@ -117,6 +121,11 @@ fn input_update_camera(
 
     let mut mouse_delta = mouse_motion.read().map(|ev| ev.delta).sum::<Vec2>();
     mouse_delta.y *= -1.0;
+
+    if egui_using_cursor {
+        mouse_delta = Vec2::ZERO;
+        scroll_delta = 0.0;
+    }
 
     for (mut transform, mut proj) in camera_query.iter_mut() {
         let Projection::Orthographic(proj) = proj.as_mut() else {
