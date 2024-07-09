@@ -1,4 +1,4 @@
-mod menubar;
+mod gui;
 
 use bevy::{
     input::mouse::{MouseMotion, MouseWheel},
@@ -30,7 +30,7 @@ impl Plugin for PafViewerPlugin {
         app.add_plugins(bevy_egui::EguiPlugin)
             .add_event::<ViewEvent>()
             .init_resource::<AlignmentRenderConfig>()
-            .add_plugins(menubar::MenubarPlugin)
+            .add_plugins(gui::MenubarPlugin)
             .add_systems(Startup, setup_base_level_display_image)
             .add_systems(Startup, (setup, prepare_alignments).chain())
             .add_systems(
@@ -51,7 +51,8 @@ impl Plugin for PafViewerPlugin {
                     update_base_level_image,
                 )
                     .chain(),
-            );
+            )
+            .add_systems(PostUpdate, save_app_config);
     }
 }
 
@@ -582,5 +583,13 @@ fn update_base_level_display_visibility(
         *visibility = Visibility::Hidden;
     } else {
         *visibility = Visibility::Visible;
+    }
+}
+
+fn save_app_config(mut exit_events: EventReader<bevy::app::AppExit>, viewer: Res<PafViewer>) {
+    if let Some(_exit) = exit_events.read().last() {
+        if let Err(e) = crate::config::save_app_config(&viewer.app.app_config) {
+            log::error!("Error saving application settings file: {e:?}");
+        }
     }
 }
