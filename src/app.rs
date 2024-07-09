@@ -1,4 +1,6 @@
 mod gui;
+pub mod selection;
+pub mod view;
 
 use bevy::{
     input::mouse::{MouseMotion, MouseWheel},
@@ -31,17 +33,17 @@ impl Plugin for PafViewerPlugin {
             .add_event::<ViewEvent>()
             .init_resource::<AlignmentRenderConfig>()
             .add_plugins(gui::MenubarPlugin)
+            .add_plugins(view::AlignmentViewPlugin)
+            .add_plugins(selection::RegionSelectionPlugin)
             .add_systems(Startup, setup_base_level_display_image)
             .add_systems(Startup, (setup, prepare_alignments).chain())
             .add_systems(
                 Update,
-                (input_update_camera, send_base_level_view_events)
-                    .chain()
-                    .before(bevy::render::camera::camera_system::<OrthographicProjection>),
-            )
-            .add_systems(
-                Update,
-                update_base_level_display_visibility.after(input_update_camera),
+                (
+                    send_base_level_view_events,
+                    update_base_level_display_visibility,
+                )
+                    .after(view::update_camera_from_viewport),
             )
             .add_systems(
                 Update,
@@ -90,6 +92,7 @@ struct SequencePairTile {
     query: SeqId,
 }
 
+/*
 fn input_update_camera(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -169,6 +172,7 @@ fn input_update_camera(
         }
     }
 }
+*/
 
 fn setup(mut commands: Commands, viewer: Res<PafViewer>) {
     let grid = &viewer.app.alignment_grid;
