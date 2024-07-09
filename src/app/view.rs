@@ -8,12 +8,18 @@ pub(super) struct AlignmentViewPlugin;
 
 impl Plugin for AlignmentViewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup).add_systems(
-            Update,
-            (input_update_viewport, update_camera_from_viewport)
-                .chain()
-                .before(bevy::render::camera::camera_system::<OrthographicProjection>),
-        );
+        app.add_systems(Startup, setup)
+            // .add_systems(PreUpdate, update_viewport_for_window_resize)
+            .add_systems(
+                Update,
+                (
+                    update_viewport_for_window_resize,
+                    input_update_viewport,
+                    update_camera_from_viewport,
+                )
+                    .chain()
+                    .before(bevy::render::camera::camera_system::<OrthographicProjection>),
+            );
     }
 }
 
@@ -47,20 +53,67 @@ fn setup(mut commands: Commands, viewer: Res<super::PafViewer>) {
     commands.insert_resource(viewport);
 }
 
+fn update_viewport_for_window_resize(
+    mut alignment_view: ResMut<AlignmentViewport>,
+    mut resize_reader: EventReader<bevy::window::WindowResized>,
+    // windows: Query<&Window>,
+) {
+    // let window = windows.single();
+    // let res = window.resolution;
+
+    let Some(new_res) = resize_reader.read().last() else {
+        return;
+    };
+
+    let view = &mut alignment_view.view;
+
+    let aspect_hw = new_res.height as f64 / new_res.width as f64;
+    let old_aspect = view.height() / view.width();
+
+    let center = view.center();
+
+    if aspect_hw > old_aspect {
+        // new is taller relative to old...
+        let new_height = aspect_hw * view.width();
+
+        view.y_min = center.y - new_height * 0.5;
+        view.y_max = center.y + new_height * 0.5;
+    } else {
+        // new is wider relative to old
+        let new_width = (new_res.width as f64 / new_res.height as f64) * view.height();
+        // let new_width = aspect_hw * view.width();
+
+        view.x_min = center.x - new_width * 0.5;
+        view.x_max = center.x + new_width * 0.5;
+    }
+    // alignment_view.view.resize_for_window_size(old_window_size, new_window_size)
+}
+
 pub(super) fn update_camera_from_viewport(
     alignment_view: Res<AlignmentViewport>,
-    mut cameras: Query<(&mut Transform, &mut Projection), With<Camera>>,
+    mut cameras: Query<(&mut Transform, &mut Projection, &Camera), With<Camera>>,
 ) {
-    let (mut transform, mut proj) = cameras.single_mut();
+    let (mut transform, mut proj, camera) = cameras.single_mut();
 
     let Projection::Orthographic(proj) = proj.as_mut() else {
         return;
     };
 
-    // TODO update accordingly; need to move the input system here & work
-    // on the viewport as well
+    let view = &alignment_view.view;
+    let mid = view.center();
 
-    // proj.scaling_mode = ScalingMode::Fixed(())
+    transform.translation.x = mid.x as f32;
+    transform.translation.y = mid.y as f32;
+
+    // let scale = view.width() as f32 / camera.logical_target_size().unwrap().x;
+    // transform.scale = Vec3::splat(scale);
+    // proj.scale = scale;
+    // println!("setting projection scale to {scale}")
+
+    // proj.scaling_mode = ScalingMode::Fixed {
+    //     width: view.width() as f32,
+    //     height: view.height() as f32,
+    // };
 }
 
 fn input_update_viewport(

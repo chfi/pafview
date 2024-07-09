@@ -90,7 +90,7 @@ impl EguiRenderer {
         window: &Window,
     ) {
         // self.context.run(raw_
-        let raw_input = self.state.take_egui_input(&window);
+        let raw_input = self.state.take_egui_input(window);
         self.context.begin_frame(raw_input);
         let full_output = self.context.end_frame();
         // let full_output = self.context.run(raw_input, |ui| {

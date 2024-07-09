@@ -98,6 +98,7 @@ pub fn main() -> anyhow::Result<()> {
     pafview::app::run(app)
 }
 
+/*
 pub fn old_main() -> anyhow::Result<()> {
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -143,6 +144,7 @@ pub fn old_main() -> anyhow::Result<()> {
 
     Ok(())
 }
+*/
 
 use std::collections::HashSet;
 
@@ -177,6 +179,7 @@ struct LineVertex {
     // color: u32,
 }
 
+/*
 async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewerApp) {
     let mut size = window.inner_size();
     size.width = size.width.max(1);
@@ -885,7 +888,9 @@ async fn run(event_loop: EventLoop<AppEvent>, window: Window, mut app: PafViewer
         })
         .unwrap();
 }
+*/
 
+/*
 fn start_window(app: PafViewerApp) {
     let event_loop = EventLoopBuilder::<AppEvent>::with_user_event()
         .build()
@@ -919,6 +924,7 @@ fn start_window(app: PafViewerApp) {
         wasm_bindgen_futures::spawn_local(run(event_loop, window, app));
     }
 }
+*/
 
 /*
 pub fn write_png(

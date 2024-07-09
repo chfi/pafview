@@ -17,11 +17,11 @@ use self::lines::LineColorSchemePipeline;
 pub mod batch;
 pub mod color;
 pub mod exact;
-pub mod gui;
+// pub mod gui;
 pub mod lines;
 pub mod thread;
 
-pub use gui::EguiRenderer;
+// pub use gui::EguiRenderer;
 pub use lines::LinePipeline;
 
 pub struct PafRenderer {
@@ -807,11 +807,13 @@ impl ImageRenderer {
                 module: &shader,
                 entry_point: "vs_main",
                 buffers: &[],
+                compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: "fs_main",
                 targets: &[Some(swapchain_format.into())],
+                compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,

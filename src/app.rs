@@ -185,7 +185,8 @@ fn setup(mut commands: Commands, viewer: Res<PafViewer>) {
     commands.spawn(Camera3dBundle {
         transform: Transform::from_xyz(0.0, 0.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
         projection: OrthographicProjection {
-            scale: 100_000.0,
+            scale: 1.0,
+            // scaling_mode: W
             ..default()
         }
         .into(),
@@ -250,11 +251,11 @@ fn prepare_alignments(
     for (op, color) in [
         (Cg::M, Color::BLACK),
         (Cg::Eq, Color::BLACK),
-        (Cg::X, Color::RED),
+        (Cg::X, Color::srgb(1.0, 0.0, 0.0)),
     ] {
         let mat = polyline_materials.add(PolylineMaterial {
             width: 4.0,
-            color,
+            color: color.into(),
             depth_bias: 0.0,
             perspective: true,
         });
