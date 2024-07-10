@@ -52,7 +52,8 @@ impl Plugin for PafViewerPlugin {
                     run_base_level_cpu_rasterizer,
                     update_base_level_image,
                 )
-                    .chain(),
+                    .chain()
+                    .after(send_base_level_view_events),
             )
             .add_systems(PostUpdate, save_app_config);
     }
@@ -185,7 +186,8 @@ fn setup(mut commands: Commands, viewer: Res<PafViewer>) {
     commands.spawn(Camera3dBundle {
         transform: Transform::from_xyz(0.0, 0.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
         projection: OrthographicProjection {
-            scale: 1.0,
+            // scale: 1.0,
+            scale: 100_000.0,
             // scaling_mode: W
             ..default()
         }

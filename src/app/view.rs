@@ -105,9 +105,10 @@ pub(super) fn update_camera_from_viewport(
     transform.translation.x = mid.x as f32;
     transform.translation.y = mid.y as f32;
 
-    // let scale = view.width() as f32 / camera.logical_target_size().unwrap().x;
+    let scale = view.width() as f32 / camera.logical_target_size().unwrap().x;
+    println!("scale: {scale}");
     // transform.scale = Vec3::splat(scale);
-    // proj.scale = scale;
+    proj.scale = scale;
     // println!("setting projection scale to {scale}")
 
     // proj.scaling_mode = ScalingMode::Fixed {
