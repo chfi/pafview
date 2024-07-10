@@ -93,96 +93,16 @@ struct SequencePairTile {
     query: SeqId,
 }
 
-/*
-fn input_update_camera(
-    time: Res<Time>,
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mouse_button: Res<ButtonInput<MouseButton>>,
-
-    mut egui_contexts: bevy_egui::EguiContexts,
-
-    mut mouse_wheel: EventReader<MouseWheel>,
-    mut mouse_motion: EventReader<MouseMotion>,
-
-    mut camera_query: Query<(&mut Transform, &mut Projection), With<Camera>>,
-    window: Query<&Window>,
+fn setup(
+    mut commands: Commands,
+    viewer: Res<PafViewer>,
+    mut polyline_materials: ResMut<Assets<PolylineMaterial>>,
+    mut polylines: ResMut<Assets<Polyline>>,
 ) {
-    let egui_using_cursor = egui_contexts.ctx_mut().wants_pointer_input();
-
-    let window = window.single();
-
-    let win_size = Vec2::new(window.resolution.width(), window.resolution.height());
-
-    let mut scroll_delta = mouse_wheel
-        .read()
-        .map(|ev| {
-            // TODO scale based on ev.unit
-            ev.y
-        })
-        .sum::<f32>();
-
-    let dt = time.delta_seconds();
-
-    let mut mouse_delta = mouse_motion.read().map(|ev| ev.delta).sum::<Vec2>();
-    mouse_delta.y *= -1.0;
-
-    if egui_using_cursor {
-        mouse_delta = Vec2::ZERO;
-        scroll_delta = 0.0;
-    }
-
-    for (mut transform, mut proj) in camera_query.iter_mut() {
-        let Projection::Orthographic(proj) = proj.as_mut() else {
-            continue;
-        };
-
-        let xv = proj.area.width() * 0.01;
-        let yv = proj.area.height() * 0.01;
-
-        let mut dv = Vec2::ZERO;
-
-        if keyboard.pressed(KeyCode::ArrowLeft) {
-            dv.x -= xv;
-        }
-        if keyboard.pressed(KeyCode::ArrowRight) {
-            dv.x += xv;
-        }
-
-        if keyboard.pressed(KeyCode::ArrowUp) {
-            dv.y += yv;
-        }
-        if keyboard.pressed(KeyCode::ArrowDown) {
-            dv.y -= yv;
-        }
-
-        if mouse_button.pressed(MouseButton::Left) {
-            dv -= (mouse_delta / win_size) * proj.area.size();
-        }
-
-        transform.translation.x += dv.x;
-        transform.translation.y += dv.y;
-
-        if scroll_delta.abs() > 0.0 {
-            let zoom = if scroll_delta < 0.0 {
-                1.0 + scroll_delta.abs() * dt
-            } else {
-                1.0 - scroll_delta.abs() * dt
-            };
-
-            proj.scale *= zoom;
-        }
-    }
-}
-*/
-
-fn setup(mut commands: Commands, viewer: Res<PafViewer>) {
     let grid = &viewer.app.alignment_grid;
 
-    // let x_len = grid.x_axis.total_len as f32;
-    // let y_len = grid.y_axis.total_len as f32;
-
-    // prepare camera etc.
-
+    // NB: initial values don't matter here as the camera will be updated
+    // from the AlignmentViewport resource
     commands.spawn(Camera3dBundle {
         transform: Transform::from_xyz(0.0, 0.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
         projection: OrthographicProjection {
@@ -192,6 +112,45 @@ fn setup(mut commands: Commands, viewer: Res<PafViewer>) {
             ..default()
         }
         .into(),
+        ..default()
+    });
+
+    // create polylines for grid
+
+    let mut vertices: Vec<Vec3> = Vec::new();
+
+    for x in grid.x_axis.offsets() {
+        let x = x as f32;
+        let y0 = 0f32;
+        let y1 = grid.y_axis.total_len as f32;
+
+        vertices.push(Vec3::new(x, y0, 0.0));
+        vertices.push(Vec3::new(x, y1, 0.0));
+
+        // https://github.com/ForesightMiningSoftwareCorporation/bevy_polyline/issues/20#issuecomment-1035624250
+        vertices.push(Vec3::splat(std::f32::INFINITY));
+    }
+
+    for y in grid.y_axis.offsets() {
+        let y = y as f32;
+        let x0 = 0f32;
+        let x1 = grid.x_axis.total_len as f32;
+
+        vertices.push(Vec3::new(x0, y, 0.0));
+        vertices.push(Vec3::new(x1, y, 0.0));
+        vertices.push(Vec3::splat(std::f32::INFINITY));
+    }
+
+    let grid_mat = polyline_materials.add(PolylineMaterial {
+        width: 1.0,
+        color: Color::BLACK.into(),
+        depth_bias: 0.0,
+        perspective: false,
+    });
+
+    let grid = commands.spawn(PolylineBundle {
+        polyline: polylines.add(Polyline { vertices }),
+        material: grid_mat,
         ..default()
     });
 }
@@ -304,6 +263,8 @@ fn prepare_alignments(
                     let mut tgt_cg = 0;
                     let mut qry_cg = 0;
 
+                    let mut last_op: Option<Cg> = None;
+
                     for (op, count) in alignment.cigar.whole_cigar() {
                         let tgt_start = tgt_cg;
                         let qry_start = qry_cg;
@@ -349,8 +310,15 @@ fn prepare_alignments(
                             _ => continue,
                         };
 
+                        // https://github.com/ForesightMiningSoftwareCorporation/bevy_polyline/issues/20#issuecomment-1035624250
+                        if last_op != Some(op) {
+                            buf.push(Vec3::splat(std::f32::INFINITY));
+                        }
+
                         buf.push(p0);
                         buf.push(p1);
+
+                        last_op = Some(op);
                     }
 
                     for (op, vertices) in [(Cg::M, m_verts), (Cg::Eq, eq_verts), (Cg::X, x_verts)] {
@@ -473,22 +441,17 @@ fn resize_base_level_image_handle(
 }
 
 fn send_base_level_view_events(
-    cameras: Query<(&Camera, &Transform, &Projection)>,
+    cameras: Query<&Camera>,
+    viewport: Res<view::AlignmentViewport>,
     render_config: Res<AlignmentRenderConfig>,
     mut view_events: EventWriter<ViewEvent>,
 ) {
-    let (camera, camera_pos, camera_proj) = cameras.single();
-
+    let camera = cameras.single();
     let size = camera.physical_target_size().unwrap();
-
-    let Projection::Orthographic(proj) = camera_proj else {
-        log::error!("this should never happen");
-        return;
-    };
 
     let bp_per_px = {
         let pixels = size.x as f32;
-        let bp = proj.area.width();
+        let bp = viewport.view.width() as f32;
         bp / pixels
     };
 
@@ -496,25 +459,11 @@ fn send_base_level_view_events(
         return;
     }
 
-    let mid = camera_pos.translation.xy();
-
-    let x0 = mid.x as f64;
-    let y0 = mid.y as f64;
-
-    let hw = proj.area.width() as f64 * 0.5;
-    let hh = proj.area.height() as f64 * 0.5;
-
-    let view = crate::view::View {
-        x_min: x0 - hw,
-        y_min: y0 - hh,
-        x_max: x0 + hw,
-        y_max: y0 + hh,
-    };
-
-    view_events.send(ViewEvent { view });
+    view_events.send(ViewEvent {
+        view: viewport.view,
+    });
 }
 
-//
 fn run_base_level_cpu_rasterizer(
     mut commands: Commands,
 
