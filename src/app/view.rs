@@ -106,15 +106,7 @@ pub(super) fn update_camera_from_viewport(
     transform.translation.y = mid.y as f32;
 
     let scale = view.width() as f32 / camera.logical_target_size().unwrap().x;
-    println!("scale: {scale}");
-    // transform.scale = Vec3::splat(scale);
     proj.scale = scale;
-    // println!("setting projection scale to {scale}")
-
-    // proj.scaling_mode = ScalingMode::Fixed {
-    //     width: view.width() as f32,
-    //     height: view.height() as f32,
-    // };
 }
 
 fn input_update_viewport(
@@ -179,8 +171,8 @@ fn input_update_viewport(
         [x, y]
     };
 
-    let xv = view.width() * 0.01;
-    let yv = view.width() * 0.01;
+    let xv = view.width() * 0.05;
+    let yv = view.height() * 0.05;
 
     let mut dv = bevy::math::DVec2::ZERO;
 
@@ -203,8 +195,6 @@ fn input_update_viewport(
     }
 
     view.translate(dv.x, dv.y);
-    // transform.translation.x += dv.x;
-    // transform.translation.y += dv.y;
 
     if scroll_delta.abs() > 0.0 {
         let zoom = if scroll_delta < 0.0 {
@@ -215,5 +205,24 @@ fn input_update_viewport(
 
         view.zoom_with_focus(cursor_norm, zoom as f64);
     }
-    // }
+
+    const KEY_ZOOM_FACTOR: f32 = 3.0;
+
+    let mut key_zoom_delta = 0.0;
+    if keyboard.pressed(KeyCode::PageUp) {
+        key_zoom_delta += KEY_ZOOM_FACTOR;
+    }
+    if keyboard.pressed(KeyCode::PageDown) {
+        key_zoom_delta -= KEY_ZOOM_FACTOR;
+    }
+
+    if key_zoom_delta.abs() > 0.0 {
+        let zoom = if key_zoom_delta < 0.0 {
+            1.0 + key_zoom_delta.abs() * dt
+        } else {
+            1.0 - key_zoom_delta.abs() * dt
+        };
+
+        view.zoom_with_focus([0.5, 0.5], zoom as f64);
+    }
 }
