@@ -4,13 +4,18 @@ use bevy_egui::EguiContexts;
 
 use crate::gui::AppWindowStates;
 
+use super::view::AlignmentViewport;
+
 pub(super) struct MenubarPlugin;
 
 impl Plugin for MenubarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RegionsOfInterest>()
             .add_systems(Startup, setup)
-            .add_systems(Update, (menubar_system, settings_window));
+            .add_systems(
+                Update,
+                (menubar_system, settings_window, goto_region_window),
+            );
         // .add_systems(Update, (menubar_system, regions_of_interest_system).chain());
     }
 }
@@ -50,9 +55,20 @@ fn settings_window(
     );
 }
 
-fn goto_region_window(//
+fn goto_region_window(
+    mut contexts: EguiContexts,
+    viewer: ResMut<super::PafViewer>,
+    mut window_states: ResMut<WindowStates>,
+
+    mut viewport: ResMut<AlignmentViewport>,
 ) {
-    todo!()
+    let ctx = contexts.ctx_mut();
+    crate::gui::goto::goto_region_window(
+        ctx,
+        &mut window_states.window_states.goto_region_open,
+        &viewer.app.alignment_grid,
+        &mut viewport.view,
+    );
 }
 
 #[allow(dead_code)]
