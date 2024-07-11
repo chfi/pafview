@@ -23,6 +23,29 @@ impl Plugin for AlignmentViewPlugin {
     }
 }
 
+#[derive(Default, Resource)]
+pub struct CursorAlignmentPosition {
+    pub world_pos: Option<bevy::math::DVec2>,
+}
+
+fn update_cursor_world(
+    mut cursor_world: ResMut<CursorAlignmentPosition>,
+    view: Res<AlignmentViewport>,
+    windows: Query<&Window>,
+) {
+    let window = windows.single();
+    let res = &window.resolution;
+    let dims = [res.width(), res.height()];
+
+    let world_pos = window.cursor_position().map(|p| {
+        let p: [f32; 2] = p.into();
+        let wp: [f64; 2] = view.view.map_screen_to_world(dims, p).into();
+        bevy::math::DVec2::from(wp)
+    });
+
+    cursor_world.world_pos = world_pos;
+}
+
 #[derive(Resource)]
 pub struct AlignmentViewport {
     pub view: crate::view::View,
@@ -51,16 +74,13 @@ fn setup(mut commands: Commands, viewer: Res<super::PafViewer>) {
     };
 
     commands.insert_resource(viewport);
+    commands.init_resource::<CursorAlignmentPosition>();
 }
 
 fn update_viewport_for_window_resize(
     mut alignment_view: ResMut<AlignmentViewport>,
     mut resize_reader: EventReader<bevy::window::WindowResized>,
-    // windows: Query<&Window>,
 ) {
-    // let window = windows.single();
-    // let res = window.resolution;
-
     let Some(new_res) = resize_reader.read().last() else {
         return;
     };
@@ -81,12 +101,10 @@ fn update_viewport_for_window_resize(
     } else {
         // new is wider relative to old
         let new_width = (new_res.width as f64 / new_res.height as f64) * view.height();
-        // let new_width = aspect_hw * view.width();
 
         view.x_min = center.x - new_width * 0.5;
         view.x_max = center.x + new_width * 0.5;
     }
-    // alignment_view.view.resize_for_window_size(old_window_size, new_window_size)
 }
 
 pub(super) fn update_camera_from_viewport(
@@ -120,7 +138,6 @@ fn input_update_viewport(
     mut mouse_motion: EventReader<MouseMotion>,
 
     mut alignment_view: ResMut<AlignmentViewport>,
-    // mut camera_query: Query<(&mut Transform, &mut Projection), With<Camera>>,
     windows: Query<&Window>,
 ) {
     let egui_using_cursor = egui_contexts.ctx_mut().wants_pointer_input();

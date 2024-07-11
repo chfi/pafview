@@ -1,4 +1,5 @@
 mod gui;
+pub mod rulers;
 pub mod selection;
 pub mod view;
 
@@ -209,19 +210,30 @@ fn prepare_alignments(
 
     let mut op_mats = FxHashMap::default();
     use crate::cigar::CigarOp as Cg;
+
     for (op, color) in [
         (Cg::M, Color::BLACK),
         (Cg::Eq, Color::BLACK),
-        (Cg::X, Color::srgb(1.0, 0.0, 0.0)),
+        // (Cg::X, Color::srgb(1.0, 0.0, 0.0)),
     ] {
         let mat = polyline_materials.add(PolylineMaterial {
             width: 4.0,
             color: color.into(),
             depth_bias: 0.0,
-            perspective: true,
+            perspective: false,
         });
         op_mats.insert(op, mat);
     }
+
+    op_mats.insert(
+        Cg::X,
+        polyline_materials.add(PolylineMaterial {
+            width: 4.0,
+            color: Color::srgb(1.0, 0.0, 0.0).into(),
+            depth_bias: -0.2,
+            perspective: false,
+        }),
+    );
 
     let grid = &viewer.app.alignment_grid;
 
@@ -380,7 +392,8 @@ fn setup_base_level_display_image(
             label: None,
             size,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Bgra8UnormSrgb,
+            // format: TextureFormat::Bgra8UnormSrgb,
+            format: TextureFormat::Rgba8UnormSrgb,
             mip_level_count: 1,
             sample_count: 1,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
