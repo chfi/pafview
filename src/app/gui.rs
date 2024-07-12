@@ -21,8 +21,8 @@ impl Plugin for MenubarPlugin {
 }
 
 #[derive(Default, Resource)]
-struct WindowStates {
-    window_states: AppWindowStates,
+pub(crate) struct WindowStates {
+    pub(crate) window_states: AppWindowStates,
 }
 
 fn setup(mut commands: Commands, viewer: Res<super::PafViewer>) {
@@ -31,7 +31,7 @@ fn setup(mut commands: Commands, viewer: Res<super::PafViewer>) {
     });
 }
 
-fn menubar_system(
+pub(crate) fn menubar_system(
     mut contexts: EguiContexts,
     viewer: Res<super::PafViewer>,
     mut window_states: ResMut<WindowStates>,

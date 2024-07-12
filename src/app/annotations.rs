@@ -2,6 +2,8 @@ use bevy::prelude::*;
 
 use crate::annotations::RecordListId;
 
+use super::view::AlignmentViewport;
+
 pub(super) struct AnnotationsPlugin;
 
 /*
@@ -13,16 +15,22 @@ impl Plugin for AnnotationsPlugin {
         app.init_resource::<LabelPhysics>()
             .init_resource::<AnnotationPainter>()
             .add_event::<LoadAnnotationFile>()
+            .add_systems(Startup, setup)
             .add_systems(PreUpdate, load_annotation_file.pipe(prepare_annotations))
-            .add_systems(Startup, setup);
+            .add_systems(
+                Update,
+                (update_annotation_labels, draw_annotations)
+                    .chain()
+                    .after(super::gui::menubar_system),
+            );
     }
 }
 
-#[derive(Component)]
-struct Annotation {
-    record_list: RecordListId,
-    list_index: usize,
-}
+// #[derive(Component)]
+// struct Annotation {
+//     record_list: RecordListId,
+//     list_index: usize,
+// }
 
 #[derive(Event)]
 struct LoadAnnotationFile {
@@ -46,10 +54,70 @@ fn setup(mut commands: Commands, mut load_events: EventWriter<LoadAnnotationFile
     }
 }
 
-fn update_annotation_labels(//
+fn update_annotation_labels(
     //
+    time: Res<Time>,
+    viewer: Res<super::PafViewer>,
+    app_view: Res<AlignmentViewport>,
+    windows: Query<&Window>,
+
+    mut label_physics: ResMut<LabelPhysics>,
+    mut annotation_painter: ResMut<AnnotationPainter>,
+
+    // just for debug painter (temporary)
+    mut contexts: bevy_egui::EguiContexts,
 ) {
-    //
+    let window = windows.single();
+    let res = &window.resolution;
+
+    let view = &app_view.view;
+    let viewport = crate::view::Viewport {
+        view_center: view.center(),
+        view_size: view.size(),
+        canvas_offset: [0.0, 0.0].into(),
+        canvas_size: [res.width(), res.height()].into(),
+    };
+
+    let grid = &viewer.app.alignment_grid;
+
+    let debug_painter = contexts.ctx_mut().debug_painter();
+
+    label_physics
+        .0
+        .update_anchors(&debug_painter, grid, &viewport);
+
+    label_physics.0.update_labels_new(
+        &debug_painter,
+        grid,
+        &viewer.app.annotations,
+        &mut annotation_painter.0,
+        &viewport,
+    );
+
+    let dt = time.delta_seconds();
+
+    label_physics.0.step(grid, dt, &viewport);
+}
+
+fn draw_annotations(
+    mut contexts: bevy_egui::EguiContexts,
+    mut annotation_painter: ResMut<AnnotationPainter>,
+    viewer: Res<super::PafViewer>,
+    app_view: Res<AlignmentViewport>,
+) {
+    // menubar clip rect would be nice... how should i get that?
+    // store it on the menubar after its render system runs,
+    // & then just schedule this system after?
+
+    let ctx = contexts.ctx_mut();
+    let clip_rect = ctx.screen_rect();
+
+    annotation_painter.0.draw(
+        &viewer.app.app_config.annotation_draw_config,
+        ctx,
+        clip_rect,
+        &app_view.view,
+    );
 }
 
 fn load_annotation_file(
@@ -64,7 +132,6 @@ fn load_annotation_file(
         let grid = &app.alignment_grid;
         let annots = &mut app.annotations;
 
-        // match viewer.app.annotations.load_bed_file(
         match annots.load_bed_file(grid, &mut annotation_painter.0, &path) {
             Ok(list_id) => {
                 let annot_ids = viewer
