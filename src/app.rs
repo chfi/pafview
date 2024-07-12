@@ -40,7 +40,10 @@ impl Plugin for PafViewerPlugin {
             .add_plugins(rulers::ViewerRulersPlugin)
             .add_plugins(selection::RegionSelectionPlugin)
             .add_systems(Startup, setup_base_level_display_image)
-            .add_systems(Startup, (setup, prepare_alignments).chain())
+            .add_systems(
+                Startup,
+                (setup, setup_screenspace_camera, prepare_alignments).chain(),
+            )
             .add_systems(
                 Update,
                 (
@@ -49,6 +52,7 @@ impl Plugin for PafViewerPlugin {
                 )
                     .after(view::update_camera_from_viewport),
             )
+            // .add_systems(PreUpdate, resize_screenspace_camera_target)
             .add_systems(
                 Update,
                 (
@@ -97,6 +101,95 @@ struct SequencePairTile {
     query: SeqId,
 }
 
+#[derive(Component, Debug)]
+pub struct AlignmentCamera;
+
+#[derive(Component, Debug)]
+pub struct ScreenspaceCamera;
+
+fn setup_screenspace_camera(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    //
+    windows: Query<&Window>,
+) {
+    let window = windows.single();
+    let win_size = window.resolution.physical_size();
+
+    let size = Extent3d {
+        width: win_size.x,
+        height: win_size.y,
+        depth_or_array_layers: 1,
+    };
+
+    let mut image = Image {
+        texture_descriptor: TextureDescriptor {
+            label: None,
+            size,
+            dimension: TextureDimension::D2,
+            format: TextureFormat::Bgra8UnormSrgb,
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST
+                | TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        },
+        ..default()
+    };
+
+    // fill image.data with zeroes
+    image.resize(size);
+
+    let image_handle = images.add(image);
+
+    commands.spawn((
+        Camera2dBundle {
+            camera: Camera {
+                order: 1,
+                // target: bevy::render::camera::RenderTarget::Image(image_handle.clone()),
+                ..default()
+            },
+            ..default()
+        },
+        bevy::render::view::RenderLayers::layer(1),
+        ScreenspaceCamera,
+    ));
+}
+
+/*
+fn resize_screenspace_camera_target(
+    mut resize_reader: EventReader<bevy::window::WindowResized>,
+    mut images: ResMut<Assets<Image>>,
+
+    // mut screenspace_cameras: Query<&mut Camera, With<ScreenspaceCamera>>,
+    screenspace_cameras: Query<&Camera, With<ScreenspaceCamera>>,
+) {
+    use bevy::render::camera::RenderTarget;
+    let Some(new_res) = resize_reader.read().last() else {
+        return;
+    };
+
+    let camera = screenspace_cameras.single();
+
+    let RenderTarget::Image(handle) = &camera.target else {
+        return;
+    };
+
+    new_res.
+
+    let new_size = Extent3d {
+        width: win_size.x,
+        height: win_size.y,
+        depth_or_array_layers: 1,
+    };
+
+    if let Some(image) = images.get_mut(handle) {
+    image.resize(new_size);
+    }
+}
+*/
+
 fn setup(
     mut commands: Commands,
     viewer: Res<PafViewer>,
@@ -107,17 +200,20 @@ fn setup(
 
     // NB: initial values don't matter here as the camera will be updated
     // from the AlignmentViewport resource
-    commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(0.0, 0.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
-        projection: OrthographicProjection {
-            // scale: 1.0,
-            scale: 100_000.0,
-            // scaling_mode: W
+    commands.spawn((
+        Camera3dBundle {
+            transform: Transform::from_xyz(0.0, 0.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
+            projection: OrthographicProjection {
+                // scale: 1.0,
+                scale: 100_000.0,
+                // scaling_mode: W
+                ..default()
+            }
+            .into(),
             ..default()
-        }
-        .into(),
-        ..default()
-    });
+        },
+        AlignmentCamera,
+    ));
 
     // create polylines for grid
 

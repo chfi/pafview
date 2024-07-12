@@ -1,5 +1,5 @@
 use egui::{color_picker::Alpha, Ui};
-use winit::event_loop::EventLoopProxy;
+// use winit::event_loop::EventLoopProxy;
 
 use crate::{
     annotations::{
@@ -78,7 +78,7 @@ impl RegionsOfInterestGui {
         &mut self,
         ctx: &egui::Context,
         app: &PafViewerApp,
-        event_loop: &EventLoopProxy<crate::AppEvent>,
+
         annotation_painter: &mut AnnotationPainter,
         // annotations: &mut crate::annotations::AnnotationStore,
         // alignment_grid: &crate::grid::AlignmentGrid,
@@ -133,15 +133,12 @@ impl RegionsOfInterestGui {
             // .auto_sized()
             // .vscroll(true)
             // .default_open(false)
-            .show(&ctx, |ui| {
-                self.ui(app, event_loop, annotation_painter, view, ui)
-            });
+            .show(&ctx, |ui| self.ui(app, annotation_painter, view, ui));
     }
 
     fn ui(
         &mut self,
         app: &PafViewerApp,
-        event_loop: &EventLoopProxy<crate::AppEvent>,
         annotation_painter: &mut AnnotationPainter,
         // annotations: &crate::annotations::AnnotationStore,
         // alignment_grid: &crate::grid::AlignmentGrid,
@@ -213,7 +210,7 @@ impl RegionsOfInterestGui {
 
             match set {
                 SelectedRegionSet::Bookmarks => {
-                    self.bookmark_panel_ui(app, event_loop, annotation_painter, view, ui);
+                    self.bookmark_panel_ui(app, annotation_painter, view, ui);
                     // self.bookmark_panel_ui(annotations, alignment_grid, seq_names, input, view, ui);
                 }
                 SelectedRegionSet::Annotations { list_id } => {
@@ -417,7 +414,6 @@ impl RegionsOfInterestGui {
     fn bookmark_panel_ui(
         &mut self,
         app: &PafViewerApp,
-        event_loop: &EventLoopProxy<crate::AppEvent>,
         annotation_painter: &mut AnnotationPainter,
         // annotations: &crate::annotations::AnnotationStore,
         // alignment_grid: &crate::grid::AlignmentGrid,
@@ -454,13 +450,7 @@ impl RegionsOfInterestGui {
             // "select & mark region"
             // "custom mark" w/ target & query region inputs
 
-            self.bookmark_create_widget(
-                event_loop,
-                annotation_painter,
-                &app.alignment_grid,
-                view,
-                ui,
-            );
+            self.bookmark_create_widget(annotation_painter, &app.alignment_grid, view, ui);
 
             ui.separator();
             self.bookmark_details_widget(annotation_painter, &app.alignment_grid, view, ui);
@@ -506,14 +496,13 @@ impl RegionsOfInterestGui {
             *view = new_view;
         }
 
-        if ui.button("Display").clicked() {
-            *annotation_painter.enable_shape_mut(bookmark.shape_id) ^= true;
-        }
+        // if ui.button("Display").clicked() {
+        //     *annotation_painter.enable_shape_mut(bookmark.shape_id) ^= true;
+        // }
     }
 
     fn bookmark_create_widget(
         &mut self,
-        event_loop: &EventLoopProxy<crate::AppEvent>,
         annotation_painter: &mut AnnotationPainter,
         alignment_grid: &crate::grid::AlignmentGrid,
         view: &mut View,
@@ -541,13 +530,16 @@ impl RegionsOfInterestGui {
             });
         }
 
+        /*
         if ui.button("Select region to mark").clicked() {
             let target = SelectionTarget::default();
+            load_file_events:
             let _ = event_loop.send_event(crate::AppEvent::RequestSelection {
                 target: target.clone(),
             });
             self.selection_request = Some(target);
         }
+        */
 
         // let mut selected_view = None;
         // if let Some(target) = self.selection_request.as_ref() {

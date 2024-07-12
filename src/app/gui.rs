@@ -4,7 +4,7 @@ use bevy_egui::EguiContexts;
 
 use crate::gui::AppWindowStates;
 
-use super::view::AlignmentViewport;
+use super::{annotations::AnnotationPainter, view::AlignmentViewport};
 
 pub(super) struct MenubarPlugin;
 
@@ -14,7 +14,12 @@ impl Plugin for MenubarPlugin {
             .add_systems(Startup, setup)
             .add_systems(
                 Update,
-                (menubar_system, settings_window, goto_region_window),
+                (
+                    menubar_system,
+                    regions_of_interest_system,
+                    settings_window,
+                    goto_region_window,
+                ),
             );
         // .add_systems(Update, (menubar_system, regions_of_interest_system).chain());
     }
@@ -77,10 +82,12 @@ struct RegionsOfInterest {
     gui: crate::gui::regions::RegionsOfInterestGui,
 }
 
-/*
 fn regions_of_interest_system(
     mut contexts: EguiContexts,
     viewer: Res<super::PafViewer>,
+
+    mut alignment_view: ResMut<AlignmentViewport>,
+    mut annotation_painter: ResMut<AnnotationPainter>,
     mut window_states: ResMut<WindowStates>,
     mut roi_gui: ResMut<RegionsOfInterest>,
 ) {
@@ -88,10 +95,15 @@ fn regions_of_interest_system(
 
     let roi_gui = &mut roi_gui.gui;
 
-    // TODO: the RegionsOfInterestGui show_window needs an event loop; i need to handle AppEvent
+    roi_gui.show_window(
+        ctx,
+        &viewer.app,
+        &mut annotation_painter.0,
+        &mut alignment_view.view,
+        &mut window_states.window_states,
+    );
 
     // roi_gui.show_window(
     //     ctx,
     //     &viewer.app,
 }
-*/

@@ -33,8 +33,8 @@ impl Plugin for AnnotationsPlugin {
 // }
 
 #[derive(Event)]
-struct LoadAnnotationFile {
-    path: std::path::PathBuf,
+pub struct LoadAnnotationFile {
+    pub path: std::path::PathBuf,
 }
 
 #[derive(Resource, Default)]
@@ -43,7 +43,7 @@ struct LabelPhysics(crate::annotations::physics::LabelPhysics);
 // NB: probably want to replace the egui painter-based annotation drawing
 // with something cleaner & more integrated into bevy
 #[derive(Resource, Default)]
-struct AnnotationPainter(crate::annotations::draw::AnnotationPainter);
+pub struct AnnotationPainter(pub crate::annotations::draw::AnnotationPainter);
 
 fn setup(
     // mut commands: Commands,
