@@ -45,7 +45,15 @@ struct LabelPhysics(crate::annotations::physics::LabelPhysics);
 #[derive(Resource, Default)]
 struct AnnotationPainter(crate::annotations::draw::AnnotationPainter);
 
-fn setup(mut commands: Commands, mut load_events: EventWriter<LoadAnnotationFile>) {
+fn setup(
+    // mut commands: Commands,
+    viewer: Res<super::PafViewer>,
+    mut load_events: EventWriter<LoadAnnotationFile>,
+    mut label_physics: ResMut<LabelPhysics>,
+) {
+    label_physics.0.heightfields =
+        crate::annotations::physics::AlignmentHeightFields::from_alignments(&viewer.app.alignments);
+
     use clap::Parser;
     let args = crate::cli::Cli::parse();
 
@@ -121,11 +129,15 @@ fn draw_annotations(
 }
 
 fn load_annotation_file(
+    frame_count: Res<bevy::core::FrameCount>,
     mut annotation_painter: ResMut<AnnotationPainter>,
     mut viewer: ResMut<super::PafViewer>,
     mut load_events: EventReader<LoadAnnotationFile>,
 ) -> Vec<crate::annotations::AnnotationId> {
     let mut labels_to_prepare = Vec::new();
+    if frame_count.0 == 0 {
+        return labels_to_prepare;
+    }
 
     for LoadAnnotationFile { path } in load_events.read() {
         let app = &mut viewer.app;
