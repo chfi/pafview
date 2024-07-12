@@ -1,4 +1,5 @@
-mod gui;
+pub mod annotations;
+pub mod gui;
 pub mod rulers;
 pub mod selection;
 pub mod view;
@@ -35,6 +36,8 @@ impl Plugin for PafViewerPlugin {
             .init_resource::<AlignmentRenderConfig>()
             .add_plugins(gui::MenubarPlugin)
             .add_plugins(view::AlignmentViewPlugin)
+            .add_plugins(annotations::AnnotationsPlugin)
+            .add_plugins(rulers::ViewerRulersPlugin)
             .add_plugins(selection::RegionSelectionPlugin)
             .add_systems(Startup, setup_base_level_display_image)
             .add_systems(Startup, (setup, prepare_alignments).chain())

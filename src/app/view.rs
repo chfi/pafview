@@ -1,7 +1,6 @@
 use bevy::{
     input::mouse::{MouseMotion, MouseWheel},
     prelude::*,
-    render::camera::ScalingMode,
 };
 
 pub(super) struct AlignmentViewPlugin;
@@ -19,7 +18,8 @@ impl Plugin for AlignmentViewPlugin {
                 )
                     .chain()
                     .before(bevy::render::camera::camera_system::<OrthographicProjection>),
-            );
+            )
+            .add_systems(Update, update_cursor_world.after(input_update_viewport));
     }
 }
 
@@ -28,7 +28,7 @@ pub struct CursorAlignmentPosition {
     pub world_pos: Option<bevy::math::DVec2>,
 }
 
-fn update_cursor_world(
+pub fn update_cursor_world(
     mut cursor_world: ResMut<CursorAlignmentPosition>,
     view: Res<AlignmentViewport>,
     windows: Query<&Window>,

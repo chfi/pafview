@@ -30,7 +30,7 @@ pub struct AnnotShapeId(usize);
 pub struct AnnotationPainter {
     // galley_cache: FxHashMap<(String, egui::TextFormat), Arc<Galley>>,
     galley_cache: FxHashMap<String, Arc<Galley>>,
-    annotations: Vec<Box<dyn DrawAnnotation>>,
+    annotations: Vec<Box<dyn DrawAnnotation + Send + Sync + 'static>>,
 
     enabled: Vec<bool>,
     // annotations: FxHashMap<usize, Box<dyn DrawAnnotation>>,
@@ -44,7 +44,10 @@ impl AnnotationPainter {
         Some(val.as_mut())
     }
 
-    pub fn add_shape(&mut self, draw: Box<dyn DrawAnnotation>) -> AnnotShapeId {
+    pub fn add_shape(
+        &mut self,
+        draw: Box<dyn DrawAnnotation + Send + Sync + 'static>,
+    ) -> AnnotShapeId {
         let id = AnnotShapeId(self.annotations.len());
         self.annotations.push(draw);
         self.enabled.push(true);
@@ -53,7 +56,7 @@ impl AnnotationPainter {
 
     pub fn add_collection(
         &mut self,
-        draw: impl IntoIterator<Item = Box<dyn DrawAnnotation>>,
+        draw: impl IntoIterator<Item = Box<dyn DrawAnnotation + Send + Sync + 'static>>,
     ) -> AnnotShapeId {
         let draw_collection = AnnotationDrawCollection {
             draw: draw.into_iter().collect(),
@@ -160,7 +163,7 @@ pub trait DrawAnnotation: std::any::Any {
 }
 
 pub struct AnnotationDrawCollection {
-    draw: Vec<Box<dyn DrawAnnotation>>,
+    draw: Vec<Box<dyn DrawAnnotation + Send + Sync + 'static>>,
 }
 
 impl DrawAnnotation for AnnotationDrawCollection {

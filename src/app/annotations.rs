@@ -1,0 +1,123 @@
+use bevy::prelude::*;
+
+use crate::annotations::RecordListId;
+
+pub(super) struct AnnotationsPlugin;
+
+/*
+
+*/
+
+impl Plugin for AnnotationsPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<LabelPhysics>()
+            .init_resource::<AnnotationPainter>()
+            .add_event::<LoadAnnotationFile>()
+            .add_systems(PreUpdate, load_annotation_file.pipe(prepare_annotations))
+            .add_systems(Startup, setup);
+    }
+}
+
+#[derive(Component)]
+struct Annotation {
+    record_list: RecordListId,
+    list_index: usize,
+}
+
+#[derive(Event)]
+struct LoadAnnotationFile {
+    path: std::path::PathBuf,
+}
+
+#[derive(Resource, Default)]
+struct LabelPhysics(crate::annotations::physics::LabelPhysics);
+
+// NB: probably want to replace the egui painter-based annotation drawing
+// with something cleaner & more integrated into bevy
+#[derive(Resource, Default)]
+struct AnnotationPainter(crate::annotations::draw::AnnotationPainter);
+
+fn setup(mut commands: Commands, mut load_events: EventWriter<LoadAnnotationFile>) {
+    use clap::Parser;
+    let args = crate::cli::Cli::parse();
+
+    if let Some(path) = args.bed {
+        load_events.send(LoadAnnotationFile { path });
+    }
+}
+
+fn update_annotation_labels(//
+    //
+) {
+    //
+}
+
+fn load_annotation_file(
+    mut annotation_painter: ResMut<AnnotationPainter>,
+    mut viewer: ResMut<super::PafViewer>,
+    mut load_events: EventReader<LoadAnnotationFile>,
+) -> Vec<crate::annotations::AnnotationId> {
+    let mut labels_to_prepare = Vec::new();
+
+    for LoadAnnotationFile { path } in load_events.read() {
+        let app = &mut viewer.app;
+        let grid = &app.alignment_grid;
+        let annots = &mut app.annotations;
+
+        // match viewer.app.annotations.load_bed_file(
+        match annots.load_bed_file(grid, &mut annotation_painter.0, &path) {
+            Ok(list_id) => {
+                let annot_ids = viewer
+                    .app
+                    .annotations
+                    .list_by_id(list_id)
+                    .into_iter()
+                    .flat_map(|list| {
+                        list.records
+                            .iter()
+                            .enumerate()
+                            .map(|(record_id, _)| (list_id, record_id))
+                    });
+
+                labels_to_prepare.extend(annot_ids);
+
+                log::info!("Loaded BED file `{path:?}`");
+            }
+            Err(err) => {
+                log::error!("Error loading BED file at path `{path:?}`: {err:?}")
+            }
+        }
+    }
+
+    labels_to_prepare
+}
+
+fn prepare_annotations(
+    // while we're using egui's fonts, which won't be available the first frame
+    In(labels_to_prepare): In<Vec<crate::annotations::AnnotationId>>,
+
+    frame_count: Res<bevy::core::FrameCount>,
+    viewer: Res<super::PafViewer>,
+
+    mut contexts: bevy_egui::EguiContexts,
+    mut annotation_painter: ResMut<AnnotationPainter>,
+    mut label_physics: ResMut<LabelPhysics>,
+) {
+    if labels_to_prepare.is_empty() || frame_count.0 == 0 {
+        return;
+    }
+
+    let ctx = contexts.ctx_mut();
+
+    let app = &viewer.app;
+
+    ctx.fonts(|fonts| {
+        label_physics.0.prepare_annotations(
+            &app.alignment_grid,
+            &app.annotations,
+            labels_to_prepare.into_iter(),
+            fonts,
+            &mut annotation_painter.0,
+        );
+    });
+}
