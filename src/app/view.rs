@@ -3,7 +3,10 @@ use bevy::{
     prelude::*,
 };
 
-use super::AlignmentCamera;
+use super::{
+    selection::{Selection, SelectionComplete},
+    AlignmentCamera,
+};
 
 pub(super) struct AlignmentViewPlugin;
 
@@ -21,7 +24,11 @@ impl Plugin for AlignmentViewPlugin {
                     .chain()
                     .before(bevy::render::camera::camera_system::<OrthographicProjection>),
             )
-            .add_systems(Update, update_cursor_world.after(input_update_viewport));
+            .add_systems(Update, update_cursor_world.after(input_update_viewport))
+            .add_systems(
+                Update,
+                (rectangle_select_zoom_input, rectangle_select_zoom_apply).chain(),
+            );
     }
 }
 
@@ -127,6 +134,74 @@ pub(super) fn update_camera_from_viewport(
 
     let scale = view.width() as f32 / camera.logical_target_size().unwrap().x;
     proj.scale = scale;
+}
+
+#[derive(Component)]
+struct RectangleZoomSelection;
+
+fn rectangle_select_zoom_input(
+    mut commands: Commands,
+    alignment_cursor: Res<CursorAlignmentPosition>,
+    mouse_button: Res<ButtonInput<MouseButton>>,
+
+    selections: Query<
+        (Entity, &Selection),
+        (With<RectangleZoomSelection>, Without<SelectionComplete>),
+    >,
+) {
+    if let Ok((sel_entity, _selection)) = selections.get_single() {
+        if mouse_button.just_released(MouseButton::Right) {
+            commands.entity(sel_entity).insert(SelectionComplete);
+        }
+    } else {
+        let Some(cursor) = alignment_cursor.world_pos else {
+            return;
+        };
+
+        if mouse_button.just_pressed(MouseButton::Right) {
+            commands.spawn((
+                Selection {
+                    start_world: cursor,
+                    end_world: cursor,
+                },
+                RectangleZoomSelection,
+            ));
+        }
+    }
+}
+
+fn rectangle_select_zoom_apply(
+    mut commands: Commands,
+    mut app_view: ResMut<AlignmentViewport>,
+    selections: Query<
+        (Entity, &Selection),
+        (With<RectangleZoomSelection>, With<SelectionComplete>),
+    >,
+) {
+    for (sel_entity, selection) in selections.iter() {
+        let Selection {
+            start_world,
+            end_world,
+        } = selection;
+
+        let min = start_world.min(*end_world);
+        let max = start_world.max(*end_world);
+
+        if max.x - min.x > 100.0 && max.y - min.y > 100.0 {
+            let x_range = min.x..=max.x;
+            let y_range = min.y..=max.y;
+
+            let new_view = app_view
+                .view
+                .fit_ranges_in_view_f64(Some(min.x..=max.x), Some(min.y..=max.y));
+
+            println!("zooming to {x_range:?}, {y_range:?}");
+
+            app_view.view = new_view;
+        }
+
+        commands.entity(sel_entity).despawn();
+    }
 }
 
 fn input_update_viewport(
