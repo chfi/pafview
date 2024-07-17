@@ -319,7 +319,7 @@ impl GridAxis {
         if self.seq_offsets[start_i] > start {
             start_i -= 1;
         }
-        let count = end_i - start_i;
+        let count = end_i.checked_sub(start_i).unwrap_or_default();
         Some(self.seq_order.iter().skip(start_i).take(count).copied())
     }
 

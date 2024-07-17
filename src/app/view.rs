@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use bevy::{
     input::mouse::{MouseMotion, MouseWheel},
     prelude::*,
@@ -12,7 +14,9 @@ pub(super) struct AlignmentViewPlugin;
 
 impl Plugin for AlignmentViewPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup)
+        app.init_resource::<ViewHistoryCursor>()
+            .add_event::<ViewEvent>()
+            .add_systems(Startup, setup)
             // .add_systems(PreUpdate, update_viewport_for_window_resize)
             .add_systems(
                 Update,
@@ -28,7 +32,8 @@ impl Plugin for AlignmentViewPlugin {
             .add_systems(
                 Update,
                 (rectangle_select_zoom_input, rectangle_select_zoom_apply).chain(),
-            );
+            )
+            .add_systems(Update, (handle_view_events, view_history_input));
     }
 }
 
@@ -84,6 +89,7 @@ fn setup(mut commands: Commands, viewer: Res<super::PafViewer>) {
 
     commands.insert_resource(viewport);
     commands.init_resource::<CursorAlignmentPosition>();
+    // commands.init_resource::<CursorAlignmentPosition>();
 }
 
 fn update_viewport_for_window_resize(
@@ -177,6 +183,8 @@ fn rectangle_select_zoom_apply(
         (Entity, &Selection),
         (With<RectangleZoomSelection>, With<SelectionComplete>),
     >,
+
+    mut view_events: EventWriter<ViewEvent>,
 ) {
     for (sel_entity, selection) in selections.iter() {
         let Selection {
@@ -195,9 +203,7 @@ fn rectangle_select_zoom_apply(
                 .view
                 .fit_ranges_in_view_f64(Some(min.x..=max.x), Some(min.y..=max.y));
 
-            println!("zooming to {x_range:?}, {y_range:?}");
-
-            app_view.view = new_view;
+            view_events.send(ViewEvent { view: new_view });
         }
 
         commands.entity(sel_entity).despawn();
@@ -318,5 +324,53 @@ fn input_update_viewport(
         };
 
         view.zoom_with_focus([0.5, 0.5], zoom as f64);
+    }
+}
+
+#[derive(Default, Resource)]
+struct ViewHistoryCursor {
+    past: VecDeque<crate::view::View>,
+    future: VecDeque<crate::view::View>,
+}
+
+#[derive(Event)]
+struct ViewEvent {
+    view: crate::view::View,
+}
+
+fn handle_view_events(
+    mut view_history: ResMut<ViewHistoryCursor>,
+    mut app_view: ResMut<AlignmentViewport>,
+    mut view_events: EventReader<ViewEvent>,
+) {
+    for view_ev in view_events.read() {
+        view_history.future.clear();
+        view_history.past.push_back(app_view.view);
+        app_view.view = view_ev.view;
+    }
+}
+
+fn view_history_input(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut view_history: ResMut<ViewHistoryCursor>,
+    mut app_view: ResMut<AlignmentViewport>,
+) {
+    let ctrl = keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
+
+    if ctrl && (keyboard.just_pressed(KeyCode::KeyZ) || keyboard.just_pressed(KeyCode::ArrowLeft)) {
+        // move back in history
+        if let Some(new_view) = view_history.past.pop_back() {
+            view_history.future.push_front(app_view.view);
+            app_view.view = new_view;
+        }
+    }
+
+    if ctrl && (keyboard.just_pressed(KeyCode::KeyR) || keyboard.just_pressed(KeyCode::ArrowRight))
+    {
+        // move forward in history
+        if let Some(new_view) = view_history.future.pop_front() {
+            view_history.past.push_back(app_view.view);
+            app_view.view = new_view;
+        }
     }
 }
