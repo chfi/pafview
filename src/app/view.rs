@@ -3,6 +3,8 @@ use bevy::{
     prelude::*,
 };
 
+use super::AlignmentCamera;
+
 pub(super) struct AlignmentViewPlugin;
 
 impl Plugin for AlignmentViewPlugin {
@@ -109,7 +111,7 @@ fn update_viewport_for_window_resize(
 
 pub(super) fn update_camera_from_viewport(
     alignment_view: Res<AlignmentViewport>,
-    mut cameras: Query<(&mut Transform, &mut Projection, &Camera), With<Camera>>,
+    mut cameras: Query<(&mut Transform, &mut Projection, &Camera), With<AlignmentCamera>>,
 ) {
     let (mut transform, mut proj, camera) = cameras.single_mut();
 

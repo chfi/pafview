@@ -532,7 +532,7 @@ fn resize_base_level_image_handle(
     mut images: ResMut<Assets<Image>>,
     mut image_handle: ResMut<LastBaseLevelHandle>,
 
-    cameras: Query<&Camera>,
+    cameras: Query<&Camera, With<AlignmentCamera>>,
 ) {
     let new_size = cameras.single().physical_target_size().unwrap();
 
@@ -553,7 +553,7 @@ fn resize_base_level_image_handle(
 }
 
 fn send_base_level_view_events(
-    cameras: Query<&Camera>,
+    cameras: Query<&Camera, With<AlignmentCamera>>,
     viewport: Res<view::AlignmentViewport>,
     render_config: Res<AlignmentRenderConfig>,
     mut view_events: EventWriter<ViewEvent>,
@@ -579,7 +579,7 @@ fn send_base_level_view_events(
 fn run_base_level_cpu_rasterizer(
     mut commands: Commands,
 
-    cameras: Query<&Camera>,
+    cameras: Query<&Camera, With<AlignmentCamera>>,
     viewer: Res<PafViewer>,
     color_schemes: Res<AlignmentColorSchemes>,
     mut rasterizer: ResMut<AlignmentRasterizer>,
@@ -636,7 +636,7 @@ fn update_base_level_image(
 }
 
 fn update_base_level_display_visibility(
-    cameras: Query<(&Camera, &Projection)>,
+    cameras: Query<(&Camera, &Projection), With<AlignmentCamera>>,
     render_config: Res<AlignmentRenderConfig>,
     mut visibility: Query<&mut Visibility, With<BaseLevelViewUiRoot>>,
 ) {
