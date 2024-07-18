@@ -352,12 +352,21 @@ fn handle_view_events(
 
 fn view_history_input(
     keyboard: Res<ButtonInput<KeyCode>>,
+    mouse: Res<ButtonInput<MouseButton>>,
     mut view_history: ResMut<ViewHistoryCursor>,
     mut app_view: ResMut<AlignmentViewport>,
 ) {
     let ctrl = keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
 
-    if ctrl && (keyboard.just_pressed(KeyCode::KeyZ) || keyboard.just_pressed(KeyCode::ArrowLeft)) {
+    let back_key_input =
+        ctrl && (keyboard.just_pressed(KeyCode::KeyZ) || keyboard.just_pressed(KeyCode::ArrowLeft));
+    let forward_key_input = ctrl
+        && (keyboard.just_pressed(KeyCode::KeyR) || keyboard.just_pressed(KeyCode::ArrowRight));
+
+    let back_mouse_input = mouse.just_pressed(MouseButton::Back);
+    let forward_mouse_input = mouse.just_pressed(MouseButton::Forward);
+
+    if back_key_input || back_mouse_input {
         // move back in history
         if let Some(new_view) = view_history.past.pop_back() {
             view_history.future.push_front(app_view.view);
@@ -365,8 +374,7 @@ fn view_history_input(
         }
     }
 
-    if ctrl && (keyboard.just_pressed(KeyCode::KeyR) || keyboard.just_pressed(KeyCode::ArrowRight))
-    {
+    if forward_key_input || forward_mouse_input {
         // move forward in history
         if let Some(new_view) = view_history.future.pop_front() {
             view_history.past.push_back(app_view.view);
