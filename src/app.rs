@@ -64,6 +64,17 @@ impl Plugin for PafViewerPlugin {
                     .after(send_base_level_view_events),
             )
             .add_systems(PostUpdate, save_app_config);
+
+        #[cfg(debug_assertions)]
+        app.add_plugins(bevy::dev_tools::fps_overlay::FpsOverlayPlugin {
+            config: bevy::dev_tools::fps_overlay::FpsOverlayConfig {
+                text_config: TextStyle {
+                    font_size: 40.0,
+                    color: Color::srgb(0.0, 0.0, 0.0),
+                    font: default(),
+                },
+            },
+        });
     }
 }
 

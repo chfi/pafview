@@ -41,7 +41,7 @@ bincode = "1.3.3"
 coitrees = "0.4.0"
 
 # bevy = "0.14"
-bevy = { version = "0.14", features = ["dynamic_linking"] }
+bevy = { version = "0.14", features = ["dynamic_linking", "bevy_dev_tools"] }
 bevy_egui = "0.28.0"
 bevy_polyline = "0.10.0"
 
