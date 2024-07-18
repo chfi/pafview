@@ -112,7 +112,6 @@ fn setup(mut commands: Commands, viewer: Res<super::PafViewer>) {
 
     commands.insert_resource(viewport);
     commands.init_resource::<CursorAlignmentPosition>();
-    // commands.init_resource::<CursorAlignmentPosition>();
 }
 
 fn update_viewport_for_window_resize(
@@ -238,17 +237,24 @@ fn input_update_viewport(
     keyboard: Res<ButtonInput<KeyCode>>,
     mouse_button: Res<ButtonInput<MouseButton>>,
 
+    windows: Query<&Window>,
     mut egui_contexts: bevy_egui::EguiContexts,
 
     mut mouse_wheel: EventReader<MouseWheel>,
     mut mouse_motion: EventReader<MouseMotion>,
 
     mut alignment_view: ResMut<AlignmentViewport>,
-    windows: Query<&Window>,
+    mut view_events: EventWriter<ViewEvent>,
 ) {
     let egui_using_cursor = egui_contexts.ctx_mut().wants_pointer_input();
 
     let window = windows.single();
+
+    if keyboard.just_pressed(KeyCode::Escape) {
+        view_events.send(ViewEvent {
+            view: alignment_view.initial_view,
+        });
+    }
 
     let win_size = bevy::math::DVec2::new(
         window.resolution.width() as f64,

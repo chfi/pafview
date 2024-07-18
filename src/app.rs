@@ -32,7 +32,7 @@ pub struct PafViewerPlugin;
 impl Plugin for PafViewerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(bevy_egui::EguiPlugin)
-            .add_event::<ViewEvent>()
+            .add_event::<BaseLevelViewEvent>()
             .init_resource::<AlignmentRenderConfig>()
             .add_plugins(gui::MenubarPlugin)
             .add_plugins(view::AlignmentViewPlugin)
@@ -49,6 +49,7 @@ impl Plugin for PafViewerPlugin {
                 (
                     send_base_level_view_events,
                     update_base_level_display_visibility,
+                    update_alignment_line_segment_visibility,
                 )
                     .after(view::update_camera_from_viewport),
             )
@@ -113,6 +114,9 @@ struct SequencePairTile {
 }
 
 #[derive(Component, Debug)]
+struct Alignment;
+
+#[derive(Component, Debug)]
 pub struct AlignmentCamera;
 
 #[derive(Component, Debug)]
@@ -167,39 +171,6 @@ fn setup_screenspace_camera(
         ScreenspaceCamera,
     ));
 }
-
-/*
-fn resize_screenspace_camera_target(
-    mut resize_reader: EventReader<bevy::window::WindowResized>,
-    mut images: ResMut<Assets<Image>>,
-
-    // mut screenspace_cameras: Query<&mut Camera, With<ScreenspaceCamera>>,
-    screenspace_cameras: Query<&Camera, With<ScreenspaceCamera>>,
-) {
-    use bevy::render::camera::RenderTarget;
-    let Some(new_res) = resize_reader.read().last() else {
-        return;
-    };
-
-    let camera = screenspace_cameras.single();
-
-    let RenderTarget::Image(handle) = &camera.target else {
-        return;
-    };
-
-    new_res.
-
-    let new_size = Extent3d {
-        width: win_size.x,
-        height: win_size.y,
-        depth_or_array_layers: 1,
-    };
-
-    if let Some(image) = images.get_mut(handle) {
-    image.resize(new_size);
-    }
-}
-*/
 
 fn setup(
     mut commands: Commands,
@@ -447,12 +418,16 @@ fn prepare_alignments(
                         let material = op_mats.get(&op).unwrap().clone();
                         let polyline = polylines.add(Polyline { vertices });
 
-                        parent.spawn(PolylineBundle {
-                            polyline,
-                            material,
-                            // transform: transform.clone(),
-                            ..default()
-                        });
+                        parent.spawn((
+                            Alignment,
+                            PolylineBundle {
+                                polyline,
+                                material,
+                                visibility: Visibility::Hidden,
+                                // transform: transform.clone(),
+                                ..default()
+                            },
+                        ));
                     }
                 }
             });
@@ -462,7 +437,7 @@ fn prepare_alignments(
 // NB: will probably/maybe replace these events with a component
 // and observers or something
 #[derive(Debug, Clone, Event)]
-struct ViewEvent {
+struct BaseLevelViewEvent {
     view: crate::view::View,
 }
 
@@ -567,7 +542,7 @@ fn send_base_level_view_events(
     cameras: Query<&Camera, With<AlignmentCamera>>,
     viewport: Res<view::AlignmentViewport>,
     render_config: Res<AlignmentRenderConfig>,
-    mut view_events: EventWriter<ViewEvent>,
+    mut view_events: EventWriter<BaseLevelViewEvent>,
 ) {
     let camera = cameras.single();
     let size = camera.physical_target_size().unwrap();
@@ -582,7 +557,7 @@ fn send_base_level_view_events(
         return;
     }
 
-    view_events.send(ViewEvent {
+    view_events.send(BaseLevelViewEvent {
         view: viewport.view,
     });
 }
@@ -595,7 +570,7 @@ fn run_base_level_cpu_rasterizer(
     color_schemes: Res<AlignmentColorSchemes>,
     mut rasterizer: ResMut<AlignmentRasterizer>,
 
-    mut view_events: EventReader<ViewEvent>,
+    mut view_events: EventReader<BaseLevelViewEvent>,
 ) {
     let camera = cameras.single();
 
@@ -644,6 +619,34 @@ fn update_base_level_image(
 
     let pixels: &[u8] = bytemuck::cast_slice(&last_buffer.pixel_buffer.pixels);
     image.data = pixels.to_vec();
+}
+
+fn update_alignment_line_segment_visibility(
+    cameras: Query<(&Camera, &Projection), With<AlignmentCamera>>,
+    render_config: Res<AlignmentRenderConfig>,
+    mut visibility: Query<&mut Visibility, With<Alignment>>,
+) {
+    let (camera, camera_proj) = cameras.single();
+
+    let size = camera.physical_target_size().unwrap();
+
+    let Projection::Orthographic(proj) = camera_proj else {
+        unreachable!();
+    };
+
+    let bp_per_px = {
+        let pixels = size.x as f32;
+        let bp = proj.area.width();
+        bp / pixels
+    };
+
+    for mut visibility in visibility.iter_mut() {
+        if bp_per_px > render_config.base_level_render_min_bp_per_px {
+            *visibility = Visibility::Visible;
+        } else {
+            *visibility = Visibility::Hidden;
+        }
+    }
 }
 
 fn update_base_level_display_visibility(
