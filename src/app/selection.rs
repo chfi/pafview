@@ -168,31 +168,3 @@ fn draw_selection_gizmos(
         // gizmos.circle_2d(s1, 5.0, LinearRgba::rgb(0.8, 0.0, 0.0));
     }
 }
-
-/*
-fn update_selection_transform(
-    // mut meshes: ResMut<Assets<Mesh>>,
-    // view: Res<AlignmentV
-    world_cameras: Query<&Camera, Without<ScreenspaceCamera>>,
-    screenspace_cameras: Query<&Camera, With<ScreenspaceCamera>>,
-    mut selection: Query<(&Selection, &mut Transform)>,
-    // selection: Query<&Mesh2dHandle, With<Selection>>,
-) {
-    let world_camera = world_cameras.single();
-    let screenspace_camera = screenspace_cameras.single();
-    // let camera =
-
-    for (selection, mut sel_transform) in selection.iter_mut() {
-        todo!();
-        // let p0 = world_camera.world_to_viewport(camera_transform, world_position)
-
-        //
-    }
-    // for (selection, handle_2d) in selection.iter() {
-    //     let Some(mesh) = meshes.get_mut(&handle_2d.0) else {
-    //         log::error!("tried to update nonexistent mesh for selection");
-    //         return;
-    //     };
-    // }
-}
-*/
