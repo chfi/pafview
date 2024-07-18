@@ -5,6 +5,8 @@ use bevy::{
     prelude::*,
 };
 
+use crate::sequences::SeqId;
+
 use super::{
     selection::{Selection, SelectionComplete},
     AlignmentCamera,
@@ -40,10 +42,15 @@ impl Plugin for AlignmentViewPlugin {
 #[derive(Default, Resource)]
 pub struct CursorAlignmentPosition {
     pub world_pos: Option<bevy::math::DVec2>,
+    pub screen_pos: Option<bevy::math::Vec2>,
+
+    pub target_pos: Option<(SeqId, u64)>,
+    pub query_pos: Option<(SeqId, u64)>,
 }
 
 pub fn update_cursor_world(
     mut cursor_world: ResMut<CursorAlignmentPosition>,
+    viewer: Res<super::PafViewer>,
     view: Res<AlignmentViewport>,
     windows: Query<&Window>,
 ) {
@@ -51,13 +58,29 @@ pub fn update_cursor_world(
     let res = &window.resolution;
     let dims = [res.width(), res.height()];
 
-    let world_pos = window.cursor_position().map(|p| {
-        let p: [f32; 2] = p.into();
-        let wp: [f64; 2] = view.view.map_screen_to_world(dims, p).into();
-        bevy::math::DVec2::from(wp)
-    });
+    let grid = &viewer.app.alignment_grid;
 
-    cursor_world.world_pos = world_pos;
+    let mut new_al_cursor = CursorAlignmentPosition::default();
+
+    if let Some(cursor_pos) = window.cursor_position() {
+        let world_pos = {
+            let p: [f32; 2] = cursor_pos.into();
+            let wp: [f64; 2] = view.view.map_screen_to_world(dims, p).into();
+            bevy::math::DVec2::from(wp)
+        };
+
+        let screen_pos = Vec2::new(
+            cursor_pos.x - res.width() * 0.5,
+            res.height() - cursor_pos.y - res.height() * 0.5,
+        );
+        new_al_cursor.screen_pos = Some(screen_pos);
+        new_al_cursor.world_pos = Some(world_pos);
+
+        new_al_cursor.target_pos = grid.x_axis.global_to_axis_exact(world_pos.x.round() as u64);
+        new_al_cursor.query_pos = grid.y_axis.global_to_axis_exact(world_pos.y.round() as u64);
+    }
+
+    *cursor_world = new_al_cursor;
 }
 
 #[derive(Resource)]
