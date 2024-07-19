@@ -1,13 +1,4 @@
-use bevy::{
-    input::mouse::{MouseMotion, MouseWheel},
-    prelude::*,
-    render::{camera::ScalingMode, view::RenderLayers},
-    sprite::Anchor,
-};
-use bevy_polyline::{
-    material::PolylineMaterial,
-    polyline::{Polyline, PolylineBundle},
-};
+use bevy::{prelude::*, render::view::RenderLayers, sprite::Anchor};
 
 use super::{view::CursorAlignmentPosition, PafViewer};
 
@@ -45,22 +36,16 @@ fn setup(
     let target_label = commands.spawn(RenderLayers::layer(1)).id();
     let query_label = commands.spawn(RenderLayers::layer(1)).id();
 
-    let mut parent = commands.spawn((
-        AlignmentRuler {
-            target_label,
-            query_label,
-        },
-        SpatialBundle::default(),
-    ));
-
-    parent.insert_children(0, &[target_label, query_label]);
+    commands.spawn((AlignmentRuler {
+        target_label,
+        query_label,
+    },));
 }
 
 fn draw_cursor_ruler_gizmos(
     mut gizmos: Gizmos<RulerGizmos>,
     cursor: Res<CursorAlignmentPosition>,
     windows: Query<&Window>,
-    // app_view: Res<AlignmentViewport>,
 ) {
     let Some(sp) = cursor.screen_pos else {
         return;
@@ -84,15 +69,17 @@ fn update_cursor_ruler(
     mut commands: Commands,
     viewer: Res<PafViewer>,
     cursor: Res<CursorAlignmentPosition>,
-    //
+
     ruler: Query<(Entity, &AlignmentRuler)>,
+    windows: Query<&Window>,
 ) {
-    //
     let text_style = TextStyle {
-        font_size: 24.0,
+        font_size: 22.0,
         color: Color::srgb(0.0, 0.0, 0.0),
         ..default()
     };
+
+    let res = &windows.single().resolution;
 
     let cursor_transform = cursor
         .screen_pos
@@ -111,13 +98,15 @@ fn update_cursor_ruler(
                 .map(|n| Text::from_section(format!("TGT {n}:{tgt_pos}"), text_style.clone()));
 
             let mut cmds = commands.entity(t_label);
-            let pos = Vec3::new(20.0, 5.0, 0.0);
+            let mut transform = cursor_transform;
+            // TODO: still need to get the menu bar offset
+            transform.translation.y = res.height() * 0.5 - 20.0;
 
             if let Some(text) = tgt_text {
                 cmds.insert(Text2dBundle {
                     text,
-                    text_anchor: Anchor::CenterLeft,
-                    transform: Transform::from_translation(pos),
+                    text_anchor: Anchor::TopLeft,
+                    transform,
                     visibility: Visibility::Visible,
                     ..default()
                 });
@@ -132,13 +121,14 @@ fn update_cursor_ruler(
                 .map(|n| Text::from_section(format!("QRY {n}:{qry_pos}"), text_style.clone()));
 
             let mut cmds = commands.entity(q_label);
-            let pos = Vec3::new(15.0, -10.0, 0.0);
+            let mut transform = cursor_transform;
+            transform.translation.x = -res.width() * 0.5;
 
             if let Some(text) = qry_text {
                 cmds.insert(Text2dBundle {
                     text,
-                    text_anchor: Anchor::TopLeft,
-                    transform: Transform::from_translation(pos),
+                    text_anchor: Anchor::CenterLeft,
+                    transform,
                     visibility: Visibility::Visible,
                     ..default()
                 });
