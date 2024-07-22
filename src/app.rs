@@ -1,5 +1,6 @@
 pub mod annotations;
 pub mod gui;
+pub mod render;
 pub mod rulers;
 pub mod selection;
 pub mod view;
@@ -405,6 +406,7 @@ fn prepare_alignments(
 
                         // https://github.com/ForesightMiningSoftwareCorporation/bevy_polyline/issues/20#issuecomment-1035624250
                         if last_op != Some(op) {
+                            buf.push(Vec3::splat(std::f32::INFINITY));
                             buf.push(Vec3::splat(std::f32::INFINITY));
                         }
 
