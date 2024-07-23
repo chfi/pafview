@@ -265,9 +265,18 @@ fn input_update_viewport(
         .read()
         .map(|ev| {
             // TODO scale based on ev.unit
-            ev.y
+            match ev.unit {
+                bevy::input::mouse::MouseScrollUnit::Line => {
+                    ev.y as f64
+                    //
+                }
+                bevy::input::mouse::MouseScrollUnit::Pixel => {
+                    ev.y as f64 * 0.01f64
+                    //
+                }
+            }
         })
-        .sum::<f32>();
+        .sum::<f64>();
 
     let dt = time.delta_seconds();
 
@@ -300,8 +309,21 @@ fn input_update_viewport(
         [x, y]
     };
 
-    let xv = view.width() * 0.05;
-    let yv = view.height() * 0.05;
+    let ctrl_down =
+        keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
+
+    let shift_down = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+
+    let pan_factor = if ctrl_down {
+        5.0
+    } else if shift_down {
+        0.25
+    } else {
+        1.0
+    };
+
+    let xv = view.width() * 0.05 * pan_factor;
+    let yv = view.height() * 0.05 * pan_factor;
 
     let mut dv = bevy::math::DVec2::ZERO;
 
@@ -320,19 +342,27 @@ fn input_update_viewport(
     }
 
     if mouse_button.pressed(MouseButton::Left) {
-        dv -= (mouse_delta / win_size) * view_size;
+        dv -= (mouse_delta / win_size) * view_size * pan_factor;
     }
 
     view.translate(dv.x, dv.y);
 
     if scroll_delta.abs() > 0.0 {
-        let zoom = if scroll_delta < 0.0 {
-            1.0 + scroll_delta.abs() * dt
+        let zoom_factor = scroll_delta;
+
+        let base_zoom_speed = 0.05f64;
+
+        let zoom_mult = if ctrl_down {
+            0.1
+        } else if shift_down {
+            10.0
         } else {
-            1.0 - scroll_delta.abs() * dt
+            1.0
         };
 
-        view.zoom_with_focus(cursor_norm, zoom as f64);
+        let delta_scale = 1.0 - zoom_factor * base_zoom_speed * zoom_mult;
+
+        view.zoom_with_focus(cursor_norm, delta_scale as f64);
     }
 
     const KEY_ZOOM_FACTOR: f32 = 3.0;
