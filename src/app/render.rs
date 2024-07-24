@@ -328,12 +328,15 @@ impl FromWorld for AlignmentPolylinePipeline {
 
 #[derive(Resource)]
 struct AlignmentConfigBindGroup {
+    proj_buffer: UniformBuffer<Mat4>,
+    config_buffer: UniformBuffer<GpuAlignmentRenderConfig>,
+
     group: BindGroup,
 }
 
-#[derive(Component)]
+// #[derive(Component)]
 struct AlignmentPolylineBindGroups {
-    group_0: BindGroup,
+    // group_0: BindGroup,
     group_1: BindGroup,
     group_2: BindGroup,
 }
@@ -348,15 +351,14 @@ struct GpuAlignmentPolylineUniforms {
 
 #[derive(Component)]
 struct GpuAlignmentPolylineMaterial {
-    proj_buffer: UniformBuffer<Mat4>,
-    config_buffer: UniformBuffer<GpuAlignmentRenderConfig>,
+    // proj_buffer: UniformBuffer<Mat4>,
+    // config_buffer: UniformBuffer<GpuAlignmentRenderConfig>,
     color_scheme_buffer: UniformBuffer<GpuAlignmentColorScheme>,
     model_buffer: UniformBuffer<Mat4>,
 
     bind_groups: AlignmentPolylineBindGroups,
 }
 
-/*
 impl RenderAsset for GpuAlignmentPolylineMaterial {
     type SourceAsset = AlignmentPolylineMaterial;
 
@@ -370,12 +372,40 @@ impl RenderAsset for GpuAlignmentPolylineMaterial {
         source_asset: Self::SourceAsset,
         param: &mut bevy::ecs::system::SystemParamItem<Self::Param>,
     ) -> Result<Self, bevy::render::render_asset::PrepareAssetError<Self::SourceAsset>> {
+        // TODO: need to extract color scheme somewhere
+        let color_scheme = GpuAlignmentColorScheme {
+            m_bg: Vec4::new(0.0, 0.0, 0.0, 1.0),
+            eq_bg: Vec4::new(0.0, 0.0, 0.0, 1.0),
+            x_bg: Vec4::new(1.0, 0.0, 0.0, 1.0),
+            i_bg: Vec4::new(1.0, 1.0, 1.0, 1.0),
+            d_bg: Vec4::new(1.0, 1.0, 1.0, 1.0),
+        };
+        let color_scheme_buffer: UniformBuffer<_> = color_scheme.into();
+        let model_buffer: UniformBuffer<_> = source_asset.model.into();
 
+        let group_1 = param.0.create_bind_group(
+            None,
+            &param.2.color_scheme_layout,
+            &BindGroupEntries::sequential((color_scheme_buffer.binding().unwrap(),)),
+        );
 
-        todo!()
+        let group_2 = param.0.create_bind_group(
+            None,
+            &param.2.model_layout,
+            &BindGroupEntries::sequential((model_buffer.binding().unwrap(),)),
+        );
+
+        let bind_groups = AlignmentPolylineBindGroups { group_1, group_2 };
+
+        let asset = Self {
+            color_scheme_buffer,
+            model_buffer: source_asset.model.into(),
+            bind_groups,
+        };
+
+        Ok(asset)
     }
 }
-*/
 
 #[derive(Component, Clone, Copy, PartialEq, Debug)]
 pub struct AlignmentRenderConfig {
@@ -386,11 +416,10 @@ pub struct AlignmentRenderConfig {
 // #[derive(ShaderType, Component, Clone)]
 #[derive(Asset, Debug, PartialEq, Clone, TypePath)]
 struct AlignmentPolylineMaterial {
-    projection: Mat4,
-
+    // projection: Mat4,
     config: AlignmentRenderConfig,
     color_scheme: AlignmentColorScheme,
-    // model: Mat4,
+    model: Mat4,
     // projection: UniformBuffer<Mat4>,
     // config: UniformBuffer<GpuAlignmentConfig>,
 }
