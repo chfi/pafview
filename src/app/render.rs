@@ -3,14 +3,16 @@ use bevy::{
     prelude::*,
     render::{
         extract_component::ExtractComponentPlugin,
-        render_asset::{PrepareAssetError, RenderAsset, RenderAssetPlugin},
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
+        render_asset::{PrepareAssetError, RenderAsset, RenderAssetPlugin, RenderAssets},
         render_resource::{
             BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries, Buffer,
             CachedRenderPipelineId, PipelineCache, RenderPipelineDescriptor, ShaderType,
             UniformBuffer,
         },
         renderer::{RenderDevice, RenderQueue},
-        RenderApp,
+        texture::GpuImage,
+        Render, RenderApp, RenderSet,
     },
 };
 use wgpu::{util::BufferInitDescriptor, ColorWrites, ShaderStages, VertexStepMode};
@@ -28,12 +30,25 @@ pub struct AlignmentRendererPlugin;
 impl Plugin for AlignmentRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(RenderAssetPlugin::<GpuAlignmentVertices>::default())
+            .add_plugins(ExtractResourcePlugin::<AlignmentRenderParams>::default())
             .add_plugins(ExtractComponentPlugin::<Handle<AlignmentVertices>>::default());
     }
 
     fn finish(&self, app: &mut App) {
-        let mut render_app = app.sub_app_mut(RenderApp);
-        render_app.init_resource::<AlignmentPolylinePipeline>();
+        let render_app = app.sub_app_mut(RenderApp);
+        render_app
+            .init_resource::<AlignmentPolylinePipeline>()
+            .add_systems(
+                Render,
+                (create_alignment_uniforms, update_alignment_uniforms)
+                    .chain()
+                    .in_set(RenderSet::PrepareResources),
+            )
+            .add_systems(
+                Render,
+                create_alignment_bind_groups.in_set(RenderSet::PrepareBindGroups),
+            )
+            .add_systems(Render, queue_alignment_draw.in_set(RenderSet::Render));
     }
 }
 
@@ -42,17 +57,43 @@ pub struct AlignmentColor {
     pub color_scheme: AlignmentColorScheme,
 }
 
+/// if
+#[derive(Clone, Resource, ExtractResource)]
+pub struct AlignmentRenderParams {
+    pub alignment_view: crate::view::View,
+    pub canvas_size: UVec2,
+}
+
+#[derive(Resource)]
+struct AlignmentRenderTarget {
+    image: Handle<Image>,
+}
+
+// #[derive(Resource)]
+// struct ExtractedRenderParams {
+// }
+
+fn update_alignment_uniforms(
+    extract_query: bevy::render::Extract<Query<(Entity, &Handle<AlignmentVertices>)>>,
+
+    // view_params:
+    // proj buffer depends on view...
+    mut uniforms: Query<(&mut GpuAlignmentPolylineUniforms)>,
+) {
+    todo!();
+}
+
 fn create_alignment_uniforms(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
     pipeline: Res<AlignmentPolylinePipeline>,
     extract_query: bevy::render::Extract<Query<(Entity, &Handle<AlignmentVertices>)>>,
-    with_uniforms: Query<(Entity, &Handle<AlignmentVertices>), With<GpuAlignmentPolylineMaterial>>,
+    // with_uniforms: Query<(Entity, &Handle<AlignmentVertices>), With<GpuAlignmentPolylineUniforms>>,
 ) {
     for (entity, handle) in extract_query.iter() {
-        if with_uniforms.contains(entity) {
-            continue;
-        }
+        // if with_uniforms.contains(entity) {
+        //     continue;
+        // }
 
         let proj_buffer: UniformBuffer<_> = Mat4::IDENTITY.into();
         let config_buffer: UniformBuffer<_> = GpuAlignmentRenderConfig {
@@ -68,6 +109,7 @@ fn create_alignment_uniforms(
         let color_scheme_buffer: UniformBuffer<_> = GpuAlignmentColorScheme::default().into();
         let model_buffer: UniformBuffer<_> = Mat4::IDENTITY.into();
 
+        /*
         let group_0 = render_device.create_bind_group(
             None,
             &pipeline.proj_config_layout,
@@ -88,7 +130,16 @@ fn create_alignment_uniforms(
             &pipeline.model_layout,
             &BindGroupEntries::sequential((model_buffer.binding().unwrap(),)),
         );
+        */
 
+        let uniforms = GpuAlignmentPolylineUniforms {
+            proj_buffer,
+            config_buffer,
+            color_scheme_buffer,
+            model_buffer,
+        };
+
+        /*
         let material = GpuAlignmentPolylineMaterial {
             proj_buffer,
             config_buffer,
@@ -100,13 +151,23 @@ fn create_alignment_uniforms(
                 group_2,
             },
         };
+        */
 
-        commands
-            .entity(entity)
-            .insert((material, handle.clone_weak()));
+        commands.insert_or_spawn_batch([(entity, (uniforms, handle.clone_weak()))]);
+        // .entity(entity)
+        // .insert((material, handle.clone_weak()));
     }
 }
 
+fn create_alignment_bind_groups(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    pipeline: Res<AlignmentPolylinePipeline>,
+    //
+) {
+}
+
+/*
 fn extract_alignments(
     mut commands: Commands,
     mut previous_len: Local<usize>,
@@ -143,6 +204,7 @@ fn extract_alignments(
     *previous_len = values.len();
     commands.insert_or_spawn_batch(values);
 }
+*/
 
 #[derive(Clone, Resource)]
 pub struct AlignmentPolylinePipeline {
@@ -264,10 +326,24 @@ impl FromWorld for AlignmentPolylinePipeline {
     }
 }
 
+#[derive(Resource)]
+struct AlignmentConfigBindGroup {
+    group: BindGroup,
+}
+
+#[derive(Component)]
 struct AlignmentPolylineBindGroups {
     group_0: BindGroup,
     group_1: BindGroup,
     group_2: BindGroup,
+}
+
+#[derive(Component)]
+struct GpuAlignmentPolylineUniforms {
+    proj_buffer: UniformBuffer<Mat4>,
+    config_buffer: UniformBuffer<GpuAlignmentRenderConfig>,
+    color_scheme_buffer: UniformBuffer<GpuAlignmentColorScheme>,
+    model_buffer: UniformBuffer<Mat4>,
 }
 
 #[derive(Component)]
@@ -405,6 +481,54 @@ impl RenderAsset for GpuAlignmentVertices {
     }
 }
 
+fn queue_alignment_draw(
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+
+    gpu_images: Res<RenderAssets<GpuImage>>,
+
+    draw_params: Option<Res<AlignmentRenderParams>>,
+    target: Option<Res<AlignmentRenderTarget>>,
+
+    alignments: Query<(&Handle<AlignmentVertices>, &GpuAlignmentPolylineMaterial)>,
+) {
+    let Some(params) = draw_params.as_ref() else {
+        return;
+    };
+
+    let Some(tgt_handle) = target.map(|i| i.image.clone()) else {
+        return;
+    };
+
+    let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("AlignmentRenderer".into()),
+    });
+
+    let tgt_img = gpu_images.get(&tgt_handle).unwrap();
+
+    let attch = wgpu::RenderPassColorAttachment {
+        view: &tgt_img.texture_view,
+        resolve_target: None,
+        ops: wgpu::Operations {
+            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+            store: wgpu::StoreOp::Store,
+        },
+    };
+
+    let mut pass = cmds.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("AlignmentRendererPass".into()),
+        color_attachments: &[Some(attch)],
+        ..default()
+    });
+
+    for (vertices, material) in alignments.iter() {
+        //
+    }
+
+    //
+}
+
+/*
 pub mod graph {
 
     use super::*;
@@ -460,3 +584,4 @@ pub mod graph {
         }
     }
 }
+*/
