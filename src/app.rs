@@ -277,6 +277,153 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
 fn prepare_alignments(
     mut commands: Commands,
     viewer: Res<PafViewer>,
+    color_schemes: Res<AlignmentColorSchemes>,
+
+    mut alignment_materials: ResMut<Assets<render::AlignmentPolylineMaterial>>,
+    mut alignment_vertices: ResMut<Assets<render::AlignmentVertices>>,
+) {
+    let grid = &viewer.app.alignment_grid;
+
+    for (pair_id @ &(tgt_id, qry_id), alignments) in viewer.app.alignments.pairs.iter() {
+        let x_offset = grid.x_axis.sequence_offset(tgt_id).unwrap();
+        let y_offset = grid.y_axis.sequence_offset(qry_id).unwrap();
+
+        let transform =
+            Transform::from_translation(Vec3::new(x_offset as f32, y_offset as f32, 0.0));
+
+        let parent = commands
+            .spawn((
+                SequencePairTile {
+                    target: tgt_id,
+                    query: qry_id,
+                },
+                SpatialBundle {
+                    transform,
+                    ..default()
+                },
+            ))
+            .with_children(|parent| {
+                for (ix, alignment) in alignments.iter().enumerate() {
+                    let color_scheme = color_schemes.colors.get(AlignmentIndex {
+                        pair: (alignment.target_id, alignment.query_id),
+                        index: ix,
+                    });
+
+                    let material = render::AlignmentPolylineMaterial::from_alignment(
+                        grid,
+                        alignment,
+                        color_scheme.clone(),
+                    );
+
+                    let vertices = render::AlignmentVertices::from_alignment(alignment);
+
+                    let location = &alignment.location;
+
+                    parent.spawn((
+                        alignment_materials.add(material),
+                        alignment_vertices.add(vertices),
+                    ));
+
+                    // let align_ix = AlignmentIndex {
+                    //     pair: *pair_id,
+                    //     index: ix,
+                    // };
+
+                    /*
+
+                    // bevy_polyline only supports single color polylines,
+                    // so to draw cigar ops with different colors, use one
+                    // polyline per op
+                    let mut m_verts = Vec::new();
+                    let mut eq_verts = Vec::new();
+                    let mut x_verts = Vec::new();
+
+                    let mut tgt_cg = 0;
+                    let mut qry_cg = 0;
+
+                    let mut last_op: Option<Cg> = None;
+
+                    for (op, count) in alignment.cigar.whole_cigar() {
+                        let tgt_start = tgt_cg;
+                        let qry_start = qry_cg;
+
+                        let (tgt_end, qry_end) = match op {
+                            Cg::Eq | Cg::X | Cg::M => {
+                                tgt_cg += count as u64;
+                                qry_cg += count as u64;
+                                //
+                                (tgt_start + count as u64, qry_start + count as u64)
+                            }
+                            Cg::I => {
+                                qry_cg += count as u64;
+                                //
+                                (tgt_start, qry_start + count as u64)
+                            }
+                            Cg::D => {
+                                tgt_cg += count as u64;
+                                //
+                                (tgt_start + count as u64, qry_start)
+                            }
+                        };
+
+                        let tgt_range = location.map_from_aligned_target_range(tgt_start..tgt_end);
+                        let qry_range = location.map_from_aligned_query_range(qry_start..qry_end);
+
+                        let mut from =
+                            ultraviolet::DVec2::new(tgt_range.start as f64, qry_range.start as f64);
+                        let mut to =
+                            ultraviolet::DVec2::new(tgt_range.end as f64, qry_range.end as f64);
+
+                        if location.query_strand.is_rev() {
+                            std::mem::swap(&mut from.y, &mut to.y);
+                        }
+
+                        let p0 = Vec3::new(from.x as f32, from.y as f32, 0.0);
+                        let p1 = Vec3::new(to.x as f32, to.y as f32, 0.0);
+
+                        let buf = match op {
+                            Cg::M => &mut m_verts,
+                            Cg::Eq => &mut eq_verts,
+                            Cg::X => &mut x_verts,
+                            _ => continue,
+                        };
+
+                        // https://github.com/ForesightMiningSoftwareCorporation/bevy_polyline/issues/20#issuecomment-1035624250
+                        if last_op != Some(op) {
+                            buf.push(Vec3::splat(std::f32::INFINITY));
+                            buf.push(Vec3::splat(std::f32::INFINITY));
+                        }
+
+                        buf.push(p0);
+                        buf.push(p1);
+
+                        last_op = Some(op);
+                    }
+
+                    for (op, vertices) in [(Cg::M, m_verts), (Cg::Eq, eq_verts), (Cg::X, x_verts)] {
+                        let material = op_mats.get(&op).unwrap().clone();
+                        let polyline = polylines.add(Polyline { vertices });
+
+                        parent.spawn((
+                            Alignment,
+                            PolylineBundle {
+                                polyline,
+                                material,
+                                visibility: Visibility::Hidden,
+                                // transform: transform.clone(),
+                                ..default()
+                            },
+                        ));
+                    }
+                    */
+                }
+            });
+    }
+}
+
+fn prepare_alignments_old(
+    mut commands: Commands,
+    viewer: Res<PafViewer>,
     mut polyline_materials: ResMut<Assets<PolylineMaterial>>,
     mut polylines: ResMut<Assets<Polyline>>,
 ) {

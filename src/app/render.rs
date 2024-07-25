@@ -54,7 +54,12 @@ impl Plugin for AlignmentRendererPlugin {
         let render_app = app.sub_app_mut(RenderApp);
         render_app
             .init_resource::<AlignmentPolylinePipeline>()
-            .add_systems(Startup, setup_projection_vertex_config_bind_group)
+            .add_systems(
+                Render,
+                setup_projection_vertex_config_bind_group
+                    .run_if(|res: Option<Res<AlignmentProjVertexBindGroup>>| res.is_none())
+                    .in_set(RenderSet::Prepare),
+            )
             /*
             .add_systems(
                 Render,
@@ -69,10 +74,23 @@ impl Plugin for AlignmentRendererPlugin {
             */
             .add_systems(
                 Render,
-                update_projection_config_uniforms.in_set(RenderSet::PrepareResources),
+                update_projection_config_uniforms
+                    .run_if(resource_exists::<AlignmentProjVertexBindGroup>)
+                    // .after(setup_projection_vertex_config_bind_group)
+                    .in_set(RenderSet::PrepareResources),
             )
-            .add_systems(Render, queue_alignment_draw.in_set(RenderSet::Render))
-            .add_systems(Render, cleanup_finished_renders.in_set(RenderSet::Cleanup));
+            .add_systems(
+                Render,
+                queue_alignment_draw
+                    .run_if(resource_exists::<AlignmentProjVertexBindGroup>)
+                    .in_set(RenderSet::Render),
+            )
+            .add_systems(
+                Render,
+                cleanup_finished_renders
+                    .run_if(resource_exists::<AlignmentProjVertexBindGroup>)
+                    .in_set(RenderSet::Cleanup),
+            );
     }
 }
 
@@ -206,6 +224,7 @@ fn setup_projection_vertex_config_bind_group(
         )),
     );
 
+    println!("inserting proj vertex resource");
     commands.insert_resource(AlignmentProjVertexBindGroup {
         group_0,
         proj_buffer,
@@ -419,13 +438,7 @@ impl RenderAsset for GpuAlignmentPolylineMaterial {
         param: &mut bevy::ecs::system::SystemParamItem<Self::Param>,
     ) -> Result<Self, bevy::render::render_asset::PrepareAssetError<Self::SourceAsset>> {
         // TODO: need to extract color scheme somewhere
-        let color_scheme = GpuAlignmentColorScheme {
-            m_bg: Vec4::new(0.0, 0.0, 0.0, 1.0),
-            eq_bg: Vec4::new(0.0, 0.0, 0.0, 1.0),
-            x_bg: Vec4::new(1.0, 0.0, 0.0, 1.0),
-            i_bg: Vec4::new(1.0, 1.0, 1.0, 1.0),
-            d_bg: Vec4::new(1.0, 1.0, 1.0, 1.0),
-        };
+        let color_scheme = GpuAlignmentColorScheme::from(source_asset.color_scheme);
         let color_scheme_buffer: UniformBuffer<_> = color_scheme.into();
         let model_buffer: UniformBuffer<_> = source_asset.model.into();
 
@@ -459,25 +472,33 @@ pub struct AlignmentShaderConfig {
     pub brightness: f32,
 }
 
-// #[derive(ShaderType, Component, Clone)]
 #[derive(Asset, Debug, PartialEq, Clone, TypePath)]
 pub struct AlignmentPolylineMaterial {
-    // projection: Mat4,
-    // config: AlignmentRenderConfig,
     color_scheme: AlignmentColorScheme,
     model: Mat4,
-    // projection: UniformBuffer<Mat4>,
-    // config: UniformBuffer<GpuAlignmentConfig>,
 }
 
 impl AlignmentPolylineMaterial {
-    pub fn from_alignment(alignment: &crate::Alignment) -> Self {
-        // derive model from location
-        // pass color scheme as argument
-        // config... shouldn't even be here
-        // alignment.location
-        //
-        todo!();
+    pub fn from_alignment(
+        grid: &crate::AlignmentGrid,
+        alignment: &crate::Alignment,
+        color_scheme: AlignmentColorScheme,
+    ) -> Self {
+        let x_range = grid
+            .x_axis
+            .sequence_axis_range(alignment.target_id)
+            .unwrap();
+        let y_range = grid.y_axis.sequence_axis_range(alignment.query_id).unwrap();
+
+        let x = (x_range.start as f64) + 0.5 * (x_range.end - x_range.start) as f64;
+        let y = (y_range.start as f64) + 0.5 * (y_range.end - y_range.start) as f64;
+
+        let model = Transform::from_xyz(x as f32, y as f32, 0.0).compute_matrix();
+
+        Self {
+            model,
+            color_scheme,
+        }
     }
 }
 
@@ -498,10 +519,84 @@ struct GpuAlignmentColorScheme {
     d_bg: Vec4,
 }
 
+impl From<crate::render::color::AlignmentColorScheme> for GpuAlignmentColorScheme {
+    fn from(value: crate::render::color::AlignmentColorScheme) -> Self {
+        let map_color = |c: egui::Color32| {
+            Vec4::new(
+                c.r() as f32 / u8::MAX as f32,
+                c.g() as f32 / u8::MAX as f32,
+                c.b() as f32 / u8::MAX as f32,
+                c.a() as f32 / u8::MAX as f32,
+            )
+        };
+
+        GpuAlignmentColorScheme {
+            m_bg: map_color(value.m_bg),
+            eq_bg: map_color(value.eq_bg),
+            x_bg: map_color(value.x_bg),
+            i_bg: map_color(value.i_bg),
+            d_bg: map_color(value.d_bg),
+        }
+    }
+}
+
 #[derive(Debug, Default, Asset, Clone, TypePath)]
 pub struct AlignmentVertices {
     data: Vec<(Vec2, Vec2, CigarOp)>,
     // data: Vec<u8>,
+}
+
+impl AlignmentVertices {
+    pub fn from_alignment(alignment: &crate::Alignment) -> Self {
+        use crate::cigar::CigarOp;
+        // use ultraviolet::DVec2;
+
+        let mut vertices = Vec::new();
+
+        let mut tgt_cg = 0;
+        let mut qry_cg = 0;
+
+        let location = &alignment.location;
+
+        for (op, count) in alignment.cigar.whole_cigar() {
+            // tgt_cg and qry_cg are offsets from the start of the cigar
+            let tgt_start = tgt_cg;
+            let qry_start = qry_cg;
+
+            let (tgt_end, qry_end) = match op {
+                CigarOp::Eq | CigarOp::X | CigarOp::M => {
+                    tgt_cg += count as u64;
+                    qry_cg += count as u64;
+                    //
+                    (tgt_start + count as u64, qry_start + count as u64)
+                }
+                CigarOp::I => {
+                    qry_cg += count as u64;
+                    //
+                    (tgt_start, qry_start + count as u64)
+                }
+                CigarOp::D => {
+                    tgt_cg += count as u64;
+                    //
+                    (tgt_start + count as u64, qry_start)
+                }
+            };
+
+            let tgt_range = location.map_from_aligned_target_range(tgt_start..tgt_end);
+            let qry_range = location.map_from_aligned_query_range(qry_start..qry_end);
+
+            let mut from = Vec2::new(tgt_range.start as f32, qry_range.start as f32);
+            let mut to = Vec2::new(tgt_range.end as f32, qry_range.end as f32);
+
+            if location.query_strand.is_rev() {
+                std::mem::swap(&mut from.y, &mut to.y);
+            }
+
+            vertices.push((from, to, op));
+        }
+
+        Self { data: vertices }
+    }
 }
 
 struct GpuAlignmentVertices {
@@ -570,11 +665,13 @@ fn queue_alignment_draw(
     // target: Option<Res<AlignmentRenderTarget>>,
     alignments: Query<(&Handle<AlignmentVertices>, &GpuAlignmentPolylineMaterial)>,
 ) {
+    println!("in queue_alignment_draw");
     let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline) else {
         return;
     };
 
     for (_tgt_entity, tgt) in targets.iter() {
+        println!("iterating targets");
         let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("AlignmentRenderer".into()),
         });
@@ -616,6 +713,7 @@ fn queue_alignment_draw(
         // this will be one submit per render, which is fine for
         // as long as there will only be one (or a few) per frame,
         // but later it may be worth combining into one
+        println!("submitting commands");
         render_queue.0.submit([cmds.finish()]);
 
         let is_ready = tgt.is_ready.clone();
