@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use bevy::{
     ecs::system::lifetimeless::SRes,
     prelude::*,
     render::{
-        extract_component::ExtractComponentPlugin,
+        extract_component::{ExtractComponent, ExtractComponentPlugin},
         extract_resource::{ExtractResource, ExtractResourcePlugin},
         render_asset::{PrepareAssetError, RenderAsset, RenderAssetPlugin, RenderAssets},
         render_resource::{
@@ -30,7 +32,7 @@ pub struct AlignmentRendererPlugin;
 impl Plugin for AlignmentRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(RenderAssetPlugin::<GpuAlignmentVertices>::default())
-            .add_plugins(ExtractResourcePlugin::<AlignmentRenderParams>::default())
+            .add_plugins(ExtractComponentPlugin::<AlignmentRenderTarget>::default())
             .add_plugins(ExtractComponentPlugin::<Handle<AlignmentVertices>>::default());
     }
 
@@ -48,7 +50,8 @@ impl Plugin for AlignmentRendererPlugin {
                 Render,
                 create_alignment_bind_groups.in_set(RenderSet::PrepareBindGroups),
             )
-            .add_systems(Render, queue_alignment_draw.in_set(RenderSet::Render));
+            .add_systems(Render, queue_alignment_draw.in_set(RenderSet::Render))
+            .add_systems(Render, cleanup_finished_renders.in_set(RenderSet::Cleanup));
     }
 }
 
@@ -57,17 +60,27 @@ pub struct AlignmentColor {
     pub color_scheme: AlignmentColorScheme,
 }
 
-/// if
-#[derive(Clone, Resource, ExtractResource)]
-pub struct AlignmentRenderParams {
+#[derive(Clone, Component, ExtractComponent)]
+pub struct AlignmentRenderTarget {
     pub alignment_view: crate::view::View,
     pub canvas_size: UVec2,
+
+    image: Handle<Image>,
+    is_ready: Arc<crossbeam::atomic::AtomicCell<bool>>,
 }
 
-#[derive(Resource)]
-struct AlignmentRenderTarget {
-    image: Handle<Image>,
-}
+// #[derive(Component)]
+// struct AlignmentRenderTarget {
+//     image: Handle<Image>,
+//     is_ready: Arc<crossbeam::atomic::AtomicCell<bool>>,
+// }
+
+#[derive(Component)]
+struct Rendering;
+// #[derive(Component)]
+// struct RenderState {
+//     is_ready: Arc<crossbeam::atomic::AtomicCell<bool>>,
+// }
 
 // #[derive(Resource)]
 // struct ExtractedRenderParams {
@@ -456,10 +469,10 @@ pub struct AlignmentVertices {
     // data: Vec<u8>,
 }
 
-pub struct ExtractedAlignment {
-    pub vertices: Handle<AlignmentVertices>,
-    pub material: GpuAlignmentPolylineMaterial,
-}
+// pub struct ExtractedAlignment {
+//     pub vertices: Handle<AlignmentVertices>,
+//     pub material: GpuAlignmentPolylineMaterial,
+// }
 
 struct GpuAlignmentVertices {
     vertex_buffer: Buffer,
@@ -511,50 +524,88 @@ impl RenderAsset for GpuAlignmentVertices {
 }
 
 fn queue_alignment_draw(
+    // mut commands: Commands,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
+    pipeline_cache: Res<PipelineCache>,
+    pipeline: Res<AlignmentPolylinePipeline>,
 
     gpu_images: Res<RenderAssets<GpuImage>>,
+    gpu_alignments: Res<RenderAssets<GpuAlignmentVertices>>,
 
-    draw_params: Option<Res<AlignmentRenderParams>>,
-    target: Option<Res<AlignmentRenderTarget>>,
-
+    // draw_params: Option<Res<AlignmentRenderParams>>,
+    targets: Query<(Entity, &AlignmentRenderTarget), Without<Rendering>>,
+    // target: Option<Res<AlignmentRenderTarget>>,
     alignments: Query<(&Handle<AlignmentVertices>, &GpuAlignmentPolylineMaterial)>,
 ) {
-    let Some(params) = draw_params.as_ref() else {
+    let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline) else {
         return;
     };
 
-    let Some(tgt_handle) = target.map(|i| i.image.clone()) else {
-        return;
-    };
+    for (tgt_entity, tgt) in targets.iter() {
+        let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("AlignmentRenderer".into()),
+        });
 
-    let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("AlignmentRenderer".into()),
-    });
+        let tgt_handle = &tgt.image;
 
-    let tgt_img = gpu_images.get(&tgt_handle).unwrap();
+        let tgt_img = gpu_images.get(tgt_handle).unwrap();
 
-    let attch = wgpu::RenderPassColorAttachment {
-        view: &tgt_img.texture_view,
-        resolve_target: None,
-        ops: wgpu::Operations {
-            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-            store: wgpu::StoreOp::Store,
-        },
-    };
+        let attch = wgpu::RenderPassColorAttachment {
+            view: &tgt_img.texture_view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                store: wgpu::StoreOp::Store,
+            },
+        };
 
-    let mut pass = cmds.begin_render_pass(&wgpu::RenderPassDescriptor {
-        label: Some("AlignmentRendererPass".into()),
-        color_attachments: &[Some(attch)],
-        ..default()
-    });
+        {
+            let mut pass = cmds.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("AlignmentRendererPass".into()),
+                color_attachments: &[Some(attch)],
+                ..default()
+            });
 
-    for (vertices, material) in alignments.iter() {
-        //
+            pass.set_pipeline(pipeline);
+
+            for (vertices, material) in alignments.iter() {
+                let vertices = gpu_alignments.get(vertices).unwrap();
+                todo!(); // set group 0; comes from resource
+                pass.set_bind_group(1, &material.bind_groups.group_1, &[]);
+                pass.set_bind_group(2, &material.bind_groups.group_2, &[]);
+
+                pass.set_vertex_buffer(0, wgpu::Buffer::slice(&vertices.vertex_buffer, ..));
+
+                pass.draw(0..6, 0..vertices.segment_count);
+            }
+        }
+
+        // this will be one submit per render, which is fine for
+        // as long as there will only be one (or a few) per frame,
+        // but later it may be worth combining into one
+        render_queue.0.submit([cmds.finish()]);
+
+        let is_ready = tgt.is_ready.clone();
+        render_queue.0.on_submitted_work_done(move || {
+            is_ready.store(true);
+        });
+
+        // commands.entity(tgt_entity).insert(render_state);
     }
 
     //
+}
+
+fn cleanup_finished_renders(
+    mut commands: Commands,
+    targets: Query<(Entity, &AlignmentRenderTarget), With<Rendering>>,
+) {
+    for (entity, tgt) in targets.iter() {
+        if tgt.is_ready.load() {
+            commands.entity(entity).despawn();
+        }
+    }
 }
 
 /*
