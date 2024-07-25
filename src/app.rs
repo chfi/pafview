@@ -40,6 +40,7 @@ impl Plugin for PafViewerPlugin {
             .add_plugins(annotations::AnnotationsPlugin)
             .add_plugins(rulers::ViewerRulersPlugin)
             .add_plugins(selection::RegionSelectionPlugin)
+            .add_plugins(render::AlignmentRendererPlugin)
             .add_systems(Startup, setup_base_level_display_image)
             .add_systems(
                 Startup,

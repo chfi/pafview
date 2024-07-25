@@ -19,7 +19,6 @@ impl Plugin for AlignmentViewPlugin {
         app.init_resource::<ViewHistoryCursor>()
             .add_event::<ViewEvent>()
             .add_systems(Startup, setup)
-            // .add_systems(PreUpdate, update_viewport_for_window_resize)
             .add_systems(
                 Update,
                 (
@@ -200,7 +199,7 @@ fn rectangle_select_zoom_input(
 
 fn rectangle_select_zoom_apply(
     mut commands: Commands,
-    mut app_view: ResMut<AlignmentViewport>,
+    app_view: Res<AlignmentViewport>,
     selections: Query<
         (Entity, &Selection),
         (With<RectangleZoomSelection>, With<SelectionComplete>),
@@ -296,7 +295,7 @@ fn input_update_viewport(
     //     continue;
     // };
 
-    let view = &mut alignment_view.view;
+    let view = alignment_view.view;
     let view_size = bevy::math::DVec2::new(view.size().x, view.size().y);
 
     let Some(cursor_position) = window.cursor_position() else {
@@ -345,7 +344,9 @@ fn input_update_viewport(
         dv -= (mouse_delta / win_size) * view_size * pan_factor;
     }
 
-    view.translate(dv.x, dv.y);
+    if dv.length_squared() > 0.0 {
+        alignment_view.view.translate(dv.x, dv.y);
+    }
 
     if scroll_delta.abs() > 0.0 {
         let zoom_factor = scroll_delta;
@@ -362,7 +363,9 @@ fn input_update_viewport(
 
         let delta_scale = 1.0 - zoom_factor * base_zoom_speed * zoom_mult;
 
-        view.zoom_with_focus(cursor_norm, delta_scale as f64);
+        alignment_view
+            .view
+            .zoom_with_focus(cursor_norm, delta_scale as f64);
     }
 
     const KEY_ZOOM_FACTOR: f32 = 3.0;
@@ -382,7 +385,7 @@ fn input_update_viewport(
             1.0 - key_zoom_delta.abs() * dt
         };
 
-        view.zoom_with_focus([0.5, 0.5], zoom as f64);
+        alignment_view.view.zoom_with_focus([0.5, 0.5], zoom as f64);
     }
 }
 

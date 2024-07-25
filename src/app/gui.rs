@@ -68,12 +68,19 @@ fn goto_region_window(
     mut viewport: ResMut<AlignmentViewport>,
 ) {
     let ctx = contexts.ctx_mut();
+
+    let mut view = viewport.view;
+
     crate::gui::goto::goto_region_window(
         ctx,
         &mut window_states.window_states.goto_region_open,
         &viewer.app.alignment_grid,
-        &mut viewport.view,
+        &mut view,
     );
+
+    if viewport.view != view {
+        viewport.view = view;
+    }
 }
 
 #[allow(dead_code)]
@@ -95,13 +102,19 @@ fn regions_of_interest_system(
 
     let roi_gui = &mut roi_gui.gui;
 
+    let mut view = alignment_view.view;
+
     roi_gui.show_window(
         ctx,
         &viewer.app,
         &mut annotation_painter.0,
-        &mut alignment_view.view,
+        &mut view,
         &mut window_states.window_states,
     );
+
+    if view != alignment_view.view {
+        alignment_view.view = view;
+    }
 
     // roi_gui.show_window(
     //     ctx,

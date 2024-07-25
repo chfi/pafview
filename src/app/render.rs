@@ -6,7 +6,9 @@ use bevy::{
     render::{
         extract_component::{ExtractComponent, ExtractComponentPlugin},
         extract_resource::{ExtractResource, ExtractResourcePlugin},
-        render_asset::{PrepareAssetError, RenderAsset, RenderAssetPlugin, RenderAssets},
+        render_asset::{
+            PrepareAssetError, RenderAsset, RenderAssetPlugin, RenderAssetUsages, RenderAssets,
+        },
         render_resource::{
             BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries, Buffer,
             CachedRenderPipelineId, PipelineCache, RenderPipelineDescriptor, ShaderType,
@@ -14,6 +16,7 @@ use bevy::{
         },
         renderer::{RenderDevice, RenderQueue},
         texture::GpuImage,
+        view::RenderLayers,
         Render, RenderApp, RenderSet,
     },
 };
@@ -31,15 +34,21 @@ pub struct AlignmentRendererPlugin;
 
 impl Plugin for AlignmentRendererPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(RenderAssetPlugin::<GpuAlignmentVertices>::default())
+        app.init_asset::<AlignmentVertices>()
+            .init_asset::<AlignmentPolylineMaterial>()
+            .add_plugins(RenderAssetPlugin::<GpuAlignmentVertices>::default())
             .add_plugins(ExtractComponentPlugin::<AlignmentRenderTarget>::default())
-            .add_plugins(ExtractComponentPlugin::<Handle<AlignmentVertices>>::default());
+            .add_plugins(ExtractComponentPlugin::<Handle<AlignmentVertices>>::default())
+            .add_systems(Startup, setup_alignment_display_image)
+            .add_systems(PreUpdate, update_alignment_display_target);
     }
 
     fn finish(&self, app: &mut App) {
         let render_app = app.sub_app_mut(RenderApp);
         render_app
             .init_resource::<AlignmentPolylinePipeline>()
+            .add_systems(Startup, setup_projection_vertex_config_bind_group)
+            /*
             .add_systems(
                 Render,
                 (create_alignment_uniforms, update_alignment_uniforms)
@@ -50,14 +59,83 @@ impl Plugin for AlignmentRendererPlugin {
                 Render,
                 create_alignment_bind_groups.in_set(RenderSet::PrepareBindGroups),
             )
+            */
             .add_systems(Render, queue_alignment_draw.in_set(RenderSet::Render))
             .add_systems(Render, cleanup_finished_renders.in_set(RenderSet::Cleanup));
     }
 }
 
+fn setup_alignment_display_image(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    //
+    let image = Image::new_fill(
+        wgpu::Extent3d {
+            width: 512,
+            height: 512,
+            depth_or_array_layers: 1,
+        },
+        wgpu::TextureDimension::D2,
+        &[0, 0, 0, 0],
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::all(),
+    );
+    let back_image = image.clone();
+
+    let img_handle = images.add(image);
+    let back_img_handle = images.add(back_image);
+
+    let display_sprite = commands.spawn((
+        AlignmentDisplayImage,
+        RenderLayers::layer(1),
+        SpriteBundle {
+            sprite: Sprite {
+                color: Color::WHITE,
+                ..default()
+            },
+            texture: img_handle.clone(),
+            transform: Transform::IDENTITY,
+            ..default()
+        },
+    ));
+
+    commands.insert_resource(AlignmentBackImage {
+        image: back_img_handle,
+    })
+}
+
+fn update_alignment_display_target(
+    mut commands: Commands,
+
+    mut back_image: ResMut<AlignmentBackImage>,
+
+    mut sprites: Query<
+        (Entity, &mut Handle<Image>, &AlignmentRenderTarget),
+        With<AlignmentDisplayImage>,
+    >,
+) {
+    let Ok((entity, mut old_sprite_img, render_target)) = sprites.get_single_mut() else {
+        return;
+    };
+
+    if !render_target.is_ready.load() {
+        return;
+    }
+
+    std::mem::swap(old_sprite_img.as_mut(), &mut back_image.image);
+
+    commands.entity(entity).remove::<AlignmentRenderTarget>();
+}
+
 #[derive(Debug, Component)]
 pub struct AlignmentColor {
     pub color_scheme: AlignmentColorScheme,
+}
+
+#[derive(Debug, Component)]
+pub struct AlignmentDisplayImage;
+
+#[derive(Resource)]
+struct AlignmentBackImage {
+    image: Handle<Image>,
 }
 
 #[derive(Clone, Component, ExtractComponent)]
@@ -69,23 +147,96 @@ pub struct AlignmentRenderTarget {
     is_ready: Arc<crossbeam::atomic::AtomicCell<bool>>,
 }
 
-// #[derive(Component)]
-// struct AlignmentRenderTarget {
-//     image: Handle<Image>,
-//     is_ready: Arc<crossbeam::atomic::AtomicCell<bool>>,
-// }
-
 #[derive(Component)]
 struct Rendering;
-// #[derive(Component)]
-// struct RenderState {
-//     is_ready: Arc<crossbeam::atomic::AtomicCell<bool>>,
-// }
 
-// #[derive(Resource)]
-// struct ExtractedRenderParams {
-// }
+#[derive(Resource)]
+struct AlignmentProjVertexBindGroup {
+    group_0: BindGroup,
 
+    proj_buffer: UniformBuffer<Mat4>,
+    config_buffer: UniformBuffer<GpuAlignmentRenderConfig>,
+}
+
+fn setup_projection_vertex_config_bind_group(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    pipeline: Res<AlignmentPolylinePipeline>,
+) {
+    let proj_buffer: UniformBuffer<_> = Mat4::IDENTITY.into();
+    let config_buffer: UniformBuffer<_> = GpuAlignmentRenderConfig {
+        line_width: 4.0,
+        brightness: 1.0,
+        _pad0: 0.0,
+        _pad1: 0.0,
+    }
+    .into();
+
+    let group_0 = render_device.create_bind_group(
+        Some("AlignmentRenderConfig"),
+        &pipeline.proj_config_layout,
+        &BindGroupEntries::sequential((
+            proj_buffer.binding().unwrap(),
+            config_buffer.binding().unwrap(),
+        )),
+    );
+
+    commands.insert_resource(AlignmentProjVertexBindGroup {
+        group_0,
+        proj_buffer,
+        config_buffer,
+    });
+}
+
+fn update_projection_config_uniforms(
+    mut uniforms: ResMut<AlignmentProjVertexBindGroup>,
+    targets: Query<&AlignmentRenderTarget, Without<Rendering>>,
+) {
+    let Ok(target) = targets.get_single() else {
+        return;
+    };
+}
+
+fn trigger_render(
+    mut commands: Commands,
+
+    mut images: ResMut<Assets<Image>>,
+    back_image: Res<AlignmentBackImage>,
+
+    // active_renders: Query<&AlignmentRenderTarget>,
+    windows: Query<&Window>,
+    display_sprites: Query<Entity, (With<AlignmentDisplayImage>, Without<AlignmentRenderTarget>)>,
+) {
+    let Ok(sprite_ent) = display_sprites.get_single() else {
+        return;
+    };
+
+    let win_size = windows.single().resolution.physical_size();
+
+    // resize back image
+    {
+        let tgt_img = images.get_mut(&back_image.image).unwrap();
+        let size = tgt_img.size();
+
+        if size.x != win_size.x || size.y != win_size.y {
+            tgt_img.resize(wgpu::Extent3d {
+                width: win_size.x,
+                height: win_size.y,
+                depth_or_array_layers: 1,
+            });
+        }
+    }
+
+    // insert AlignmentRenderTarget component on sprite
+    commands.entity(sprite_ent).insert(AlignmentRenderTarget {
+        alignment_view: todo!(),
+        canvas_size: win_size,
+        image: back_image.image.clone(),
+        is_ready: Arc::new(false.into()),
+    });
+}
+
+/*
 fn update_alignment_uniforms(
     extract_query: bevy::render::Extract<Query<(Entity, &Handle<AlignmentVertices>)>>,
 
@@ -172,13 +323,15 @@ fn create_alignment_uniforms(
     }
 }
 
-fn create_alignment_bind_groups(
+fn create_vertex_config_bind_group(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
     pipeline: Res<AlignmentPolylinePipeline>,
     //
 ) {
+    //
 }
+*/
 
 /*
 fn extract_alignments(
@@ -420,7 +573,7 @@ impl RenderAsset for GpuAlignmentPolylineMaterial {
     }
 }
 
-#[derive(Component, Clone, Copy, PartialEq, Debug)]
+#[derive(Resource, Clone, Copy, PartialEq, Debug)]
 pub struct AlignmentRenderConfig {
     pub line_width: f32,
     pub brightness: f32,
