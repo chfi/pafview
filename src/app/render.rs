@@ -51,7 +51,8 @@ impl Plugin for AlignmentRendererPlugin {
             .add_systems(PreUpdate, update_alignment_display_target)
             .add_systems(
                 Update,
-                trigger_render.run_if(|view: Res<AlignmentViewport>| view.is_changed()),
+                // trigger_render.run_if(|view: Res<AlignmentViewport>| view.is_changed()),
+                trigger_render,
             );
     }
 
@@ -90,12 +91,7 @@ impl Plugin for AlignmentRendererPlugin {
                     .run_if(resource_exists::<AlignmentProjVertexBindGroup>)
                     .in_set(RenderSet::Render),
             )
-            .add_systems(
-                Render,
-                cleanup_finished_renders
-                    .run_if(resource_exists::<AlignmentProjVertexBindGroup>)
-                    .in_set(RenderSet::Cleanup),
-            );
+            .add_systems(Render, cleanup_finished_renders.in_set(RenderSet::Cleanup));
     }
 }
 
@@ -132,7 +128,7 @@ fn setup_alignment_display_image(mut commands: Commands, mut images: ResMut<Asse
     let back_img_handle = images.add(back_image);
 
     let display_sprite = commands.spawn((
-        AlignmentDisplayImage,
+        AlignmentDisplayImage { last_view: None },
         RenderLayers::layer(1),
         SpriteBundle {
             sprite: Sprite {
@@ -156,17 +152,25 @@ fn update_alignment_display_target(
     mut back_image: ResMut<AlignmentBackImage>,
 
     mut sprites: Query<
-        (Entity, &mut Handle<Image>, &AlignmentRenderTarget),
-        With<AlignmentDisplayImage>,
+        (
+            Entity,
+            &mut Handle<Image>,
+            &AlignmentRenderTarget,
+            &mut AlignmentDisplayImage,
+        ),
+        // With<AlignmentDisplayImage>,
     >,
 ) {
-    let Ok((entity, mut old_sprite_img, render_target)) = sprites.get_single_mut() else {
+    let Ok((entity, mut old_sprite_img, render_target, mut display_img)) = sprites.get_single_mut()
+    else {
         return;
     };
 
     if !render_target.is_ready.load() {
         return;
     }
+
+    display_img.last_view = Some(render_target.alignment_view);
 
     std::mem::swap(old_sprite_img.as_mut(), &mut back_image.image);
 
@@ -179,7 +183,9 @@ pub struct AlignmentColor {
 }
 
 #[derive(Debug, Component)]
-pub struct AlignmentDisplayImage;
+pub struct AlignmentDisplayImage {
+    last_view: Option<crate::view::View>,
+}
 
 #[derive(Resource)]
 struct AlignmentBackImage {
@@ -282,19 +288,16 @@ fn trigger_render(
 
     // active_renders: Query<&AlignmentRenderTarget>,
     windows: Query<&Window>,
-    display_sprites: Query<Entity, (With<AlignmentDisplayImage>, Without<AlignmentRenderTarget>)>,
+    display_sprites: Query<(Entity, &AlignmentDisplayImage), Without<AlignmentRenderTarget>>,
 ) {
-    println!("in trigger_render()");
-    let Ok(sprite_ent) = display_sprites.get_single() else {
+    let Ok((sprite_ent, display_img)) = display_sprites.get_single() else {
         return;
     };
-
-    println!("got sprite: {sprite_ent:?}");
 
     let win_size = windows.single().resolution.physical_size();
 
     // resize back image
-    {
+    let resized = {
         let tgt_img = images.get_mut(&back_image.image).unwrap();
         let size = tgt_img.size();
 
@@ -304,17 +307,20 @@ fn trigger_render(
                 height: win_size.y,
                 depth_or_array_layers: 1,
             });
+            true
+        } else {
+            false
         }
-    }
+    };
 
-    println!("inserting AlignmentRenderTarget component");
-    // insert AlignmentRenderTarget component on sprite
-    commands.entity(sprite_ent).insert(AlignmentRenderTarget {
-        alignment_view: alignment_viewport.view,
-        canvas_size: win_size,
-        image: back_image.image.clone(),
-        is_ready: Arc::new(false.into()),
-    });
+    if display_img.last_view != Some(alignment_viewport.view) || resized {
+        commands.entity(sprite_ent).insert(AlignmentRenderTarget {
+            alignment_view: alignment_viewport.view,
+            canvas_size: win_size,
+            image: back_image.image.clone(),
+            is_ready: Arc::new(false.into()),
+        });
+    }
 }
 
 #[derive(Clone, Resource)]
@@ -698,7 +704,6 @@ fn queue_alignment_draw(
     };
 
     for (tgt_entity, tgt) in targets.iter() {
-        println!("iterating targets");
         let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("AlignmentRenderer".into()),
         });
@@ -727,7 +732,6 @@ fn queue_alignment_draw(
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, &proj_config.group_0, &[]);
 
-            let mut count = 0;
             for (vertices, material) in alignments.iter() {
                 let Some(vertices) = gpu_alignments.get(vertices) else {
                     println!("vertices missing!");
@@ -742,16 +746,13 @@ fn queue_alignment_draw(
                 pass.set_bind_group(2, &material.bind_groups.group_2, &[]);
                 pass.set_vertex_buffer(0, wgpu::Buffer::slice(&vertices.vertex_buffer, ..));
 
-                count += 1;
                 pass.draw(0..6, 0..vertices.segment_count);
             }
-            println!("drawing {count} alignments");
         }
 
         // this will be one submit per render, which is fine for
         // as long as there will only be one (or a few) per frame,
         // but later it may be worth combining into one
-        println!("submitting commands");
         render_queue.0.submit([cmds.finish()]);
 
         let is_ready = tgt.is_ready.clone();
