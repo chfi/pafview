@@ -29,7 +29,6 @@ use super::view::AlignmentViewport;
 /*
 
 
-
 */
 
 pub struct AlignmentRendererPlugin;
@@ -43,7 +42,7 @@ impl Plugin for AlignmentRendererPlugin {
             .add_plugins(RenderAssetPlugin::<GpuAlignmentPolylineMaterial>::default())
             .add_plugins(ExtractComponentPlugin::<Handle<AlignmentPolylineMaterial>>::default())
             .insert_resource(AlignmentShaderConfig {
-                line_width: 4.0,
+                line_width: 8.0,
                 brightness: 1.0,
             })
             .add_plugins(ExtractComponentPlugin::<AlignmentRenderTarget>::default())
@@ -215,7 +214,7 @@ fn setup_projection_vertex_config_bind_group(
 ) {
     let mut proj_buffer: UniformBuffer<_> = Mat4::IDENTITY.into();
     let mut config_buffer: UniformBuffer<_> = GpuAlignmentRenderConfig {
-        line_width: 4.0,
+        line_width: 8.0,
         brightness: 1.0,
         _pad0: 0.0,
         _pad1: 0.0,
@@ -243,6 +242,9 @@ fn setup_projection_vertex_config_bind_group(
 }
 
 fn update_projection_config_uniforms(
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+
     mut uniforms: ResMut<AlignmentProjVertexBindGroup>,
     config: Res<AlignmentShaderConfig>,
 
@@ -255,13 +257,19 @@ fn update_projection_config_uniforms(
     let proj_uv = target.alignment_view.to_mat4();
     let proj = Mat4::from_cols_array(proj_uv.as_array());
     uniforms.proj_buffer.set(proj);
+    uniforms
+        .proj_buffer
+        .write_buffer(&render_device, &render_queue);
 
-    if config.is_changed() {
-        let mut cfg = uniforms.config_buffer.get().clone();
-        cfg.line_width = config.line_width;
-        cfg.brightness = config.brightness;
-        uniforms.config_buffer.set(cfg);
-    }
+    // if config.is_changed() {
+    let mut cfg = uniforms.config_buffer.get().clone();
+    cfg.line_width = config.line_width / target.canvas_size.x as f32;
+    cfg.brightness = config.brightness;
+    uniforms.config_buffer.set(cfg);
+    uniforms
+        .config_buffer
+        .write_buffer(&render_device, &render_queue);
+    // }
 }
 
 fn trigger_render(
@@ -503,8 +511,10 @@ impl AlignmentPolylineMaterial {
             .unwrap();
         let y_range = grid.y_axis.sequence_axis_range(alignment.query_id).unwrap();
 
-        let x = (x_range.start as f64) + 0.5 * (x_range.end - x_range.start) as f64;
-        let y = (y_range.start as f64) + 0.5 * (y_range.end - y_range.start) as f64;
+        // let x = (x_range.start as f64) + 0.5 * (x_range.end - x_range.start) as f64;
+        // let y = (y_range.start as f64) + 0.5 * (y_range.end - y_range.start) as f64;
+        let x = x_range.start as f64;
+        let y = y_range.start as f64;
 
         let model = Transform::from_xyz(x as f32, y as f32, 0.0).compute_matrix();
 
@@ -662,7 +672,7 @@ impl RenderAsset for GpuAlignmentVertices {
 }
 
 fn queue_alignment_draw(
-    // mut commands: Commands,
+    mut commands: Commands,
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     pipeline_cache: Res<PipelineCache>,
@@ -687,11 +697,7 @@ fn queue_alignment_draw(
         return;
     };
 
-    if alignments.is_empty() {
-        println!("no alignments to draw!");
-    }
-
-    for (_tgt_entity, tgt) in targets.iter() {
+    for (tgt_entity, tgt) in targets.iter() {
         println!("iterating targets");
         let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("AlignmentRenderer".into()),
@@ -705,7 +711,8 @@ fn queue_alignment_draw(
             view: &tgt_img.texture_view,
             resolve_target: None,
             ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                // load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                 store: wgpu::StoreOp::Store,
             },
         };
@@ -719,8 +726,6 @@ fn queue_alignment_draw(
 
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, &proj_config.group_0, &[]);
-            // dbg!();
-            // println!("iterating {} alignments", alignments.len());
 
             let mut count = 0;
             for (vertices, material) in alignments.iter() {
@@ -753,9 +758,8 @@ fn queue_alignment_draw(
         render_queue.0.on_submitted_work_done(move || {
             is_ready.store(true);
         });
+        commands.entity(tgt_entity).insert(Rendering);
     }
-
-    //
 }
 
 fn cleanup_finished_renders(
@@ -764,65 +768,7 @@ fn cleanup_finished_renders(
 ) {
     for (entity, tgt) in targets.iter() {
         if tgt.is_ready.load() {
-            commands.entity(entity).despawn();
+            commands.get_entity(entity).map(|mut e| e.despawn());
         }
     }
 }
-
-/*
-pub mod graph {
-
-    use super::*;
-    use bevy::render::render_graph;
-
-    pub struct AlignmentLinesNode {
-        target: Option<Handle<Image>>,
-        alignments: QueryState<(
-            &'static Handle<AlignmentVertices>,
-            &'static GpuAlignmentPolylineMaterial,
-        )>,
-
-        ready: bool,
-    }
-
-    impl AlignmentLinesNode {
-        pub fn new(world: &mut World) -> Self {
-            Self {
-                target: None,
-                alignments: world.query(),
-                ready: false,
-            }
-        }
-    }
-
-    impl render_graph::Node for AlignmentLinesNode {
-        fn update(&mut self, world: &mut World) {
-            self.alignments.update_archetypes(world);
-
-            if !self.ready {
-                let pipeline = world.resource::<AlignmentPolylinePipeline>();
-                let pipeline_cache = world.resource::<PipelineCache>();
-
-                match pipeline_cache.get_render_pipeline_state(pipeline.pipeline) {
-                    bevy::render::render_resource::CachedPipelineState::Ok(_) => {
-                        self.ready = true;
-                    }
-                    bevy::render::render_resource::CachedPipelineState::Err(err) => {
-                        panic!("Initializing alignment render pipeline: {err:?}");
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        fn run<'w>(
-            &self,
-            graph: &mut render_graph::RenderGraphContext,
-            render_context: &mut bevy::render::renderer::RenderContext<'w>,
-            world: &'w World,
-        ) -> Result<(), render_graph::NodeRunError> {
-            todo!()
-        }
-    }
-}
-*/
