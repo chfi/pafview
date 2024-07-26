@@ -37,10 +37,16 @@ pub struct AlignmentRendererPlugin;
 impl Plugin for AlignmentRendererPlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<AlignmentVertices>()
-            .init_asset::<AlignmentPolylineMaterial>()
             .add_plugins(RenderAssetPlugin::<GpuAlignmentVertices>::default())
-            .add_plugins(ExtractComponentPlugin::<AlignmentRenderTarget>::default())
             .add_plugins(ExtractComponentPlugin::<Handle<AlignmentVertices>>::default())
+            .init_asset::<AlignmentPolylineMaterial>()
+            .add_plugins(RenderAssetPlugin::<GpuAlignmentPolylineMaterial>::default())
+            .add_plugins(ExtractComponentPlugin::<Handle<AlignmentPolylineMaterial>>::default())
+            .insert_resource(AlignmentShaderConfig {
+                line_width: 4.0,
+                brightness: 1.0,
+            })
+            .add_plugins(ExtractComponentPlugin::<AlignmentRenderTarget>::default())
             .add_plugins(ExtractResourcePlugin::<AlignmentShaderConfig>::default())
             .add_systems(Startup, setup_alignment_display_image)
             .add_systems(PreUpdate, update_alignment_display_target)
@@ -204,16 +210,20 @@ struct AlignmentProjVertexBindGroup {
 fn setup_projection_vertex_config_bind_group(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
     pipeline: Res<AlignmentPolylinePipeline>,
 ) {
-    let proj_buffer: UniformBuffer<_> = Mat4::IDENTITY.into();
-    let config_buffer: UniformBuffer<_> = GpuAlignmentRenderConfig {
+    let mut proj_buffer: UniformBuffer<_> = Mat4::IDENTITY.into();
+    let mut config_buffer: UniformBuffer<_> = GpuAlignmentRenderConfig {
         line_width: 4.0,
         brightness: 1.0,
         _pad0: 0.0,
         _pad1: 0.0,
     }
     .into();
+
+    proj_buffer.write_buffer(&render_device, &render_queue);
+    config_buffer.write_buffer(&render_device, &render_queue);
 
     let group_0 = render_device.create_bind_group(
         Some("AlignmentRenderConfig"),
@@ -439,8 +449,11 @@ impl RenderAsset for GpuAlignmentPolylineMaterial {
     ) -> Result<Self, bevy::render::render_asset::PrepareAssetError<Self::SourceAsset>> {
         // TODO: need to extract color scheme somewhere
         let color_scheme = GpuAlignmentColorScheme::from(source_asset.color_scheme);
-        let color_scheme_buffer: UniformBuffer<_> = color_scheme.into();
-        let model_buffer: UniformBuffer<_> = source_asset.model.into();
+        let mut color_scheme_buffer: UniformBuffer<_> = color_scheme.into();
+        let mut model_buffer: UniformBuffer<_> = source_asset.model.into();
+
+        color_scheme_buffer.write_buffer(&param.0, &param.1);
+        model_buffer.write_buffer(&param.0, &param.1);
 
         let group_1 = param.0.create_bind_group(
             None,
@@ -659,16 +672,24 @@ fn queue_alignment_draw(
 
     gpu_images: Res<RenderAssets<GpuImage>>,
     gpu_alignments: Res<RenderAssets<GpuAlignmentVertices>>,
+    gpu_materials: Res<RenderAssets<GpuAlignmentPolylineMaterial>>,
 
     // draw_params: Option<Res<AlignmentRenderParams>>,
     targets: Query<(Entity, &AlignmentRenderTarget), Without<Rendering>>,
     // target: Option<Res<AlignmentRenderTarget>>,
-    alignments: Query<(&Handle<AlignmentVertices>, &GpuAlignmentPolylineMaterial)>,
+    alignments: Query<(
+        &Handle<AlignmentVertices>,
+        &Handle<AlignmentPolylineMaterial>,
+    )>,
+    // alignments: Query<(&Handle<AlignmentVertices>, &GpuAlignmentPolylineMaterial)>,
 ) {
-    println!("in queue_alignment_draw");
     let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline) else {
         return;
     };
+
+    if alignments.is_empty() {
+        println!("no alignments to draw!");
+    }
 
     for (_tgt_entity, tgt) in targets.iter() {
         println!("iterating targets");
@@ -698,16 +719,28 @@ fn queue_alignment_draw(
 
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, &proj_config.group_0, &[]);
+            // dbg!();
+            // println!("iterating {} alignments", alignments.len());
 
+            let mut count = 0;
             for (vertices, material) in alignments.iter() {
+                let Some(vertices) = gpu_alignments.get(vertices) else {
+                    println!("vertices missing!");
+                    continue;
+                };
+                let Some(material) = gpu_materials.get(material) else {
+                    println!("material missing!");
+                    continue;
+                };
+
                 pass.set_bind_group(1, &material.bind_groups.group_1, &[]);
                 pass.set_bind_group(2, &material.bind_groups.group_2, &[]);
-
-                let vertices = gpu_alignments.get(vertices).unwrap();
                 pass.set_vertex_buffer(0, wgpu::Buffer::slice(&vertices.vertex_buffer, ..));
 
+                count += 1;
                 pass.draw(0..6, 0..vertices.segment_count);
             }
+            println!("drawing {count} alignments");
         }
 
         // this will be one submit per render, which is fine for
