@@ -128,7 +128,10 @@ fn setup_alignment_display_image(mut commands: Commands, mut images: ResMut<Asse
     let back_img_handle = images.add(back_image);
 
     let display_sprite = commands.spawn((
-        AlignmentDisplayImage { last_view: None },
+        AlignmentDisplayImage {
+            last_view: None,
+            last_render_time: None,
+        },
         RenderLayers::layer(1),
         SpriteBundle {
             sprite: Sprite {
@@ -171,6 +174,7 @@ fn update_alignment_display_target(
     }
 
     display_img.last_view = Some(render_target.alignment_view);
+    display_img.last_render_time = Some(std::time::Instant::now());
 
     std::mem::swap(old_sprite_img.as_mut(), &mut back_image.image);
 
@@ -185,6 +189,7 @@ pub struct AlignmentColor {
 #[derive(Debug, Component)]
 pub struct AlignmentDisplayImage {
     last_view: Option<crate::view::View>,
+    last_render_time: Option<std::time::Instant>,
 }
 
 #[derive(Resource)]
@@ -293,6 +298,15 @@ fn trigger_render(
     let Ok((sprite_ent, display_img)) = display_sprites.get_single() else {
         return;
     };
+
+    if let Some(ms_since_last_render) = display_img
+        .last_render_time
+        .map(|t| t.elapsed().as_millis())
+    {
+        if ms_since_last_render < 10 {
+            return;
+        }
+    }
 
     let win_size = windows.single().resolution.physical_size();
 
