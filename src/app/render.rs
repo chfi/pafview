@@ -190,17 +190,27 @@ fn update_alignment_display_transform(
     images: Res<Assets<Image>>,
     alignment_viewport: Res<AlignmentViewport>,
     windows: Query<&Window>,
-    mut display_sprites: Query<(&mut Transform, &mut Sprite, &AlignmentDisplayImage)>,
+    mut display_sprites: Query<(
+        &mut Transform,
+        &mut Sprite,
+        &Handle<Image>,
+        &AlignmentDisplayImage,
+    )>,
 ) {
     let window = windows.single();
     let win_size = window.resolution.size();
+    let dpi_scale = window.resolution.scale_factor();
 
-    for (mut transform, mut sprite, display_img) in display_sprites.iter_mut() {
-        // resize sprite (`custom_size`) to match display_img size?
-
+    for (mut transform, mut sprite, img_handle, display_img) in display_sprites.iter_mut() {
         let Some(last_view) = display_img.last_view else {
             continue;
         };
+
+        // resize sprite to take display scale into account
+        if let Some(img) = images.get(img_handle) {
+            sprite.custom_size = Some(img.size_f32() / dpi_scale);
+            // sprite.custom_size = Some(img.size_f32() * (1.0 / dpi_scale));
+        }
 
         let old_mid = last_view.center();
         let new_view = alignment_viewport.view;
