@@ -22,7 +22,11 @@ use bevy::{
 };
 use wgpu::{util::BufferInitDescriptor, ColorWrites, ShaderStages, VertexStepMode};
 
-use crate::{render::color::AlignmentColorScheme, CigarOp};
+use crate::{
+    math_conv::{ConvertFloat32, ConvertVec2},
+    render::color::AlignmentColorScheme,
+    CigarOp,
+};
 
 use super::view::AlignmentViewport;
 
@@ -52,7 +56,8 @@ impl Plugin for AlignmentRendererPlugin {
             .add_systems(
                 Update,
                 // trigger_render.run_if(|view: Res<AlignmentViewport>| view.is_changed()),
-                trigger_render,
+                (trigger_render, update_alignment_display_transform)
+                    .after(super::view::update_camera_from_viewport),
             );
     }
 
@@ -179,6 +184,44 @@ fn update_alignment_display_target(
     std::mem::swap(old_sprite_img.as_mut(), &mut back_image.image);
 
     commands.entity(entity).remove::<AlignmentRenderTarget>();
+}
+
+fn update_alignment_display_transform(
+    images: Res<Assets<Image>>,
+    alignment_viewport: Res<AlignmentViewport>,
+    windows: Query<&Window>,
+    mut display_sprites: Query<(&mut Transform, &mut Sprite, &AlignmentDisplayImage)>,
+) {
+    let window = windows.single();
+    let win_size = window.resolution.size();
+
+    for (mut transform, mut sprite, display_img) in display_sprites.iter_mut() {
+        // resize sprite (`custom_size`) to match display_img size?
+
+        let Some(last_view) = display_img.last_view else {
+            continue;
+        };
+
+        let old_mid = last_view.center();
+        let new_view = alignment_viewport.view;
+        if last_view == new_view {
+            *transform = Transform::IDENTITY;
+        } else {
+            let new_mid = new_view.center();
+
+            let world_delta = new_mid - old_mid;
+            let norm_delta = world_delta / new_view.size();
+
+            let w_rat = last_view.width() / new_view.width();
+            let h_rat = last_view.height() / new_view.height();
+
+            let screen_delta = norm_delta.to_f32() * [win_size.x, win_size.y].as_uv();
+
+            *transform =
+                Transform::from_translation(Vec3::new(-screen_delta.x, -screen_delta.y, 0.0))
+                    .with_scale(Vec3::new(w_rat as f32, h_rat as f32, 0.0));
+        }
+    }
 }
 
 #[derive(Debug, Component)]
