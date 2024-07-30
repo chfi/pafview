@@ -209,7 +209,6 @@ fn update_alignment_display_transform(
         // resize sprite to take display scale into account
         if let Some(img) = images.get(img_handle) {
             sprite.custom_size = Some(img.size_f32() / dpi_scale);
-            // sprite.custom_size = Some(img.size_f32() * (1.0 / dpi_scale));
         }
 
         let old_mid = last_view.center();

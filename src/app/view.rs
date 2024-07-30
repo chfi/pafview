@@ -20,16 +20,16 @@ impl Plugin for AlignmentViewPlugin {
             .add_event::<ViewEvent>()
             .add_systems(Startup, setup)
             .add_systems(
-                Update,
+                PreUpdate,
                 (
                     update_viewport_for_window_resize,
+                    click_drag_pan_viewport,
                     input_update_viewport,
                     update_camera_from_viewport,
                 )
-                    .chain()
-                    .before(bevy::render::camera::camera_system::<OrthographicProjection>),
+                    .chain(),
             )
-            .add_systems(Update, update_cursor_world.after(input_update_viewport))
+            .add_systems(Update, update_cursor_world)
             .add_systems(
                 Update,
                 (rectangle_select_zoom_input, rectangle_select_zoom_apply).chain(),
@@ -231,6 +231,63 @@ fn rectangle_select_zoom_apply(
     }
 }
 
+fn click_drag_pan_viewport(
+    // mut click_origin: Local<Option<(bevy::math::DVec2, bevy::math::Vec2)>>,
+    mut click_origin: Local<Option<bevy::math::Vec2>>,
+
+    mouse_button: Res<ButtonInput<MouseButton>>,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    alignment_cursor: Res<CursorAlignmentPosition>,
+
+    windows: Query<&Window>,
+    mut alignment_view: ResMut<AlignmentViewport>,
+) {
+    let win_size = windows.single().resolution.size();
+
+    if mouse_button.pressed(MouseButton::Left) && click_origin.is_none() {
+        let origin = alignment_cursor.screen_pos;
+        *click_origin = origin;
+    }
+
+    if !mouse_button.pressed(MouseButton::Left) {
+        *click_origin = None;
+    }
+
+    let Some(cur_screen_pos) = alignment_cursor.screen_pos else {
+        return;
+    };
+    if let Some(last_screen_pos) = click_origin.as_ref().copied() {
+        // set the alignment view center so that the world positions
+        // of the cursor at the start of the drag & the current frame
+        // are the same
+
+        let ctrl_down =
+            keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
+
+        let shift_down =
+            keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
+
+        let pan_factor = if ctrl_down {
+            0.25
+        } else if shift_down {
+            5.0
+        } else {
+            1.0
+        };
+
+        let screen_delta = last_screen_pos - cur_screen_pos;
+        let norm_delta = screen_delta / win_size;
+        let view_size = alignment_view.view.size();
+        let world_delta = ultraviolet::DVec2::new(
+            norm_delta.x as f64 * view_size.x,
+            norm_delta.y as f64 * view_size.y,
+        ) * pan_factor;
+
+        alignment_view.view.translate(world_delta.x, world_delta.y);
+        *click_origin = Some(cur_screen_pos);
+    }
+}
+
 fn input_update_viewport(
     time: Res<Time>,
     keyboard: Res<ButtonInput<KeyCode>>,
@@ -314,9 +371,9 @@ fn input_update_viewport(
     let shift_down = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
 
     let pan_factor = if ctrl_down {
-        5.0
-    } else if shift_down {
         0.25
+    } else if shift_down {
+        5.0
     } else {
         1.0
     };
@@ -340,9 +397,9 @@ fn input_update_viewport(
         dv.y -= yv;
     }
 
-    if mouse_button.pressed(MouseButton::Left) {
-        dv -= (mouse_delta / win_size) * view_size * pan_factor;
-    }
+    // if mouse_button.pressed(MouseButton::Left) {
+    //     dv -= (mouse_delta / win_size) * view_size * pan_factor;
+    // }
 
     if dv.length_squared() > 0.0 {
         alignment_view.view.translate(dv.x, dv.y);
