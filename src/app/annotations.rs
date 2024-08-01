@@ -111,14 +111,12 @@ fn draw_annotations(
     mut contexts: bevy_egui::EguiContexts,
     mut annotation_painter: ResMut<AnnotationPainter>,
     viewer: Res<super::PafViewer>,
+    menubar_size: Res<super::gui::MenubarSize>,
     app_view: Res<AlignmentViewport>,
 ) {
-    // menubar clip rect would be nice... how should i get that?
-    // store it on the menubar after its render system runs,
-    // & then just schedule this system after?
-
     let ctx = contexts.ctx_mut();
-    let clip_rect = ctx.screen_rect();
+    let mut clip_rect = ctx.screen_rect();
+    clip_rect.set_top(menubar_size.height);
 
     annotation_painter.0.draw(
         &viewer.app.app_config.annotation_draw_config,
