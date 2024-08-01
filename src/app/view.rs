@@ -235,6 +235,9 @@ fn click_drag_pan_viewport(
     // mut click_origin: Local<Option<(bevy::math::DVec2, bevy::math::Vec2)>>,
     mut click_origin: Local<Option<bevy::math::Vec2>>,
 
+    mut egui_contexts: bevy_egui::EguiContexts,
+    menubar_size: Res<super::gui::MenubarSize>,
+
     mouse_button: Res<ButtonInput<MouseButton>>,
     keyboard: Res<ButtonInput<KeyCode>>,
     alignment_cursor: Res<CursorAlignmentPosition>,
@@ -242,7 +245,16 @@ fn click_drag_pan_viewport(
     windows: Query<&Window>,
     mut alignment_view: ResMut<AlignmentViewport>,
 ) {
-    let win_size = windows.single().resolution.size();
+    let window = windows.single();
+    let win_size = window.resolution.size();
+    let ptr_pos = window.cursor_position();
+
+    let egui_using_cursor = egui_contexts.ctx_mut().wants_pointer_input()
+        || ptr_pos.map(|p| p.y < menubar_size.height).unwrap_or(false);
+
+    if egui_using_cursor {
+        return;
+    }
 
     if mouse_button.pressed(MouseButton::Left) && click_origin.is_none() {
         let origin = alignment_cursor.screen_pos;

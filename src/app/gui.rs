@@ -11,16 +11,27 @@ pub(super) struct MenubarPlugin;
 impl Plugin for MenubarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<RegionsOfInterest>()
+            .init_resource::<MenubarSize>()
             .add_systems(Startup, setup)
             .add_systems(
-                Update,
+                PreUpdate,
                 (
                     menubar_system,
                     regions_of_interest_system,
                     settings_window,
                     goto_region_window,
-                ),
+                )
+                    .after(bevy_egui::EguiSet::BeginFrame),
             );
+        // .add_systems(
+        //     Update,
+        //     (
+        //         menubar_system,
+        //         regions_of_interest_system,
+        //         settings_window,
+        //         goto_region_window,
+        //     ),
+        // );
         // .add_systems(Update, (menubar_system, regions_of_interest_system).chain());
     }
 }
@@ -28,6 +39,11 @@ impl Plugin for MenubarPlugin {
 #[derive(Default, Resource)]
 pub(crate) struct WindowStates {
     pub(crate) window_states: AppWindowStates,
+}
+
+#[derive(Default, Resource)]
+pub struct MenubarSize {
+    pub height: f32,
 }
 
 fn setup(mut commands: Commands, viewer: Res<super::PafViewer>) {
@@ -40,11 +56,13 @@ pub(crate) fn menubar_system(
     mut contexts: EguiContexts,
     viewer: Res<super::PafViewer>,
     mut window_states: ResMut<WindowStates>,
+    mut menubar_size: ResMut<MenubarSize>,
 ) {
     let ctx = contexts.ctx_mut();
 
-    let _menubar_rect =
+    let menubar_rect =
         crate::gui::MenuBar::show(ctx, &viewer.app, &mut window_states.window_states);
+    menubar_size.height = menubar_rect.height();
 }
 
 fn settings_window(

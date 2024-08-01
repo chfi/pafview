@@ -52,7 +52,13 @@ impl Plugin for AlignmentRendererPlugin {
             .add_plugins(ExtractComponentPlugin::<AlignmentRenderTarget>::default())
             .add_plugins(ExtractResourcePlugin::<AlignmentShaderConfig>::default())
             .add_systems(Startup, setup_alignment_display_image)
-            .add_systems(PreUpdate, update_alignment_display_target)
+            .add_systems(
+                PreUpdate,
+                (
+                    update_alignment_display_target,
+                    update_alignment_shader_config,
+                ),
+            )
             .add_systems(
                 Update,
                 // trigger_render.run_if(|view: Res<AlignmentViewport>| view.is_changed()),
@@ -71,18 +77,6 @@ impl Plugin for AlignmentRendererPlugin {
                     .run_if(|res: Option<Res<AlignmentProjVertexBindGroup>>| res.is_none())
                     .in_set(RenderSet::Prepare),
             )
-            /*
-            .add_systems(
-                Render,
-                (create_alignment_uniforms, update_alignment_uniforms)
-                    .chain()
-                    .in_set(RenderSet::PrepareResources),
-            )
-            .add_systems(
-                Render,
-                create_alignment_bind_groups.in_set(RenderSet::PrepareBindGroups),
-            )
-            */
             .add_systems(
                 Render,
                 update_projection_config_uniforms
@@ -98,6 +92,15 @@ impl Plugin for AlignmentRendererPlugin {
             )
             .add_systems(Render, cleanup_finished_renders.in_set(RenderSet::Cleanup));
     }
+}
+
+fn update_alignment_shader_config(
+    viewer: Res<super::PafViewer>,
+    mut shader_config: ResMut<AlignmentShaderConfig>,
+) {
+    let cfg = &viewer.app.app_config;
+
+    shader_config.line_width = cfg.alignment_line_width;
 }
 
 fn setup_alignment_display_image(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
