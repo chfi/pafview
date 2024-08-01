@@ -100,7 +100,9 @@ fn update_alignment_shader_config(
 ) {
     let cfg = &viewer.app.app_config;
 
-    shader_config.line_width = cfg.alignment_line_width;
+    if cfg.alignment_line_width != shader_config.line_width {
+        shader_config.line_width = cfg.alignment_line_width;
+    }
 }
 
 fn setup_alignment_display_image(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
@@ -345,6 +347,7 @@ fn trigger_render(
     back_image: Res<AlignmentBackImage>,
 
     alignment_viewport: Res<AlignmentViewport>,
+    shader_config: Res<AlignmentShaderConfig>,
 
     // active_renders: Query<&AlignmentRenderTarget>,
     windows: Query<&Window>,
@@ -382,7 +385,10 @@ fn trigger_render(
         }
     };
 
-    if display_img.last_view != Some(alignment_viewport.view) || resized {
+    if display_img.last_view != Some(alignment_viewport.view)
+        || resized
+        || shader_config.is_changed()
+    {
         commands.entity(sprite_ent).insert(AlignmentRenderTarget {
             alignment_view: alignment_viewport.view,
             canvas_size: win_size,

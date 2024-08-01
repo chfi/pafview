@@ -46,6 +46,7 @@ impl Plugin for PafViewerPlugin {
                 Startup,
                 (setup, setup_screenspace_camera, prepare_alignments).chain(),
             )
+            .add_systems(PreUpdate, config_update_grid_material)
             .add_systems(
                 Update,
                 (
@@ -174,6 +175,27 @@ fn setup_screenspace_camera(
     ));
 }
 
+#[derive(Resource)]
+struct GridMaterial {
+    handle: Handle<PolylineMaterial>,
+}
+
+fn config_update_grid_material(
+    mut materials: ResMut<Assets<PolylineMaterial>>,
+    viewer: Res<PafViewer>,
+    grid_mat: Option<Res<GridMaterial>>,
+) {
+    let Some(handle) = grid_mat.as_ref().map(|m| &m.handle) else {
+        return;
+    };
+
+    let Some(mat) = materials.get_mut(handle) else {
+        return;
+    };
+
+    mat.width = viewer.app.app_config.grid_line_width;
+}
+
 fn setup(
     mut commands: Commands,
     viewer: Res<PafViewer>,
@@ -230,6 +252,10 @@ fn setup(
         color: Color::BLACK.into(),
         depth_bias: 0.0,
         perspective: false,
+    });
+
+    commands.insert_resource(GridMaterial {
+        handle: grid_mat.clone(),
     });
 
     let grid = commands.spawn(PolylineBundle {
@@ -416,169 +442,6 @@ fn prepare_alignments(
                         ));
                     }
                     */
-                }
-            });
-    }
-}
-
-fn prepare_alignments_old(
-    mut commands: Commands,
-    viewer: Res<PafViewer>,
-    mut polyline_materials: ResMut<Assets<PolylineMaterial>>,
-    mut polylines: ResMut<Assets<Polyline>>,
-) {
-    // create entities for the grid (tiles) & polylines for alignments
-
-    // TODO pull in per-alignment color schemes
-    // let op_colors = {
-    //     use crate::cigar::CigarOp as Cg;
-    //     [(Cg::M, Color::BLACK),
-    //      (Cg::Eq, Color::BLACK),
-    //      (Cg::X, Color::RED),
-    //     ].into_iter().collect::<FxHashMap<_,_>>()
-    //     };
-
-    let mut op_mats = FxHashMap::default();
-    use crate::cigar::CigarOp as Cg;
-
-    for (op, color) in [
-        (Cg::M, Color::BLACK),
-        (Cg::Eq, Color::BLACK),
-        // (Cg::X, Color::srgb(1.0, 0.0, 0.0)),
-    ] {
-        let mat = polyline_materials.add(PolylineMaterial {
-            width: 4.0,
-            color: color.into(),
-            depth_bias: 0.0,
-            perspective: false,
-        });
-        op_mats.insert(op, mat);
-    }
-
-    op_mats.insert(
-        Cg::X,
-        polyline_materials.add(PolylineMaterial {
-            width: 4.0,
-            color: Color::srgb(1.0, 0.0, 0.0).into(),
-            depth_bias: -0.2,
-            perspective: false,
-        }),
-    );
-
-    let grid = &viewer.app.alignment_grid;
-
-    for (pair_id @ &(tgt_id, qry_id), alignments) in viewer.app.alignments.pairs.iter() {
-        let x_offset = grid.x_axis.sequence_offset(tgt_id).unwrap();
-        let y_offset = grid.y_axis.sequence_offset(qry_id).unwrap();
-
-        let transform =
-            Transform::from_translation(Vec3::new(x_offset as f32, y_offset as f32, 0.0));
-
-        let parent = commands
-            .spawn((
-                SequencePairTile {
-                    target: tgt_id,
-                    query: qry_id,
-                },
-                SpatialBundle {
-                    transform,
-                    ..default()
-                },
-            ))
-            .with_children(|parent| {
-                for (_ix, alignment) in alignments.iter().enumerate() {
-                    // bevy_polyline only supports single color polylines,
-                    // so to draw cigar ops with different colors, use one
-                    // polyline per op
-
-                    let location = &alignment.location;
-
-                    // let align_ix = AlignmentIndex {
-                    //     pair: *pair_id,
-                    //     index: ix,
-                    // };
-
-                    let mut m_verts = Vec::new();
-                    let mut eq_verts = Vec::new();
-                    let mut x_verts = Vec::new();
-
-                    let mut tgt_cg = 0;
-                    let mut qry_cg = 0;
-
-                    let mut last_op: Option<Cg> = None;
-
-                    for (op, count) in alignment.cigar.whole_cigar() {
-                        let tgt_start = tgt_cg;
-                        let qry_start = qry_cg;
-
-                        let (tgt_end, qry_end) = match op {
-                            Cg::Eq | Cg::X | Cg::M => {
-                                tgt_cg += count as u64;
-                                qry_cg += count as u64;
-                                //
-                                (tgt_start + count as u64, qry_start + count as u64)
-                            }
-                            Cg::I => {
-                                qry_cg += count as u64;
-                                //
-                                (tgt_start, qry_start + count as u64)
-                            }
-                            Cg::D => {
-                                tgt_cg += count as u64;
-                                //
-                                (tgt_start + count as u64, qry_start)
-                            }
-                        };
-
-                        let tgt_range = location.map_from_aligned_target_range(tgt_start..tgt_end);
-                        let qry_range = location.map_from_aligned_query_range(qry_start..qry_end);
-
-                        let mut from =
-                            ultraviolet::DVec2::new(tgt_range.start as f64, qry_range.start as f64);
-                        let mut to =
-                            ultraviolet::DVec2::new(tgt_range.end as f64, qry_range.end as f64);
-
-                        if location.query_strand.is_rev() {
-                            std::mem::swap(&mut from.y, &mut to.y);
-                        }
-
-                        let p0 = Vec3::new(from.x as f32, from.y as f32, 0.0);
-                        let p1 = Vec3::new(to.x as f32, to.y as f32, 0.0);
-
-                        let buf = match op {
-                            Cg::M => &mut m_verts,
-                            Cg::Eq => &mut eq_verts,
-                            Cg::X => &mut x_verts,
-                            _ => continue,
-                        };
-
-                        // https://github.com/ForesightMiningSoftwareCorporation/bevy_polyline/issues/20#issuecomment-1035624250
-                        if last_op != Some(op) {
-                            buf.push(Vec3::splat(std::f32::INFINITY));
-                            buf.push(Vec3::splat(std::f32::INFINITY));
-                        }
-
-                        buf.push(p0);
-                        buf.push(p1);
-
-                        last_op = Some(op);
-                    }
-
-                    for (op, vertices) in [(Cg::M, m_verts), (Cg::Eq, eq_verts), (Cg::X, x_verts)] {
-                        let material = op_mats.get(&op).unwrap().clone();
-                        let polyline = polylines.add(Polyline { vertices });
-
-                        parent.spawn((
-                            Alignment,
-                            PolylineBundle {
-                                polyline,
-                                material,
-                                visibility: Visibility::Hidden,
-                                // transform: transform.clone(),
-                                ..default()
-                            },
-                        ));
-                    }
                 }
             });
     }
