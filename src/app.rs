@@ -1,3 +1,4 @@
+pub mod alignments;
 pub mod annotations;
 pub mod gui;
 pub mod render;
