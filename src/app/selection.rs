@@ -5,6 +5,8 @@ use bevy::{
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
 };
 
+use leafwing_input_manager::prelude::*;
+
 use crate::gui::AppWindowStates;
 
 use super::{
@@ -17,15 +19,38 @@ pub(super) struct RegionSelectionPlugin;
 impl Plugin for RegionSelectionPlugin {
     fn build(&self, app: &mut App) {
         app.init_gizmo_group::<SelectionGizmos>()
+            .add_plugins(InputManagerPlugin::<SelectionAction>::default())
+            .add_systems(Startup, setup_selection_input_map)
             .add_systems(Startup, setup_selection_gizmo_config)
             // .add_systems(Update, right_click_selection_test)
-            .add_systems(Update, (initialize_selection, update_selection).chain())
+            .add_systems(Update, update_selection)
+            // .add_systems(Update, (initialize_selection, update_selection).chain())
             .add_systems(Update, draw_selection_gizmos.after(update_selection));
         // app.init_resource::<RegionsOfInterest>()
         //     .add_systems(Startup, setup)
         //     .add_systems(Update, (menubar_system, settings_window));
         // .add_systems(Update, (menubar_system, regions_of_interest_system).chain());
     }
+}
+
+#[derive(Actionlike, PartialEq, Eq, Hash, Clone, Copy, Debug, Reflect)]
+pub enum SelectionAction {
+    ZoomRectangle,
+    DistanceMeasurement,
+}
+
+fn setup_selection_input_map(mut commands: Commands) {
+    let mut input_map: InputMap<SelectionAction> = InputMap::default();
+
+    input_map.insert(SelectionAction::ZoomRectangle, MouseButton::Right);
+
+    let dist_chord = UserInput::Chord(vec![
+        InputKind::PhysicalKey(KeyCode::ControlLeft),
+        InputKind::Mouse(MouseButton::Right),
+    ]);
+    input_map.insert(SelectionAction::DistanceMeasurement, dist_chord);
+
+    commands.spawn(InputManagerBundle::with_map(input_map));
 }
 
 #[derive(Component)]

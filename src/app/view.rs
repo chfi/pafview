@@ -4,6 +4,7 @@ use bevy::{
     input::mouse::{MouseMotion, MouseWheel},
     prelude::*,
 };
+use leafwing_input_manager::action_state::ActionState;
 
 use crate::sequences::SeqId;
 
@@ -12,6 +13,22 @@ use super::{
     AlignmentCamera,
 };
 
+/*
+
+one plugin for the input-agnostic view update logic
+
+another for view-related inputs...
+
+*/
+
+/*
+
+The alignment viewport is defined using the grid of the sequence pairs,
+and allows for the main camera to be updated in terms of world/base-level units.
+
+
+
+*/
 pub(super) struct AlignmentViewPlugin;
 
 impl Plugin for AlignmentViewPlugin {
@@ -169,15 +186,21 @@ struct RectangleZoomSelection;
 fn rectangle_select_zoom_input(
     mut commands: Commands,
     alignment_cursor: Res<CursorAlignmentPosition>,
-    mouse_button: Res<ButtonInput<MouseButton>>,
+    // mouse_button: Res<ButtonInput<MouseButton>>,
+    selection_actions: Query<&ActionState<super::selection::SelectionAction>>,
 
     selections: Query<
         (Entity, &Selection),
         (With<RectangleZoomSelection>, Without<SelectionComplete>),
     >,
 ) {
+    use super::selection::SelectionAction as Action;
+
+    let selection_actions = selection_actions.single();
+
     if let Ok((sel_entity, _selection)) = selections.get_single() {
-        if mouse_button.just_released(MouseButton::Right) {
+        if selection_actions.just_released(&Action::ZoomRectangle) {
+            // if mouse_button.just_released(MouseButton::Right) {
             commands.entity(sel_entity).insert(SelectionComplete);
         }
     } else {
@@ -185,7 +208,7 @@ fn rectangle_select_zoom_input(
             return;
         };
 
-        if mouse_button.just_pressed(MouseButton::Right) {
+        if selection_actions.just_pressed(&Action::ZoomRectangle) {
             commands.spawn((
                 Selection {
                     start_world: cursor,

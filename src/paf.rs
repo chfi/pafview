@@ -283,6 +283,7 @@ pub struct AlignmentIndex {
 pub struct Alignments {
     pub pairs: FxHashMap<(SeqId, SeqId), Vec<Alignment>>,
 
+    // byte ranges for the cigars in the PAF file
     cigar_range_index_map: bimap::BiHashMap<AlignmentIndex, std::ops::Range<u64>>,
 }
 

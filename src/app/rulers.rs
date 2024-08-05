@@ -1,12 +1,18 @@
 use bevy::{prelude::*, render::view::RenderLayers, sprite::Anchor};
+use leafwing_input_manager::action_state::ActionState;
 
-use super::{view::CursorAlignmentPosition, PafViewer};
+use super::{
+    selection::{Selection, SelectionComplete},
+    view::CursorAlignmentPosition,
+    PafViewer,
+};
 
 pub(super) struct ViewerRulersPlugin;
 
 impl Plugin for ViewerRulersPlugin {
     fn build(&self, app: &mut App) {
         app.init_gizmo_group::<RulerGizmos>()
+            .add_plugins(MeasurePlugin)
             .add_systems(Startup, setup_ruler_gizmo_config)
             .add_systems(Startup, setup)
             .add_systems(Update, update_cursor_ruler)
@@ -135,6 +141,62 @@ fn update_cursor_ruler(
             }
         } else {
             commands.entity(q_label).insert(Visibility::Hidden);
+        }
+    }
+}
+
+pub(super) struct MeasurePlugin;
+
+impl Plugin for MeasurePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(Update, (initialize_measure, update_measure).chain());
+    }
+}
+
+#[derive(Component)]
+struct MeasurementSelection;
+
+fn initialize_measure(//
+) {
+    //
+}
+
+fn update_measure(
+    //
+    mut commands: Commands,
+    alignment_cursor: Res<CursorAlignmentPosition>,
+    selection_actions: Query<&ActionState<super::selection::SelectionAction>>,
+
+    selections: Query<
+        (Entity, &Selection),
+        (With<MeasurementSelection>, Without<SelectionComplete>),
+    >,
+) {
+    use super::selection::SelectionAction as Action;
+
+    let selection_actions = selection_actions.single();
+
+    if let Ok((sel_entity, _selection)) = selections.get_single() {
+        // TODO: probably want a dedicated action for "completing" a selection;
+        // as it is, the full chord must be held the entire time
+        if selection_actions.just_released(&Action::DistanceMeasurement) {
+            println!("completing distance measurement");
+            commands.entity(sel_entity).insert(SelectionComplete);
+        }
+    } else {
+        let Some(cursor) = alignment_cursor.world_pos else {
+            return;
+        };
+
+        if selection_actions.just_pressed(&Action::DistanceMeasurement) {
+            println!("spawning distance measurement");
+            commands.spawn((
+                Selection {
+                    start_world: cursor,
+                    end_world: cursor,
+                },
+                MeasurementSelection,
+            ));
         }
     }
 }
