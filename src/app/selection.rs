@@ -25,7 +25,10 @@ impl Plugin for RegionSelectionPlugin {
             // .add_systems(Update, right_click_selection_test)
             .add_systems(Update, update_selection)
             // .add_systems(Update, (initialize_selection, update_selection).chain())
-            .add_systems(Update, draw_selection_gizmos.after(update_selection));
+            .add_systems(
+                Update,
+                rectangle_zoom_selection_gizmos.after(update_selection),
+            );
         // app.init_resource::<RegionsOfInterest>()
         //     .add_systems(Startup, setup)
         //     .add_systems(Update, (menubar_system, settings_window));
@@ -141,12 +144,19 @@ fn right_click_selection_test(
 }
 */
 
-fn draw_selection_gizmos(
+// this should probably go in the module with the rect select logic,
+// but that should also move, so lol
+fn rectangle_zoom_selection_gizmos(
     mut gizmos: Gizmos<SelectionGizmos>,
     app_view: Res<AlignmentViewport>,
 
-    // selections: Query<&Selection>,
-    selections: Query<&Selection, Without<SelectionComplete>>,
+    selections: Query<
+        &Selection,
+        (
+            Without<SelectionComplete>,
+            With<super::view::RectangleZoomSelection>,
+        ),
+    >,
     windows: Query<&Window>,
 ) {
     // gizmos.grid_2d(

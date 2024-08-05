@@ -181,7 +181,7 @@ pub(super) fn update_camera_from_viewport(
 }
 
 #[derive(Component)]
-struct RectangleZoomSelection;
+pub(crate) struct RectangleZoomSelection;
 
 fn rectangle_select_zoom_input(
     mut commands: Commands,
