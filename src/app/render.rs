@@ -346,6 +346,7 @@ fn trigger_render(
     mut images: ResMut<Assets<Image>>,
     back_image: Res<AlignmentBackImage>,
 
+    frame_count: Res<bevy::core::FrameCount>,
     alignment_viewport: Res<AlignmentViewport>,
     shader_config: Res<AlignmentShaderConfig>,
 
@@ -353,6 +354,10 @@ fn trigger_render(
     windows: Query<&Window>,
     display_sprites: Query<(Entity, &AlignmentDisplayImage), Without<AlignmentRenderTarget>>,
 ) {
+    if frame_count.0 < 3 {
+        return;
+    }
+
     let Ok((sprite_ent, display_img)) = display_sprites.get_single() else {
         return;
     };
