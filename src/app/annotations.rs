@@ -7,6 +7,7 @@ use super::view::AlignmentViewport;
 pub(super) struct AnnotationsPlugin;
 
 mod gui;
+mod material;
 
 /*
 
