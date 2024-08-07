@@ -12,6 +12,7 @@ use crate::paf::Alignments;
 use crate::sequences::SeqId;
 
 /// An `AlignmentGrid` defines the global position of the aligned sequence pairs
+#[derive(bevy::prelude::Resource)]
 pub struct AlignmentGrid {
     pub x_axis: GridAxis,
     pub y_axis: GridAxis,

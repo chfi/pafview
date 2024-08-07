@@ -207,7 +207,6 @@ impl MenuBar {
     pub fn show(
         // &self,
         ctx: &egui::Context,
-        app: &PafViewerApp,
         window_states: &mut AppWindowStates,
     ) -> egui::Rect {
         let resp = egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {

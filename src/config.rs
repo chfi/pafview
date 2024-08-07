@@ -5,7 +5,7 @@ use std::io::prelude::*;
 
 pub const CONFIG_FILE_NAME: &'static str = "config.ron";
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, bevy::prelude::Resource)]
 pub struct AppConfig {
     pub alignment_line_width: f32,
     pub grid_line_width: f32,

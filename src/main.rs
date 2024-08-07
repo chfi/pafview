@@ -1,4 +1,3 @@
-use annotations::{draw::AnnotationPainter, physics::LabelPhysics, AnnotationGuiHandler};
 use bimap::BiMap;
 use bytemuck::{Pod, Zeroable};
 use clap::Parser;
@@ -88,8 +87,8 @@ pub fn main() -> anyhow::Result<()> {
 
     let app = PafViewerApp {
         app_config,
-        alignments: Arc::new(alignments),
-        alignment_grid: Arc::new(alignment_grid),
+        alignments: alignments,
+        alignment_grid: alignment_grid,
         sequences,
         // paf_input: todo!(),
         annotations: AnnotationStore::default(),

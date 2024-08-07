@@ -95,10 +95,10 @@ impl Plugin for AlignmentRendererPlugin {
 }
 
 fn update_alignment_shader_config(
-    viewer: Res<super::PafViewer>,
+    app_config: Res<crate::config::AppConfig>,
     mut shader_config: ResMut<AlignmentShaderConfig>,
 ) {
-    let cfg = &viewer.app.app_config;
+    let cfg = &app_config;
 
     if cfg.alignment_line_width != shader_config.line_width {
         shader_config.line_width = cfg.alignment_line_width;

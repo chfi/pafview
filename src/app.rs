@@ -6,12 +6,7 @@ pub mod rulers;
 pub mod selection;
 pub mod view;
 
-use bevy::{
-    input::mouse::{MouseMotion, MouseWheel},
-    prelude::*,
-    render::camera::{CameraProjection, ScalingMode},
-    utils::tracing::Instrument,
-};
+use bevy::prelude::*;
 
 use bevy_polyline::{
     material::PolylineMaterial,
@@ -19,7 +14,6 @@ use bevy_polyline::{
     PolylinePlugin,
 };
 use clap::Parser;
-use rustc_hash::FxHashMap;
 use wgpu::{Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
 
 use crate::{
@@ -83,10 +77,10 @@ impl Plugin for PafViewerPlugin {
     }
 }
 
-#[derive(Resource)]
-pub struct PafViewer {
-    pub app: PafViewerApp,
-}
+// #[derive(Resource)]
+// pub struct PafViewer {
+//     pub app: PafViewerApp,
+// }
 
 #[derive(Resource)]
 pub struct AlignmentRasterizer {
@@ -183,7 +177,8 @@ struct GridMaterial {
 
 fn config_update_grid_material(
     mut materials: ResMut<Assets<PolylineMaterial>>,
-    viewer: Res<PafViewer>,
+    app_config: Res<crate::AppConfig>,
+    // viewer: Res<PafViewer>,
     grid_mat: Option<Res<GridMaterial>>,
 ) {
     let Some(handle) = grid_mat.as_ref().map(|m| &m.handle) else {
@@ -194,17 +189,18 @@ fn config_update_grid_material(
         return;
     };
 
-    mat.width = viewer.app.app_config.grid_line_width;
+    mat.width = app_config.grid_line_width;
 }
 
 fn setup(
     mut commands: Commands,
-    viewer: Res<PafViewer>,
+
+    alignment_grid: Res<crate::AlignmentGrid>,
+
+    // viewer: Res<PafViewer>,
     mut polyline_materials: ResMut<Assets<PolylineMaterial>>,
     mut polylines: ResMut<Assets<Polyline>>,
 ) {
-    let grid = &viewer.app.alignment_grid;
-
     // NB: initial values don't matter here as the camera will be updated
     // from the AlignmentViewport resource
     commands.spawn((
@@ -223,6 +219,7 @@ fn setup(
     ));
 
     // create polylines for grid
+    let grid = &alignment_grid;
 
     let mut vertices: Vec<Vec3> = Vec::new();
 
@@ -289,7 +286,11 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
         .add_plugins(DefaultPlugins)
         .add_plugins(PolylinePlugin)
         .insert_resource(ClearColor(Color::WHITE))
-        .insert_resource(PafViewer { app })
+        .insert_resource(app.app_config)
+        .insert_resource(app.sequences)
+        .insert_resource(app.alignments)
+        .insert_resource(app.alignment_grid)
+        // .insert_resource(PafViewer { app })
         .insert_resource(AlignmentRasterizer { rasterizer })
         .insert_resource(AlignmentColorSchemes {
             colors: paf_color_schemes,
@@ -303,15 +304,16 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
 
 fn prepare_alignments(
     mut commands: Commands,
-    viewer: Res<PafViewer>,
+    alignments: Res<crate::Alignments>,
+    alignment_grid: Res<crate::AlignmentGrid>,
     color_schemes: Res<AlignmentColorSchemes>,
 
     mut alignment_materials: ResMut<Assets<render::AlignmentPolylineMaterial>>,
     mut alignment_vertices: ResMut<Assets<render::AlignmentVertices>>,
 ) {
-    let grid = &viewer.app.alignment_grid;
+    let grid = &alignment_grid;
 
-    for (pair_id @ &(tgt_id, qry_id), alignments) in viewer.app.alignments.pairs.iter() {
+    for (pair_id @ &(tgt_id, qry_id), alignments) in alignments.pairs.iter() {
         let x_offset = grid.x_axis.sequence_offset(tgt_id).unwrap();
         let y_offset = grid.y_axis.sequence_offset(qry_id).unwrap();
 
@@ -487,7 +489,12 @@ fn run_base_level_cpu_rasterizer(
     mut commands: Commands,
 
     cameras: Query<&Camera, With<AlignmentCamera>>,
-    viewer: Res<PafViewer>,
+
+    sequences: Res<crate::Sequences>,
+    alignment_grid: Res<crate::AlignmentGrid>,
+    alignments: Res<crate::Alignments>,
+
+    // viewer: Res<PafViewer>,
     color_schemes: Res<AlignmentColorSchemes>,
     mut rasterizer: ResMut<AlignmentRasterizer>,
 
@@ -508,9 +515,9 @@ fn run_base_level_cpu_rasterizer(
     let pixel_buffer = crate::render::exact::draw_alignments_with_color_schemes(
         &rasterizer.tile_cache,
         &color_schemes.colors,
-        &viewer.app.sequences,
-        &viewer.app.alignment_grid,
-        &viewer.app.alignments,
+        &sequences,
+        &alignment_grid,
+        &alignments,
         &view.view,
         canvas_size,
     );
@@ -598,9 +605,12 @@ fn update_base_level_display_visibility(
     }
 }
 
-fn save_app_config(mut exit_events: EventReader<bevy::app::AppExit>, viewer: Res<PafViewer>) {
+fn save_app_config(
+    mut exit_events: EventReader<bevy::app::AppExit>,
+    app_config: Res<crate::AppConfig>,
+) {
     if let Some(_exit) = exit_events.read().last() {
-        if let Err(e) = crate::config::save_app_config(&viewer.app.app_config) {
+        if let Err(e) = crate::config::save_app_config(&app_config) {
             log::error!("Error saving application settings file: {e:?}");
         }
     }

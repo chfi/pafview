@@ -8,6 +8,7 @@ use rustc_hash::FxHashMap;
 #[repr(C)]
 pub struct SeqId(pub usize);
 
+#[derive(Debug, Clone, bevy::prelude::Resource)]
 pub struct Sequences {
     pub sequence_names: Arc<bimap::BiMap<String, SeqId>>,
 

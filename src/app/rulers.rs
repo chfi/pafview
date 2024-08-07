@@ -4,7 +4,6 @@ use leafwing_input_manager::action_state::ActionState;
 use super::{
     selection::{Selection, SelectionComplete},
     view::{AlignmentViewport, CursorAlignmentPosition},
-    PafViewer,
 };
 
 pub(super) struct ViewerRulersPlugin;
@@ -79,7 +78,8 @@ fn draw_cursor_ruler_gizmos(
 
 fn update_cursor_ruler(
     mut commands: Commands,
-    viewer: Res<PafViewer>,
+    sequences: Res<crate::Sequences>,
+    // viewer: Res<PafViewer>,
     cursor: Res<CursorAlignmentPosition>,
 
     ruler: Query<(Entity, &AlignmentRuler)>,
@@ -105,7 +105,7 @@ fn update_cursor_ruler(
         commands.entity(entity).insert(cursor_transform);
 
         if let Some((tgt_seq, tgt_pos)) = cursor.target_pos {
-            let tgt_name = viewer.app.sequences.sequence_names.get_by_right(&tgt_seq);
+            let tgt_name = sequences.sequence_names.get_by_right(&tgt_seq);
             let tgt_text = tgt_name
                 .map(|n| Text::from_section(format!("TGT {n}:{tgt_pos}"), text_style.clone()));
 
@@ -128,7 +128,7 @@ fn update_cursor_ruler(
         }
 
         if let Some((qry_seq, qry_pos)) = cursor.query_pos {
-            let qry_name = viewer.app.sequences.sequence_names.get_by_right(&qry_seq);
+            let qry_name = sequences.sequence_names.get_by_right(&qry_seq);
             let qry_text = qry_name
                 .map(|n| Text::from_section(format!("QRY {n}:{qry_pos}"), text_style.clone()));
 

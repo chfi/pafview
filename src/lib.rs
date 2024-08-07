@@ -24,10 +24,13 @@ pub use pixels::*;
 
 pub use config::AppConfig;
 pub use grid::AlignmentGrid;
+pub use sequences::Sequences;
 
 pub struct PafViewerApp {
-    pub alignments: Arc<paf::Alignments>,
-    pub alignment_grid: Arc<grid::AlignmentGrid>,
+    // pub alignments: Arc<paf::Alignments>,
+    // pub alignment_grid: Arc<grid::AlignmentGrid>,
+    pub alignments: paf::Alignments,
+    pub alignment_grid: grid::AlignmentGrid,
     pub sequences: sequences::Sequences,
 
     pub annotations: annotations::AnnotationStore,

@@ -280,6 +280,7 @@ pub struct AlignmentIndex {
     pub index: usize,
 }
 
+#[derive(bevy::prelude::Resource)]
 pub struct Alignments {
     pub pairs: FxHashMap<(SeqId, SeqId), Vec<Alignment>>,
 

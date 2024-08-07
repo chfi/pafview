@@ -72,9 +72,10 @@ impl AnnotationStore {
 
     pub fn load_bed_file(
         &mut self,
-        alignment_grid: &AlignmentGrid,
+        sequence_names: &bimap::BiMap<String, SeqId>,
+        // alignment_grid: &AlignmentGrid,
         // seq_names: &BiMap<String, usize>,
-        painter: &mut draw::AnnotationPainter,
+        // painter: &mut draw::AnnotationPainter,
         bed_path: impl AsRef<std::path::Path>,
     ) -> Result<RecordListId> {
         use std::io::prelude::*;
@@ -95,8 +96,7 @@ impl AnnotationStore {
             let seq_name = *fields
                 .get(0)
                 .ok_or(anyhow!("Sequence name missing from BED row"))?;
-            let seq_id = *alignment_grid
-                .sequence_names
+            let seq_id = *sequence_names
                 .get_by_left(seq_name)
                 .ok_or(anyhow!("Could not find sequence `{seq_name}`"))?;
 
@@ -167,10 +167,10 @@ impl AnnotationStore {
         let record_list = RecordList {
             records: record_list,
         };
-        let shapes = record_list.prepare_annotation_shapes(alignment_grid, painter);
+        // let shapes = record_list.prepare_annotation_shapes(alignment_grid, painter);
         let list_id = self.annotation_lists.len();
         self.annotation_lists.push(record_list);
-        self.shapes.push(shapes);
+        // self.shapes.push(shapes);
 
         Ok(list_id)
     }
@@ -251,276 +251,12 @@ impl RecordList {
     }
 }
 
-#[deprecated]
-#[derive(Default)]
-pub struct AnnotationGuiHandler {
-    // target_enabled: Vec<bool>,
-    // query_enabled: Vec<bool>,
-
-    // draw_target_regions: FxHashMap<String,
-    record_states: FxHashMap<(usize, usize), AnnotationState>,
-
-    filter_text: String,
-}
-
 struct AnnotationState {
     draw_target_region: bool,
     draw_query_region: bool,
 
     galley: Option<Arc<Galley>>,
     seq_region: std::ops::RangeInclusive<f64>,
-}
-
-impl AnnotationGuiHandler {
-    fn record_states_filtered_mut<'a: 'b, 'b>(
-        &'a mut self,
-        annotations: &'b AnnotationStore,
-    ) -> impl Iterator<Item = &'a mut AnnotationState> + 'b {
-        self.record_states
-            .iter_mut()
-            .filter_map(|(&(list_id, record_id), state)| {
-                let list = annotations.annotation_lists.get(list_id)?;
-                let record = list.records.get(record_id)?;
-                if record.label.contains(&self.filter_text) {
-                    Some(state)
-                } else {
-                    None
-                }
-            })
-    }
-
-    pub fn show_annotation_list(
-        &mut self,
-        ctx: &egui::Context,
-        app: &PafViewerApp,
-        window_state: &mut AppWindowStates,
-    ) {
-        let Some(annot_list_open) = window_state.annotation_list_open.as_mut() else {
-            return;
-        };
-
-        egui::Window::new("Annotations")
-            .open(annot_list_open)
-            .show(&ctx, |ui| {
-                // TODO scrollable & filterable list of annotation records
-
-                ui.vertical(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("Filter");
-                        ui.text_edit_singleline(&mut self.filter_text);
-                        if ui.button("Clear").clicked() {
-                            self.filter_text.clear();
-                        }
-                    });
-
-                    ui.separator();
-
-                    for (_file_path, &list_id) in app.annotations.annotation_sources.iter() {
-                        let list = &app.annotations.annotation_lists[list_id];
-
-                        ui.vertical(|ui| {
-                            ui.label("Toggle annotation display");
-                            ui.horizontal(|ui| {
-                                ui.label("All");
-                                let target_btn = ui.button("Target");
-                                let query_btn = ui.button("Query");
-
-                                if target_btn.clicked() {
-                                    self.record_states_filtered_mut(&app.annotations).for_each(
-                                        |state| {
-                                            state.draw_target_region = !state.draw_target_region
-                                        },
-                                    );
-                                }
-
-                                if query_btn.clicked() {
-                                    self.record_states_filtered_mut(&app.annotations).for_each(
-                                        |state| {
-                                            state.draw_query_region = !state.draw_query_region;
-                                        },
-                                    );
-                                }
-                            });
-
-                            ui.separator();
-
-                            egui::ScrollArea::vertical().show(ui, |ui| {
-                                for (record_id, record) in list.records.iter().enumerate() {
-                                    if !record.label.contains(&self.filter_text) {
-                                        continue;
-                                    }
-
-                                    ui.horizontal(|ui| {
-                                        ui.label(format!("{}", record.label));
-
-                                        let target_btn = ui.button("Target");
-                                        let query_btn = ui.button("Query");
-
-                                        let state = self.get_region_state(app, list_id, record_id);
-
-                                        if target_btn.clicked() {
-                                            state.draw_target_region = !state.draw_target_region;
-                                            log::info!(
-                                                "drawing {} target region: {}\t(region {:?})",
-                                                record.label,
-                                                state.draw_target_region,
-                                                state.seq_region
-                                            );
-                                        }
-
-                                        if query_btn.clicked() {
-                                            state.draw_query_region = !state.draw_query_region;
-                                            log::info!(
-                                                "drawing {} query region: {}\t(region {:?})",
-                                                record.label,
-                                                state.draw_query_region,
-                                                state.seq_region
-                                            );
-                                        }
-                                    });
-                                }
-                            });
-                        });
-                    }
-                });
-            });
-    }
-
-    pub fn draw_annotations(
-        &mut self,
-        ctx: &egui::Context,
-        app: &PafViewerApp,
-        view: &crate::view::View,
-    ) {
-        let screen_size = ctx.screen_rect().size();
-
-        let id_str = "annotation-regions-painter";
-        let id = egui::Id::new(id_str);
-
-        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, id));
-
-        for ((list_id, record_id), state) in self.record_states.iter_mut() {
-            let record = &app.annotations.annotation_lists[*list_id].records[*record_id];
-
-            let color = egui::Rgba::from(record.color).multiply(0.5);
-
-            let axis_len = app.alignment_grid.x_axis.total_len as f64;
-            let extra = 0.03 * axis_len;
-
-            if state.galley.is_none() && (state.draw_target_region || state.draw_query_region) {
-                let mut job = egui::text::LayoutJob::default();
-                job.append(
-                    &record.label,
-                    0.0,
-                    egui::text::TextFormat {
-                        font_id: egui::FontId::monospace(12.0),
-                        color: egui::Color32::PLACEHOLDER,
-                        ..Default::default()
-                    },
-                );
-                let galley = painter.layout_job(job);
-                state.galley = Some(galley);
-            }
-
-            if state.draw_target_region {
-                let x0 = *state.seq_region.start();
-                let x1 = *state.seq_region.end();
-                let s0 = view.map_world_to_screen(screen_size, DVec2::new(x0, -extra));
-                let s1 = view.map_world_to_screen(screen_size, DVec2::new(x1, extra + axis_len));
-
-                let y0 = s0.y.min(s1.y);
-                let y1 = s0.y.max(s1.y);
-                let mut rect = egui::Rect::from_x_y_ranges(s0.x..=s1.x, y0..=y1);
-
-                if rect.width() < 0.5 {
-                    rect.set_width(1.0);
-                }
-
-                painter.rect_filled(rect, 0.0, color);
-
-                let mut label_pos = rect.left_top();
-                label_pos.y = label_pos.y.max(25.0);
-
-                if let Some(galley) = state.galley.as_ref() {
-                    painter.galley(label_pos, galley.clone(), egui::Color32::BLACK);
-                }
-            }
-
-            if state.draw_query_region {
-                let y0 = *state.seq_region.start();
-                let y1 = *state.seq_region.end();
-                let s0 = view.map_world_to_screen(screen_size, DVec2::new(-extra, y0));
-                let s1 = view.map_world_to_screen(screen_size, DVec2::new(extra + axis_len, y1));
-
-                let y0 = s0.y.min(s1.y);
-                let y1 = s0.y.max(s1.y);
-                let mut rect = egui::Rect::from_x_y_ranges(s0.x..=s1.x, y0..=y1);
-
-                if rect.height() < 0.5 {
-                    rect.set_height(1.0);
-                }
-
-                painter.rect_filled(rect, 0.0, color);
-
-                let mut label_pos = rect.left_top();
-                label_pos.x = label_pos.x.max(5.0);
-
-                if let Some(galley) = state.galley.as_ref() {
-                    painter.galley(label_pos, galley.clone(), egui::Color32::BLACK);
-                }
-            }
-        }
-    }
-
-    fn get_region_state(
-        &mut self,
-        app: &PafViewerApp,
-        annotation_list_id: usize,
-        record_id: usize,
-    ) -> &mut AnnotationState {
-        let key = (annotation_list_id, record_id);
-
-        let axis = &app.alignment_grid.x_axis;
-
-        if !self.record_states.contains_key(&key) {
-            let record = &app.annotations.annotation_lists[annotation_list_id].records[record_id];
-
-            let seq_offset = axis.sequence_offset(record.seq_id).unwrap();
-
-            let start_w = (seq_offset + record.seq_range.start) as f64;
-            let end_w = (seq_offset + record.seq_range.end) as f64;
-
-            self.record_states.insert(
-                key,
-                AnnotationState {
-                    draw_target_region: false,
-                    draw_query_region: false,
-                    galley: None,
-                    seq_region: start_w..=end_w,
-                },
-            );
-        }
-
-        let Some(state) = self.record_states.get_mut(&key) else {
-            unreachable!();
-        };
-
-        state
-    }
-
-    // fn enable_annotation_region(
-    //     &mut self,
-    //     app: &PafViewerApp,
-    //     annotation_list_id: usize,
-    //     record_id: usize,
-    //     draw_target_region: Option<bool>,
-    //     draw_query_region: Option<bool>,
-    // ) {
-    //     let state = self.get_region_state(app, annotation_list_id, record_id);
-
-    //     state.draw_target_region = draw_target_region.unwrap_or(state.draw_target_region);
-    //     state.draw_query_region = draw_query_region.unwrap_or(state.draw_query_region);
-    // }
 }
 
 pub fn hashed_rgb(name: &str) -> [u8; 3] {

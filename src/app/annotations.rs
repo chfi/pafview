@@ -31,7 +31,7 @@ impl Plugin for AnnotationsPlugin {
     }
 }
 
-#[derive(Resource, Default, Deref)]
+#[derive(Resource, Default, Deref, DerefMut)]
 pub struct Annotations(pub crate::annotations::AnnotationStore);
 
 #[derive(Component)]
@@ -77,7 +77,7 @@ fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     // mut materials: ResMut<Assets<ColorMaterial>>,
-    viewer: Res<super::PafViewer>,
+    alignments: Res<crate::Alignments>,
     mut load_events: EventWriter<LoadAnnotationFile>,
     mut label_physics: ResMut<LabelPhysics>,
 ) {
@@ -89,7 +89,7 @@ fn setup(
     });
 
     label_physics.0.heightfields =
-        crate::annotations::physics::AlignmentHeightFields::from_alignments(&viewer.app.alignments);
+        crate::annotations::physics::AlignmentHeightFields::from_alignments(&alignments);
 
     use clap::Parser;
     let args = crate::cli::Cli::parse();
@@ -101,13 +101,41 @@ fn setup(
 
 fn load_annotation_file(
     frame_count: Res<bevy::core::FrameCount>,
+    sequences: Res<crate::Sequences>,
     mut annotations: ResMut<Annotations>,
     // mut annotation_painter: ResMut<AnnotationPainter>,
     // mut viewer: ResMut<super::PafViewer>,
     mut load_events: EventReader<LoadAnnotationFile>,
 ) -> Vec<crate::annotations::AnnotationId> {
-    //
-    todo!();
+    let mut labels_to_prepare = Vec::new();
+    if frame_count.0 == 0 {
+        return labels_to_prepare;
+    }
+
+    for LoadAnnotationFile { path } in load_events.read() {
+        match annotations.load_bed_file(&sequences.sequence_names, &path) {
+            Ok(list_id) => {
+                let annot_ids = annotations
+                    .list_by_id(list_id)
+                    .into_iter()
+                    .flat_map(|list| {
+                        list.records
+                            .iter()
+                            .enumerate()
+                            .map(|(record_id, _)| (list_id, record_id))
+                    });
+
+                labels_to_prepare.extend(annot_ids);
+
+                log::info!("Loaded BED file `{path:?}`");
+            }
+            Err(err) => {
+                log::error!("Error loading BED file at path `{path:?}`: {err:?}")
+            }
+        }
+    }
+
+    labels_to_prepare
 }
 
 fn prepare_annotations(
@@ -124,24 +152,24 @@ fn prepare_annotations(
         let query_region = commands
             .spawn((
                 RenderLayers::layer(1),
-                SpatialBundle::HIDDEN_IDENTITY,
                 MaterialMesh2dBundle {
                     mesh: display_handles.mesh.clone(),
                     material: color_mat.clone(),
                     ..default()
                 },
             ))
+            .insert(SpatialBundle::HIDDEN_IDENTITY)
             .id();
         let target_region = commands
             .spawn((
                 RenderLayers::layer(1),
-                SpatialBundle::HIDDEN_IDENTITY,
                 MaterialMesh2dBundle {
                     mesh: display_handles.mesh.clone(),
                     material: color_mat.clone(),
                     ..default()
                 },
             ))
+            .insert(SpatialBundle::HIDDEN_IDENTITY)
             .id();
 
         // TODO labels
@@ -194,6 +222,7 @@ fn update_annotation_labels(
     //
 }
 
+/*
 fn prepare_annotations_old(
     // while we're using egui's fonts, which won't be available the first frame
     In(labels_to_prepare): In<Vec<crate::annotations::AnnotationId>>,
@@ -268,6 +297,7 @@ fn update_annotation_labels_old(
 
     label_physics.0.step(grid, dt, &viewport);
 }
+*/
 
 /*
 fn draw_annotations(
@@ -290,9 +320,10 @@ fn draw_annotations(
 }
 */
 
+/*
 fn load_annotation_file_old(
     frame_count: Res<bevy::core::FrameCount>,
-    mut annotation_painter: ResMut<AnnotationPainter>,
+    // mut annotation_painter: ResMut<AnnotationPainter>,
     mut viewer: ResMut<super::PafViewer>,
     mut load_events: EventReader<LoadAnnotationFile>,
 ) -> Vec<crate::annotations::AnnotationId> {
@@ -306,7 +337,7 @@ fn load_annotation_file_old(
         let grid = &app.alignment_grid;
         let annots = &mut app.annotations;
 
-        match annots.load_bed_file(grid, &mut annotation_painter.0, &path) {
+        match annots.load_bed_file(grid, &path) {
             Ok(list_id) => {
                 let annot_ids = viewer
                     .app
@@ -332,3 +363,4 @@ fn load_annotation_file_old(
 
     labels_to_prepare
 }
+*/

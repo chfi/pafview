@@ -66,15 +66,13 @@ pub struct CursorAlignmentPosition {
 
 pub fn update_cursor_world(
     mut cursor_world: ResMut<CursorAlignmentPosition>,
-    viewer: Res<super::PafViewer>,
+    grid: Res<crate::AlignmentGrid>,
     view: Res<AlignmentViewport>,
     windows: Query<&Window>,
 ) {
     let window = windows.single();
     let res = &window.resolution;
     let dims = [res.width(), res.height()];
-
-    let grid = &viewer.app.alignment_grid;
 
     let mut new_al_cursor = CursorAlignmentPosition::default();
 
@@ -111,9 +109,7 @@ impl AlignmentViewport {
     }
 }
 
-fn setup(mut commands: Commands, viewer: Res<super::PafViewer>) {
-    let grid = &viewer.app.alignment_grid;
-
+fn setup(mut commands: Commands, grid: Res<crate::AlignmentGrid>) {
     let initial_view = crate::view::View {
         x_min: 0.0,
         x_max: grid.x_axis.total_len as f64,
