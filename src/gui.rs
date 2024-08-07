@@ -1,11 +1,12 @@
 use egui::{Color32, FontId};
 use ultraviolet::Vec2;
 
-use crate::{annotations::AnnotationStore, sequences::SeqId, PafViewerApp};
+use crate::{annotations::AnnotationStore, sequences::SeqId};
 
 pub mod config;
 pub mod debug;
 pub mod goto;
+
 pub mod regions;
 
 /*

@@ -6,6 +6,8 @@ use super::view::AlignmentViewport;
 
 pub(super) struct AnnotationsPlugin;
 
+mod gui;
+
 /*
 
 */
@@ -34,7 +36,7 @@ impl Plugin for AnnotationsPlugin {
 #[derive(Resource, Default, Deref, DerefMut)]
 pub struct Annotations(pub crate::annotations::AnnotationStore);
 
-#[derive(Component)]
+#[derive(Debug, Clone, Copy, Component)]
 pub struct Annotation {
     pub record_list: RecordListId,
     pub list_index: usize,
@@ -57,6 +59,11 @@ struct DisplayEntities {
 #[derive(Event)]
 pub struct LoadAnnotationFile {
     pub path: std::path::PathBuf,
+}
+
+#[derive(Event)]
+pub enum AnnotationEvent {
+    ChangeVisibility { annot_id: Annotation, visible: bool },
 }
 
 #[derive(Resource, Default)]
@@ -82,11 +89,7 @@ fn setup(
     mut label_physics: ResMut<LabelPhysics>,
 ) {
     let mesh = meshes.add(Mesh::from(Rectangle::default()));
-    // let material = materials.add(ColorMaterial::default());
-    commands.insert_resource(DisplayHandles {
-        mesh: mesh.into(),
-        // material,
-    });
+    commands.insert_resource(DisplayHandles { mesh: mesh.into() });
 
     label_physics.0.heightfields =
         crate::annotations::physics::AlignmentHeightFields::from_alignments(&alignments);
