@@ -1,6 +1,9 @@
-use bevy::{prelude::*, render::view::RenderLayers, sprite::MaterialMesh2dBundle};
+use bevy::{prelude::*, render::view::RenderLayers, sprite::MaterialMesh2dBundle, utils::HashMap};
 
-use crate::{annotations::RecordListId, grid::AxisRange};
+use crate::{
+    annotations::{AnnotationId, RecordEntryId, RecordListId},
+    grid::AxisRange,
+};
 
 use super::view::AlignmentViewport;
 
@@ -18,6 +21,7 @@ impl Plugin for AnnotationsPlugin {
         app.init_resource::<LabelPhysics>()
             .init_resource::<AnnotationPainter>()
             .init_resource::<Annotations>()
+            .init_resource::<AnnotationEntityMap>()
             .add_event::<LoadAnnotationFile>()
             .add_systems(Startup, setup)
             .add_systems(PreUpdate, load_annotation_file.pipe(prepare_annotations))
@@ -40,8 +44,11 @@ pub struct Annotations(pub crate::annotations::AnnotationStore);
 #[derive(Debug, Clone, Copy, Component)]
 pub struct Annotation {
     pub record_list: RecordListId,
-    pub list_index: usize,
+    pub list_index: RecordEntryId,
 }
+
+#[derive(Default, Resource, Deref, DerefMut)]
+struct AnnotationEntityMap(HashMap<AnnotationId, Entity>);
 
 #[derive(Component)]
 struct DisplayEntities {
@@ -148,10 +155,11 @@ fn prepare_annotations(
     mut materials: ResMut<Assets<ColorMaterial>>,
 
     annotations: Res<Annotations>,
+    mut annot_entity_map: ResMut<AnnotationEntityMap>,
 
     display_handles: Res<DisplayHandles>,
 ) {
-    for (list_id, entry_id) in labels_to_prepare {
+    for annot_id @ (list_id, entry_id) in labels_to_prepare {
         // TODO color from annotation/name
 
         let record = &annotations.list_by_id(list_id).unwrap().records[entry_id];
@@ -202,6 +210,10 @@ fn prepare_annotations(
             target_region,
             target_label,
         });
+
+        let annot_ent = annot_ent.id();
+
+        annot_entity_map.insert(annot_id, annot_ent);
     }
     //
 }

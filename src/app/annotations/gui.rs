@@ -12,6 +12,7 @@ impl AnnotationsWindow {
 
         annotations: &crate::annotations::AnnotationStore,
         window_states: &mut AppWindowStates,
+        annot_entity_map: &super::AnnotationEntityMap,
 
         annotation_query: Query<(Entity, &super::Annotation, &super::DisplayEntities)>,
         display_query: Query<&mut Visibility>,
@@ -26,13 +27,20 @@ impl AnnotationsWindow {
             // .vscroll(true)
             // .default_open(false)
             .show(&ctx, |ui| {
-                self.ui(annotations, annotation_query, display_query, ui);
+                self.ui(
+                    annotations,
+                    annot_entity_map,
+                    annotation_query,
+                    display_query,
+                    ui,
+                );
             });
     }
 
     fn ui(
         &mut self,
         annotations: &crate::annotations::AnnotationStore,
+        annot_entity_map: &super::AnnotationEntityMap,
 
         annotation_query: Query<(Entity, &super::Annotation, &super::DisplayEntities)>,
         mut display_query: Query<&mut Visibility>,
@@ -73,7 +81,14 @@ impl AnnotationsWindow {
                 return;
             };
 
-            self.annotation_panel_ui(annotations, annotation_query, display_query, ui, list_id);
+            self.annotation_panel_ui(
+                annotations,
+                annot_entity_map,
+                annotation_query,
+                display_query,
+                ui,
+                list_id,
+            );
 
             // match set {
             //     SelectedRegionSet::Bookmarks => {
@@ -89,6 +104,7 @@ impl AnnotationsWindow {
     fn annotation_panel_ui(
         &mut self,
         annotations: &crate::annotations::AnnotationStore,
+        annot_entity_map: &super::AnnotationEntityMap,
 
         annotation_query: Query<(Entity, &super::Annotation, &super::DisplayEntities)>,
         mut display_query: Query<&mut Visibility>,
