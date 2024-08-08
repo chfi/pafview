@@ -1,4 +1,7 @@
-use crate::{annotations::RecordListId, gui::AppWindowStates};
+use crate::{
+    annotations::{AnnotationId, RecordListId},
+    gui::AppWindowStates,
+};
 
 use bevy::prelude::*;
 
@@ -106,7 +109,7 @@ impl AnnotationsWindow {
         annotations: &crate::annotations::AnnotationStore,
         annot_entity_map: &super::AnnotationEntityMap,
 
-        annotation_query: Query<(Entity, &super::Annotation, &super::DisplayEntities)>,
+        mut annotation_query: Query<(Entity, &super::Annotation, &super::DisplayEntities)>,
         mut display_query: Query<&mut Visibility>,
 
         ui: &mut egui::Ui,
@@ -145,52 +148,90 @@ impl AnnotationsWindow {
                         ui.separator();
                         ui.end_row();
 
-                        /*
                         for (record_id, record) in list.records.iter().enumerate() {
                             if !record.label.contains(&filter_text) {
                                 continue;
                             }
 
-                            let (toggle_target, toggle_query) = self.annotation_list_entry_widget(
-                                app,
-                                annotation_painter,
-                                view,
+                            let annot_id = (list_id, record_id);
+
+                            self.list_entry_widget(
+                                annotations,
+                                annot_entity_map,
+                                &annotation_query,
+                                &mut display_query,
                                 ui,
-                                list_id,
-                                record_id,
+                                list,
+                                annot_id,
                             );
-
-                            // if let Some(shape) = (toggle_target || tgl_all_target)
-                            //     .then(|| app.annotations.target_shape_for(list_id, record_id))
-                            //     .flatten()
-                            // {
-                            //         *annotation_painter.enable_shape_mut(shape) ^= true;
-                            // }
-
-                            if toggle_target || tgl_all_target {
-                                if let Some(shape) =
-                                    app.annotations.target_shape_for(list_id, record_id)
-                                {
-                                    *annotation_painter.enable_shape_mut(shape) ^= true;
-                                }
-                            }
-
-                            if toggle_query || tgl_all_query {
-                                if let Some(shape) =
-                                    app.annotations.query_shape_for(list_id, record_id)
-                                {
-                                    *annotation_painter.enable_shape_mut(shape) ^= true;
-                                }
-                            }
-
-                            ui.end_row();
                         }
-                        */
                     });
                 //
             });
 
             ui.data_mut(|data| data.insert_temp(ui.id().with("filter_text"), filter_text));
         });
+    }
+
+    fn list_entry_widget(
+        &mut self,
+        annotations: &crate::annotations::AnnotationStore,
+        annot_entity_map: &super::AnnotationEntityMap,
+
+        annotation_query: &Query<(Entity, &super::Annotation, &super::DisplayEntities)>,
+        display_query: &mut Query<&mut Visibility>,
+
+        ui: &mut egui::Ui,
+        record_list: &crate::annotations::RecordList,
+        annot_id @ (list_id, record_id): AnnotationId,
+        // list_id: RecordListId,
+        // record_id: RecordEntryId,
+    ) {
+        let Some(entity) = annot_entity_map.get(&annot_id).copied() else {
+            return;
+        };
+
+        let Ok((_, _, display_ents)) = annotation_query.get(entity) else {
+            return;
+        };
+
+        let record = &record_list.records[record_id];
+
+        let mut query_enabled = display_query
+            .get(display_ents.query_region)
+            .map(|vis| *vis != Visibility::Hidden)
+            .unwrap_or(false);
+        let mut target_enabled = display_query
+            .get(display_ents.target_region)
+            .map(|vis| *vis != Visibility::Hidden)
+            .unwrap_or(false);
+
+        let annot_label = ui.add(egui::Label::new(&record.label).sense(egui::Sense::click()));
+
+        if ui.toggle_value(&mut target_enabled, "Target").clicked() {
+            let result = if target_enabled {
+                Visibility::Hidden
+            } else {
+                Visibility::Visible
+            };
+
+            if let Ok(mut vis) = display_query.get_mut(display_ents.target_region) {
+                *vis = result;
+            }
+        }
+
+        if ui.toggle_value(&mut query_enabled, "Query").clicked() {
+            let result = if query_enabled {
+                Visibility::Hidden
+            } else {
+                Visibility::Visible
+            };
+
+            if let Ok(mut vis) = display_query.get_mut(display_ents.query_region) {
+                *vis = result;
+            }
+        }
+
+        ui.end_row();
     }
 }
