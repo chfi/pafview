@@ -4,19 +4,20 @@ use bevy_egui::EguiContexts;
 
 use crate::gui::AppWindowStates;
 
-use super::view::AlignmentViewport;
+use super::{annotations::gui::AnnotationsWindow, view::AlignmentViewport};
 
 pub(super) struct MenubarPlugin;
 
 impl Plugin for MenubarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MenubarSize>()
-            // .init_resource::<RegionsOfInterest>()
+            .init_resource::<AnnotationsWindow>()
             .add_systems(Startup, setup)
             .add_systems(
                 PreUpdate,
                 (
                     menubar_system,
+                    annotations_window,
                     // regions_of_interest_system,
                     settings_window,
                     goto_region_window,
@@ -100,6 +101,36 @@ fn goto_region_window(
     if viewport.view != view {
         viewport.view = view;
     }
+}
+
+fn annotations_window(
+    mut contexts: EguiContexts,
+
+    annotations: Res<super::annotations::Annotations>,
+    annot_entity_map: Res<super::annotations::AnnotationEntityMap>,
+    mut window_states: ResMut<WindowStates>,
+
+    mut annots_window: ResMut<AnnotationsWindow>,
+
+    annotation_query: Query<(
+        Entity,
+        &super::annotations::Annotation,
+        &super::annotations::DisplayEntities,
+    )>,
+    display_query: Query<&mut Visibility>,
+    //
+) {
+    let ctx = contexts.ctx_mut();
+    annots_window.show_window(
+        &annotations.0,
+        &mut window_states.window_states,
+        annot_entity_map.as_ref(),
+        annotation_query,
+        display_query,
+        ctx,
+    );
+
+    //
 }
 
 /*

@@ -9,7 +9,7 @@ use super::view::AlignmentViewport;
 
 pub(super) struct AnnotationsPlugin;
 
-mod gui;
+pub mod gui;
 mod material;
 
 /*
@@ -48,10 +48,10 @@ pub struct Annotation {
 }
 
 #[derive(Default, Resource, Deref, DerefMut)]
-struct AnnotationEntityMap(HashMap<AnnotationId, Entity>);
+pub struct AnnotationEntityMap(HashMap<AnnotationId, Entity>);
 
 #[derive(Component)]
-struct DisplayEntities {
+pub struct DisplayEntities {
     query_region: Entity,
     query_label: Entity,
 

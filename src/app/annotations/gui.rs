@@ -5,6 +5,7 @@ use crate::{
 
 use bevy::prelude::*;
 
+#[derive(Resource, Default)]
 pub struct AnnotationsWindow {
     selected_annotation_list: Option<RecordListId>,
 }
