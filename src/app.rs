@@ -47,7 +47,6 @@ impl Plugin for PafViewerPlugin {
                 (
                     send_base_level_view_events,
                     update_base_level_display_visibility,
-                    update_alignment_line_segment_visibility,
                 )
                     .after(view::update_camera_from_viewport),
             )
@@ -110,9 +109,6 @@ struct SequencePairTile {
     target: SeqId,
     query: SeqId,
 }
-
-#[derive(Component, Debug)]
-struct Alignment;
 
 #[derive(Component, Debug)]
 pub struct AlignmentCamera;
@@ -547,34 +543,6 @@ fn update_base_level_image(
 
     let pixels: &[u8] = bytemuck::cast_slice(&last_buffer.pixel_buffer.pixels);
     image.data = pixels.to_vec();
-}
-
-fn update_alignment_line_segment_visibility(
-    cameras: Query<(&Camera, &Projection), With<AlignmentCamera>>,
-    render_config: Res<AlignmentRenderConfig>,
-    mut visibility: Query<&mut Visibility, With<Alignment>>,
-) {
-    let (camera, camera_proj) = cameras.single();
-
-    let size = camera.physical_target_size().unwrap();
-
-    let Projection::Orthographic(proj) = camera_proj else {
-        unreachable!();
-    };
-
-    let bp_per_px = {
-        let pixels = size.x as f32;
-        let bp = proj.area.width();
-        bp / pixels
-    };
-
-    for mut visibility in visibility.iter_mut() {
-        if bp_per_px > render_config.base_level_render_min_bp_per_px {
-            *visibility = Visibility::Visible;
-        } else {
-            *visibility = Visibility::Hidden;
-        }
-    }
 }
 
 fn update_base_level_display_visibility(
