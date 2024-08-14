@@ -169,7 +169,7 @@ fn setup_main_alignment_display_image(mut commands: Commands, mut images: ResMut
     let display_sprite = commands.spawn((
         MainAlignmentView,
         AlignmentDisplayImage::default(),
-        DisplayBackImage {
+        AlignmentDisplayBackImage {
             image: back_img_handle.clone(),
         },
         RenderLayers::layer(1),
@@ -205,25 +205,23 @@ fn update_alignment_display_target(
         &mut Handle<Image>,
         &AlignmentRenderTarget,
         &mut AlignmentDisplayImage,
-        &mut DisplayBackImage,
+        &mut AlignmentDisplayBackImage,
     )>,
 ) {
-    let Ok((entity, mut old_sprite_img, render_target, mut display_img, mut back_image)) =
-        sprites.get_single_mut()
-    else {
-        return;
-    };
+    for (entity, mut old_sprite_img, render_target, mut display_img, mut back_image) in
+        sprites.iter_mut()
+    {
+        if !render_target.is_ready.load() {
+            return;
+        }
 
-    if !render_target.is_ready.load() {
-        return;
+        display_img.rendered_view = Some(render_target.alignment_view);
+        display_img.last_render_time = Some(std::time::Instant::now());
+
+        std::mem::swap(old_sprite_img.as_mut(), &mut back_image.image);
+
+        commands.entity(entity).remove::<AlignmentRenderTarget>();
     }
-
-    display_img.rendered_view = Some(render_target.alignment_view);
-    display_img.last_render_time = Some(std::time::Instant::now());
-
-    std::mem::swap(old_sprite_img.as_mut(), &mut back_image.image);
-
-    commands.entity(entity).remove::<AlignmentRenderTarget>();
 }
 
 fn update_alignment_display_transform(
@@ -286,8 +284,8 @@ pub struct AlignmentDisplayImage {
 }
 
 #[derive(Component)]
-struct DisplayBackImage {
-    image: Handle<Image>,
+pub struct AlignmentDisplayBackImage {
+    pub image: Handle<Image>,
 }
 
 #[derive(Clone, Component, ExtractComponent)]
@@ -295,8 +293,8 @@ pub struct AlignmentRenderTarget {
     pub alignment_view: crate::view::View,
     pub canvas_size: UVec2,
 
-    image: Handle<Image>,
-    is_ready: Arc<crossbeam::atomic::AtomicCell<bool>>,
+    pub image: Handle<Image>,
+    pub is_ready: Arc<crossbeam::atomic::AtomicCell<bool>>,
 }
 
 #[derive(Component)]
@@ -382,12 +380,12 @@ fn trigger_render(
 
     mut images: ResMut<Assets<Image>>,
     frame_count: Res<bevy::core::FrameCount>,
-    alignment_viewport: Res<AlignmentViewport>,
+    // alignment_viewport: Res<AlignmentViewport>,
     shader_config: Res<AlignmentShaderConfig>,
 
     windows: Query<&Window>,
     display_sprites: Query<
-        (Entity, &AlignmentDisplayImage, &DisplayBackImage),
+        (Entity, &AlignmentDisplayImage, &AlignmentDisplayBackImage),
         Without<AlignmentRenderTarget>,
     >,
 ) {
@@ -395,48 +393,46 @@ fn trigger_render(
         return;
     }
 
-    let Ok((sprite_ent, display_img, back_image)) = display_sprites.get_single() else {
-        return;
-    };
-
-    if let Some(ms_since_last_render) = display_img
-        .last_render_time
-        .map(|t| t.elapsed().as_millis())
-    {
-        if ms_since_last_render < 10 {
-            return;
+    for (sprite_ent, display_img, back_image) in display_sprites.iter() {
+        if let Some(ms_since_last_render) = display_img
+            .last_render_time
+            .map(|t| t.elapsed().as_millis())
+        {
+            if ms_since_last_render < 10 {
+                return;
+            }
         }
-    }
 
-    let win_size = windows.single().resolution.physical_size();
+        let win_size = windows.single().resolution.physical_size();
 
-    // resize back image
-    let resized = {
-        let tgt_img = images.get_mut(&back_image.image).unwrap();
-        let size = tgt_img.size();
+        // resize back image
+        let resized = {
+            let tgt_img = images.get_mut(&back_image.image).unwrap();
+            let size = tgt_img.size();
 
-        if size.x != win_size.x || size.y != win_size.y {
-            tgt_img.resize(wgpu::Extent3d {
-                width: win_size.x,
-                height: win_size.y,
-                depth_or_array_layers: 1,
-            });
-            true
-        } else {
-            false
+            if size.x != win_size.x || size.y != win_size.y {
+                tgt_img.resize(wgpu::Extent3d {
+                    width: win_size.x,
+                    height: win_size.y,
+                    depth_or_array_layers: 1,
+                });
+                true
+            } else {
+                false
+            }
+        };
+
+        if let Some(next_view) = display_img.next_view {
+            if display_img.rendered_view != Some(next_view) || resized || shader_config.is_changed()
+            {
+                commands.entity(sprite_ent).insert(AlignmentRenderTarget {
+                    alignment_view: next_view,
+                    canvas_size: win_size,
+                    image: back_image.image.clone(),
+                    is_ready: Arc::new(false.into()),
+                });
+            }
         }
-    };
-
-    if display_img.rendered_view != Some(alignment_viewport.view)
-        || resized
-        || shader_config.is_changed()
-    {
-        commands.entity(sprite_ent).insert(AlignmentRenderTarget {
-            alignment_view: alignment_viewport.view,
-            canvas_size: win_size,
-            image: back_image.image.clone(),
-            is_ready: Arc::new(false.into()),
-        });
     }
 }
 

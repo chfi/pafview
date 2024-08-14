@@ -1,5 +1,6 @@
 pub mod alignments;
 pub mod annotations;
+pub mod figure_export;
 pub mod gui;
 pub mod render;
 pub mod rulers;
@@ -37,6 +38,7 @@ impl Plugin for PafViewerPlugin {
             .add_plugins(rulers::ViewerRulersPlugin)
             .add_plugins(selection::RegionSelectionPlugin)
             .add_plugins(render::AlignmentRendererPlugin)
+            // .add_plugins(figure_export::FigureExportPlugin)
             .add_systems(Startup, setup_base_level_display_image)
             .add_systems(
                 Startup,
