@@ -73,9 +73,6 @@ impl AnnotationStore {
     pub fn load_bed_file(
         &mut self,
         sequence_names: &bimap::BiMap<String, SeqId>,
-        // alignment_grid: &AlignmentGrid,
-        // seq_names: &BiMap<String, usize>,
-        // painter: &mut draw::AnnotationPainter,
         bed_path: impl AsRef<std::path::Path>,
     ) -> Result<RecordListId> {
         use std::io::prelude::*;
@@ -93,12 +90,12 @@ impl AnnotationStore {
                 continue;
             }
 
-            let seq_name = *fields
-                .get(0)
-                .ok_or(anyhow!("Sequence name missing from BED row"))?;
-            let seq_id = *sequence_names
-                .get_by_left(seq_name)
-                .ok_or(anyhow!("Could not find sequence `{seq_name}`"))?;
+            let Some(seq_id) = fields.get(0).and_then(|&seq_name| {
+                let seq_id = *sequence_names.get_by_left(seq_name)?;
+                Some(seq_id)
+            }) else {
+                continue;
+            };
 
             let parse_range = |from: usize, to: usize| -> Option<std::ops::Range<u64>> {
                 let start = fields.get(from);
@@ -110,19 +107,15 @@ impl AnnotationStore {
                 })
             };
 
-            let seq_range = parse_range(1, 2).ok_or_else(|| {
-                anyhow!(
-                    "Could not parse `{:?}`, `{:?}` as interval",
-                    fields.get(1),
-                    fields.get(2)
-                )
-            })?;
+            let Some(seq_range) = parse_range(1, 2) else {
+                continue;
+            };
 
             let label = fields.get(3).unwrap().to_string();
 
-            let rev_strand = fields.get(5).map(|&s| s == "-").unwrap_or(false);
+            let _rev_strand = fields.get(5).map(|&s| s == "-").unwrap_or(false);
 
-            let thick_range = parse_range(6, 7);
+            let _thick_range = parse_range(6, 7);
 
             let color = fields.get(8).and_then(|rgb| {
                 let mut rgb = rgb.split(',');
