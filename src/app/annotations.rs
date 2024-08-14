@@ -251,9 +251,16 @@ fn update_annotation_regions(
         let world_x_range = x_axis.axis_range_into_global(&axis_range);
         let world_y_range = y_axis.axis_range_into_global(&axis_range);
 
-        let Some((world_x_range, world_y_range)) = world_x_range.zip(world_y_range) else {
+        if world_x_range.is_none() && world_y_range.is_none() {
             continue;
-        };
+        }
+
+        let empty_x = world_x_range.is_none();
+        let empty_y = world_y_range.is_none();
+
+        // TODO this could be handled better
+        let world_x_range = world_x_range.unwrap_or(0f64..=x_axis.total_len as f64);
+        let world_y_range = world_y_range.unwrap_or(0f64..=y_axis.total_len as f64);
 
         // update region transforms (screenspace) based on current view
 
@@ -279,18 +286,22 @@ fn update_annotation_regions(
         // hacky fix to avoid z-fighting
         let z = -1.0 - (annot_id.list_index as f32) / 1_000_000.0;
 
-        if let Ok(mut transform) = transforms.get_mut(entities.query_region) {
-            transform.translation = Vec3::new(0.0, mid.y, z);
+        if !empty_y {
+            if let Ok(mut transform) = transforms.get_mut(entities.query_region) {
+                transform.translation = Vec3::new(0.0, mid.y, z);
 
-            let width = (s0.y - s1.y).abs().max(0.5);
-            transform.scale = Vec3::new(screen_dims.x, width, 1.0);
+                let width = (s0.y - s1.y).abs().max(0.5);
+                transform.scale = Vec3::new(screen_dims.x, width, 1.0);
+            }
         }
 
-        if let Ok(mut transform) = transforms.get_mut(entities.target_region) {
-            transform.translation = Vec3::new(mid.x, 0.0, z - 1.0);
+        if !empty_x {
+            if let Ok(mut transform) = transforms.get_mut(entities.target_region) {
+                transform.translation = Vec3::new(mid.x, 0.0, z - 1.0);
 
-            let width = (s0.x - s1.x).abs().max(0.5);
-            transform.scale = Vec3::new(width, screen_dims.y, 1.0);
+                let width = (s0.x - s1.x).abs().max(0.5);
+                transform.scale = Vec3::new(width, screen_dims.y, 1.0);
+            }
         }
     }
 }
