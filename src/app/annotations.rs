@@ -22,7 +22,13 @@ impl Plugin for AnnotationsPlugin {
             .init_resource::<AnnotationPainter>()
             .init_resource::<Annotations>()
             .init_resource::<AnnotationEntityMap>()
+            .register_type::<AnnotationEntityMap>()
+            // .add_plugins(bevy_inspector_egui::quick::ResourceInspectorPlugin::<
+            //     AnnotationEntityMap,
+            // >::default())
             .add_event::<LoadAnnotationFile>()
+            .register_type::<Annotation>()
+            .register_type::<DisplayEntities>()
             .add_systems(Startup, setup)
             .add_systems(PreUpdate, load_annotation_file.pipe(prepare_annotations))
             .add_systems(
@@ -41,16 +47,16 @@ impl Plugin for AnnotationsPlugin {
 #[derive(Resource, Default, Deref, DerefMut)]
 pub struct Annotations(pub crate::annotations::AnnotationStore);
 
-#[derive(Debug, Clone, Copy, Component)]
+#[derive(Debug, Clone, Copy, Component, Reflect)]
 pub struct Annotation {
     pub record_list: RecordListId,
     pub list_index: RecordEntryId,
 }
 
-#[derive(Default, Resource, Deref, DerefMut)]
+#[derive(Default, Resource, Deref, DerefMut, Reflect, Debug)]
 pub struct AnnotationEntityMap(HashMap<AnnotationId, Entity>);
 
-#[derive(Component)]
+#[derive(Component, Reflect)]
 pub struct DisplayEntities {
     query_region: Entity,
     query_label: Entity,

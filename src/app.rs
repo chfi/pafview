@@ -28,6 +28,7 @@ pub struct PafViewerPlugin;
 impl Plugin for PafViewerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(bevy_egui::EguiPlugin)
+            // .add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::default())
             .add_event::<BaseLevelViewEvent>()
             .init_resource::<AlignmentRenderConfig>()
             .add_plugins(gui::MenubarPlugin)
