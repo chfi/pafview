@@ -66,9 +66,10 @@ impl Plugin for AlignmentRendererPlugin {
                 line_width: 8.0,
                 brightness: 1.0,
             })
+            .add_plugins(ExtractComponentPlugin::<AlignmentDisplayImage>::default())
             .add_plugins(ExtractComponentPlugin::<AlignmentRenderTarget>::default())
             .add_plugins(ExtractResourcePlugin::<AlignmentShaderConfig>::default())
-            .add_systems(Startup, setup_alignment_display_image)
+            .add_systems(Startup, setup_main_alignment_display_image)
             .add_systems(
                 PreUpdate,
                 (
@@ -76,10 +77,15 @@ impl Plugin for AlignmentRendererPlugin {
                     update_alignment_shader_config,
                 ),
             )
+            .add_systems(PreUpdate, update_main_alignment_image_view)
             .add_systems(
                 Update,
-                // trigger_render.run_if(|view: Res<AlignmentViewport>| view.is_changed()),
-                (trigger_render, update_alignment_display_transform)
+                (
+                    update_main_alignment_image_view,
+                    trigger_render,
+                    update_alignment_display_transform,
+                )
+                    .chain()
                     .after(super::view::update_camera_from_viewport),
             );
     }
@@ -90,27 +96,16 @@ impl Plugin for AlignmentRendererPlugin {
             .init_resource::<AlignmentPolylinePipeline>()
             .add_systems(
                 Render,
-                setup_projection_vertex_config_bind_group
-                    .run_if(|res: Option<Res<AlignmentProjVertexBindGroup>>| res.is_none())
+                (init_display_image_vertex_bind_group, update_vertex_uniforms)
+                    .chain()
                     .in_set(RenderSet::Prepare),
             )
-            .add_systems(
-                Render,
-                update_projection_config_uniforms
-                    .run_if(resource_exists::<AlignmentProjVertexBindGroup>)
-                    // .after(setup_projection_vertex_config_bind_group)
-                    .in_set(RenderSet::PrepareResources),
-            )
-            .add_systems(
-                Render,
-                queue_alignment_draw
-                    .run_if(resource_exists::<AlignmentProjVertexBindGroup>)
-                    .in_set(RenderSet::Render),
-            )
+            .add_systems(Render, queue_alignment_draw.in_set(RenderSet::Render))
             .add_systems(Render, cleanup_finished_renders.in_set(RenderSet::Cleanup));
     }
 }
 
+// NB: for now the shader config is shared by all alignment display images
 fn update_alignment_shader_config(
     app_config: Res<crate::config::AppConfig>,
     mut shader_config: ResMut<AlignmentShaderConfig>,
@@ -122,7 +117,11 @@ fn update_alignment_shader_config(
     }
 }
 
-fn setup_alignment_display_image(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+// marker for alignment images that are linked to the main viewport
+#[derive(Debug, Component)]
+struct MainAlignmentView;
+
+fn setup_main_alignment_display_image(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     //
 
     let size = wgpu::Extent3d {
@@ -155,9 +154,10 @@ fn setup_alignment_display_image(mut commands: Commands, mut images: ResMut<Asse
     let back_img_handle = images.add(back_image);
 
     let display_sprite = commands.spawn((
-        AlignmentDisplayImage {
-            last_view: None,
-            last_render_time: None,
+        MainAlignmentView,
+        AlignmentDisplayImage::default(),
+        DisplayBackImage {
+            image: back_img_handle.clone(),
         },
         RenderLayers::layer(1),
         SpriteBundle {
@@ -170,28 +170,35 @@ fn setup_alignment_display_image(mut commands: Commands, mut images: ResMut<Asse
             ..default()
         },
     ));
-
-    commands.insert_resource(AlignmentBackImage {
-        image: back_img_handle,
-    })
 }
 
+fn update_main_alignment_image_view(
+    alignment_viewport: Res<AlignmentViewport>,
+    mut sprites: Query<&mut AlignmentDisplayImage, With<MainAlignmentView>>,
+) {
+    for mut display_img in sprites.iter_mut() {
+        display_img.next_view = Some(alignment_viewport.view);
+    }
+
+    //
+}
+
+// checks all alignment display sprites that have an `AlignmentRenderTarget`
+// signaling a render in progress; if the render is complete, the sprite texture
+// is flipped to the new render and the `AlignmentRenderTarget` component removed
 fn update_alignment_display_target(
     mut commands: Commands,
 
-    mut back_image: ResMut<AlignmentBackImage>,
-
-    mut sprites: Query<
-        (
-            Entity,
-            &mut Handle<Image>,
-            &AlignmentRenderTarget,
-            &mut AlignmentDisplayImage,
-        ),
-        // With<AlignmentDisplayImage>,
-    >,
+    mut sprites: Query<(
+        Entity,
+        &mut Handle<Image>,
+        &AlignmentRenderTarget,
+        &mut AlignmentDisplayImage,
+        &mut DisplayBackImage,
+    )>,
 ) {
-    let Ok((entity, mut old_sprite_img, render_target, mut display_img)) = sprites.get_single_mut()
+    let Ok((entity, mut old_sprite_img, render_target, mut display_img, mut back_image)) =
+        sprites.get_single_mut()
     else {
         return;
     };
@@ -200,7 +207,7 @@ fn update_alignment_display_target(
         return;
     }
 
-    display_img.last_view = Some(render_target.alignment_view);
+    display_img.rendered_view = Some(render_target.alignment_view);
     display_img.last_render_time = Some(std::time::Instant::now());
 
     std::mem::swap(old_sprite_img.as_mut(), &mut back_image.image);
@@ -210,7 +217,7 @@ fn update_alignment_display_target(
 
 fn update_alignment_display_transform(
     images: Res<Assets<Image>>,
-    alignment_viewport: Res<AlignmentViewport>,
+    // alignment_viewport: Res<AlignmentViewport>,
     windows: Query<&Window>,
     mut display_sprites: Query<(
         &mut Transform,
@@ -224,7 +231,8 @@ fn update_alignment_display_transform(
     let dpi_scale = window.resolution.scale_factor();
 
     for (mut transform, mut sprite, img_handle, display_img) in display_sprites.iter_mut() {
-        let Some(last_view) = display_img.last_view else {
+        let Some((next_view, last_view)) = display_img.next_view.zip(display_img.rendered_view)
+        else {
             continue;
         };
 
@@ -234,17 +242,16 @@ fn update_alignment_display_transform(
         }
 
         let old_mid = last_view.center();
-        let new_view = alignment_viewport.view;
-        if last_view == new_view {
+        if last_view == next_view {
             *transform = Transform::IDENTITY;
         } else {
-            let new_mid = new_view.center();
+            let new_mid = next_view.center();
 
             let world_delta = new_mid - old_mid;
-            let norm_delta = world_delta / new_view.size();
+            let norm_delta = world_delta / next_view.size();
 
-            let w_rat = last_view.width() / new_view.width();
-            let h_rat = last_view.height() / new_view.height();
+            let w_rat = last_view.width() / next_view.width();
+            let h_rat = last_view.height() / next_view.height();
 
             let screen_delta = norm_delta.to_f32() * [win_size.x, win_size.y].as_uv();
 
@@ -260,14 +267,15 @@ pub struct AlignmentColor {
     pub color_scheme: AlignmentColorScheme,
 }
 
-#[derive(Debug, Component)]
+#[derive(Debug, Component, ExtractComponent, Clone, Default)]
 pub struct AlignmentDisplayImage {
-    last_view: Option<crate::view::View>,
+    pub next_view: Option<crate::view::View>,
+    rendered_view: Option<crate::view::View>,
     last_render_time: Option<std::time::Instant>,
 }
 
-#[derive(Resource)]
-struct AlignmentBackImage {
+#[derive(Component)]
+struct DisplayBackImage {
     image: Handle<Image>,
 }
 
@@ -283,99 +291,100 @@ pub struct AlignmentRenderTarget {
 #[derive(Component)]
 struct Rendering;
 
-#[derive(Resource)]
-struct AlignmentProjVertexBindGroup {
+#[derive(Component)]
+struct VertexBindGroup {
     group_0: BindGroup,
 
     proj_buffer: UniformBuffer<Mat4>,
     config_buffer: UniformBuffer<GpuAlignmentRenderConfig>,
 }
 
-fn setup_projection_vertex_config_bind_group(
+fn init_display_image_vertex_bind_group(
     mut commands: Commands,
+
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     pipeline: Res<AlignmentPolylinePipeline>,
+
+    sprites: Query<Entity, Added<AlignmentDisplayImage>>,
 ) {
-    let mut proj_buffer: UniformBuffer<_> = Mat4::IDENTITY.into();
-    let mut config_buffer: UniformBuffer<_> = GpuAlignmentRenderConfig {
-        line_width: 8.0,
-        brightness: 1.0,
-        _pad0: 0.0,
-        _pad1: 0.0,
+    for entity in sprites.iter() {
+        let mut proj_buffer: UniformBuffer<_> = Mat4::IDENTITY.into();
+        let mut config_buffer: UniformBuffer<_> = GpuAlignmentRenderConfig {
+            line_width: 8.0,
+            brightness: 1.0,
+            _pad0: 0.0,
+            _pad1: 0.0,
+        }
+        .into();
+
+        proj_buffer.write_buffer(&render_device, &render_queue);
+        config_buffer.write_buffer(&render_device, &render_queue);
+
+        let group_0 = render_device.create_bind_group(
+            Some("AlignmentRenderConfig"),
+            &pipeline.proj_config_layout,
+            &BindGroupEntries::sequential((
+                proj_buffer.binding().unwrap(),
+                config_buffer.binding().unwrap(),
+            )),
+        );
+
+        commands.entity(entity).insert(VertexBindGroup {
+            group_0,
+            proj_buffer,
+            config_buffer,
+        });
     }
-    .into();
-
-    proj_buffer.write_buffer(&render_device, &render_queue);
-    config_buffer.write_buffer(&render_device, &render_queue);
-
-    let group_0 = render_device.create_bind_group(
-        Some("AlignmentRenderConfig"),
-        &pipeline.proj_config_layout,
-        &BindGroupEntries::sequential((
-            proj_buffer.binding().unwrap(),
-            config_buffer.binding().unwrap(),
-        )),
-    );
-
-    println!("inserting proj vertex resource");
-    commands.insert_resource(AlignmentProjVertexBindGroup {
-        group_0,
-        proj_buffer,
-        config_buffer,
-    });
 }
 
-fn update_projection_config_uniforms(
+fn update_vertex_uniforms(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
 
-    mut uniforms: ResMut<AlignmentProjVertexBindGroup>,
-    config: Res<AlignmentShaderConfig>,
+    shader_config: Res<AlignmentShaderConfig>,
 
-    targets: Query<&AlignmentRenderTarget, Without<Rendering>>,
+    mut targets: Query<(&AlignmentRenderTarget, &mut VertexBindGroup), Without<Rendering>>,
 ) {
-    let Ok(target) = targets.get_single() else {
-        return;
-    };
+    for (target, mut uniforms) in targets.iter_mut() {
+        let proj_uv = target.alignment_view.to_mat4();
+        let proj = Mat4::from_cols_array(proj_uv.as_array());
+        uniforms.proj_buffer.set(proj);
+        uniforms
+            .proj_buffer
+            .write_buffer(&render_device, &render_queue);
 
-    let proj_uv = target.alignment_view.to_mat4();
-    let proj = Mat4::from_cols_array(proj_uv.as_array());
-    uniforms.proj_buffer.set(proj);
-    uniforms
-        .proj_buffer
-        .write_buffer(&render_device, &render_queue);
-
-    // if config.is_changed() {
-    let mut cfg = uniforms.config_buffer.get().clone();
-    cfg.line_width = config.line_width / target.canvas_size.x as f32;
-    cfg.brightness = config.brightness;
-    uniforms.config_buffer.set(cfg);
-    uniforms
-        .config_buffer
-        .write_buffer(&render_device, &render_queue);
-    // }
+        // if config.is_changed() {
+        let mut cfg = uniforms.config_buffer.get().clone();
+        cfg.line_width = shader_config.line_width / target.canvas_size.x as f32;
+        cfg.brightness = shader_config.brightness;
+        uniforms.config_buffer.set(cfg);
+        uniforms
+            .config_buffer
+            .write_buffer(&render_device, &render_queue);
+        // }
+    }
 }
 
 fn trigger_render(
     mut commands: Commands,
 
     mut images: ResMut<Assets<Image>>,
-    back_image: Res<AlignmentBackImage>,
-
     frame_count: Res<bevy::core::FrameCount>,
     alignment_viewport: Res<AlignmentViewport>,
     shader_config: Res<AlignmentShaderConfig>,
 
-    // active_renders: Query<&AlignmentRenderTarget>,
     windows: Query<&Window>,
-    display_sprites: Query<(Entity, &AlignmentDisplayImage), Without<AlignmentRenderTarget>>,
+    display_sprites: Query<
+        (Entity, &AlignmentDisplayImage, &DisplayBackImage),
+        Without<AlignmentRenderTarget>,
+    >,
 ) {
     if frame_count.0 < 3 {
         return;
     }
 
-    let Ok((sprite_ent, display_img)) = display_sprites.get_single() else {
+    let Ok((sprite_ent, display_img, back_image)) = display_sprites.get_single() else {
         return;
     };
 
@@ -407,7 +416,7 @@ fn trigger_render(
         }
     };
 
-    if display_img.last_view != Some(alignment_viewport.view)
+    if display_img.rendered_view != Some(alignment_viewport.view)
         || resized
         || shader_config.is_changed()
     {
@@ -538,6 +547,7 @@ struct AlignmentPolylineBindGroups {
 }
 
 #[derive(Component)]
+#[allow(dead_code)]
 struct GpuAlignmentPolylineMaterial {
     color_scheme_buffer: UniformBuffer<GpuAlignmentColorScheme>,
     model_buffer: UniformBuffer<Mat4>,
@@ -774,15 +784,6 @@ impl RenderAsset for GpuAlignmentVertices {
     }
 }
 
-fn queue_alignment_draw_new(
-    mut commands: Commands,
-    render_device: Res<RenderDevice>,
-    render_queue: Res<RenderQueue>,
-    pipeline_cache: Res<PipelineCache>,
-    pipeline: Res<AlignmentPolylinePipeline>,
-) {
-}
-
 fn queue_alignment_draw(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
@@ -790,26 +791,29 @@ fn queue_alignment_draw(
     pipeline_cache: Res<PipelineCache>,
     pipeline: Res<AlignmentPolylinePipeline>,
 
-    proj_config: Res<AlignmentProjVertexBindGroup>,
-
     gpu_images: Res<RenderAssets<GpuImage>>,
     gpu_alignments: Res<RenderAssets<GpuAlignmentVertices>>,
     gpu_materials: Res<RenderAssets<GpuAlignmentPolylineMaterial>>,
 
-    // draw_params: Option<Res<AlignmentRenderParams>>,
-    targets: Query<(Entity, &AlignmentRenderTarget), Without<Rendering>>,
-    // target: Option<Res<AlignmentRenderTarget>>,
+    targets: Query<
+        (
+            Entity,
+            &AlignmentRenderTarget,
+            // &AlignmentDisplayImage,
+            &VertexBindGroup,
+        ),
+        Without<Rendering>,
+    >,
     alignments: Query<(
         &Handle<AlignmentVertices>,
         &Handle<AlignmentPolylineMaterial>,
     )>,
-    // alignments: Query<(&Handle<AlignmentVertices>, &GpuAlignmentPolylineMaterial)>,
 ) {
     let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline) else {
         return;
     };
 
-    for (tgt_entity, tgt) in targets.iter() {
+    for (tgt_entity, tgt, proj_config) in targets.iter() {
         let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("AlignmentRenderer".into()),
         });
@@ -875,7 +879,7 @@ fn cleanup_finished_renders(
 ) {
     for (entity, tgt) in targets.iter() {
         if tgt.is_ready.load() {
-            commands.get_entity(entity).map(|mut e| e.despawn());
+            commands.entity(entity).remove::<AlignmentRenderTarget>();
         }
     }
 }
