@@ -303,6 +303,7 @@ fn prepare_alignments(
     alignments: Res<crate::Alignments>,
     alignment_grid: Res<crate::AlignmentGrid>,
     color_schemes: Res<AlignmentColorSchemes>,
+    mut vertex_index: ResMut<render::AlignmentVerticesIndex>,
 
     mut alignment_materials: ResMut<Assets<render::AlignmentPolylineMaterial>>,
     mut alignment_vertices: ResMut<Assets<render::AlignmentVertices>>,
@@ -329,10 +330,11 @@ fn prepare_alignments(
             ))
             .with_children(|parent| {
                 for (ix, alignment) in alignments.iter().enumerate() {
-                    let color_scheme = color_schemes.colors.get(AlignmentIndex {
+                    let al_ix = AlignmentIndex {
                         pair: (alignment.target_id, alignment.query_id),
                         index: ix,
-                    });
+                    };
+                    let color_scheme = color_schemes.colors.get(al_ix);
 
                     let material = render::AlignmentPolylineMaterial::from_alignment(
                         grid,
@@ -342,12 +344,13 @@ fn prepare_alignments(
 
                     let vertices = render::AlignmentVertices::from_alignment(alignment);
 
+                    let vx_handle = alignment_vertices.add(vertices);
+
+                    vertex_index.vertices.insert(al_ix, vx_handle.clone());
+
                     let location = &alignment.location;
 
-                    parent.spawn((
-                        alignment_materials.add(material),
-                        alignment_vertices.add(vertices),
-                    ));
+                    parent.spawn((alignment_materials.add(material), vx_handle));
                 }
             });
     }

@@ -17,13 +17,15 @@ use bevy::{
         renderer::{RenderDevice, RenderQueue},
         texture::GpuImage,
         view::RenderLayers,
-        Render, RenderApp, RenderSet,
+        Extract, Render, RenderApp, RenderSet,
     },
+    utils::HashMap,
 };
 use wgpu::{util::BufferInitDescriptor, ColorWrites, ShaderStages, VertexStepMode};
 
 use crate::{
     math_conv::{ConvertFloat32, ConvertVec2},
+    paf::AlignmentIndex,
     render::color::AlignmentColorScheme,
     CigarOp,
 };
@@ -66,10 +68,12 @@ impl Plugin for AlignmentRendererPlugin {
                 line_width: 8.0,
                 brightness: 1.0,
             })
+            .init_resource::<AlignmentVerticesIndex>()
             .add_plugins(ExtractComponentPlugin::<AlignmentDisplayImage>::default())
             .add_plugins(ExtractComponentPlugin::<AlignmentRenderTarget>::default())
             .add_plugins(ExtractResourcePlugin::<AlignmentShaderConfig>::default())
             .add_systems(Startup, setup_main_alignment_display_image)
+            .add_systems(PreUpdate, create_override_material_assets)
             .add_systems(
                 PreUpdate,
                 (
@@ -100,9 +104,18 @@ impl Plugin for AlignmentRendererPlugin {
                     .chain()
                     .in_set(RenderSet::Prepare),
             )
-            .add_systems(Render, queue_alignment_draw.in_set(RenderSet::Render))
+            .add_systems(ExtractSchedule, extract_alignment_position_overrides)
+            .add_systems(
+                Render,
+                (queue_alignment_draw, queue_alignment_draw_overrides).in_set(RenderSet::Render),
+            )
             .add_systems(Render, cleanup_finished_renders.in_set(RenderSet::Cleanup));
     }
+}
+
+#[derive(Resource, Default)]
+pub struct AlignmentVerticesIndex {
+    pub vertices: HashMap<AlignmentIndex, Handle<AlignmentVertices>>,
 }
 
 // NB: for now the shader config is shared by all alignment display images
@@ -179,8 +192,6 @@ fn update_main_alignment_image_view(
     for mut display_img in sprites.iter_mut() {
         display_img.next_view = Some(alignment_viewport.view);
     }
-
-    //
 }
 
 // checks all alignment display sprites that have an `AlignmentRenderTarget`
@@ -796,13 +807,11 @@ fn queue_alignment_draw(
     gpu_materials: Res<RenderAssets<GpuAlignmentPolylineMaterial>>,
 
     targets: Query<
+        (Entity, &AlignmentRenderTarget, &VertexBindGroup),
         (
-            Entity,
-            &AlignmentRenderTarget,
-            // &AlignmentDisplayImage,
-            &VertexBindGroup,
+            Without<Rendering>,
+            Without<ExtractedAlignmentMaterialOverrides>,
         ),
-        Without<Rendering>,
     >,
     alignments: Query<(
         &Handle<AlignmentVertices>,
@@ -883,3 +892,172 @@ fn cleanup_finished_renders(
         }
     }
 }
+
+#[derive(Debug, Component, Clone)]
+pub struct AlignmentPositionOverrides {
+    positions: HashMap<AlignmentIndex, Vec2>,
+    materials: HashMap<AlignmentIndex, Handle<AlignmentPolylineMaterial>>,
+    vertices: HashMap<AlignmentIndex, Handle<AlignmentVertices>>,
+}
+
+fn create_override_material_assets(
+    color_schemes: Res<super::AlignmentColorSchemes>,
+    vertex_index: Res<AlignmentVerticesIndex>,
+
+    mut materials: ResMut<Assets<AlignmentPolylineMaterial>>,
+
+    mut overrides: Query<&mut AlignmentPositionOverrides, Changed<AlignmentPositionOverrides>>,
+) {
+    for mut overrides in overrides.iter_mut() {
+        let mut override_mats = Vec::with_capacity(overrides.positions.len());
+
+        for (&ix, &pos) in overrides.positions.iter() {
+            let model = Transform::from_xyz(pos.x, pos.y, 0.0).compute_matrix();
+            let color_scheme = color_schemes.colors.get(ix).clone();
+
+            let mat = AlignmentPolylineMaterial {
+                color_scheme,
+                model,
+            };
+
+            override_mats.push((ix, materials.add(mat)));
+        }
+
+        for (ix, mat_handle) in override_mats {
+            let vert_handle = vertex_index.vertices.get(&ix).unwrap();
+            overrides.vertices.insert(ix, vert_handle.clone());
+            overrides.materials.insert(ix, mat_handle);
+        }
+    }
+}
+
+#[derive(Debug, Component)]
+struct ExtractedAlignmentMaterialOverrides {
+    materials: HashMap<AlignmentIndex, Handle<AlignmentPolylineMaterial>>,
+    vertices: HashMap<AlignmentIndex, Handle<AlignmentVertices>>,
+}
+
+fn extract_alignment_position_overrides(
+    mut commands: Commands,
+    query: Extract<
+        Query<(Entity, &AlignmentPositionOverrides), Changed<AlignmentPositionOverrides>>,
+    >,
+) {
+    let mut values = Vec::new();
+
+    for (entity, overrides) in query.iter() {
+        values.push((
+            entity,
+            ExtractedAlignmentMaterialOverrides {
+                materials: overrides.materials.clone(),
+                vertices: overrides.vertices.clone(),
+            },
+        ));
+    }
+
+    commands.insert_or_spawn_batch(values);
+}
+
+fn queue_alignment_draw_overrides(
+    mut commands: Commands,
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    pipeline_cache: Res<PipelineCache>,
+    pipeline: Res<AlignmentPolylinePipeline>,
+
+    gpu_images: Res<RenderAssets<GpuImage>>,
+    gpu_alignments: Res<RenderAssets<GpuAlignmentVertices>>,
+    gpu_materials: Res<RenderAssets<GpuAlignmentPolylineMaterial>>,
+
+    targets: Query<
+        (
+            Entity,
+            &AlignmentRenderTarget,
+            &VertexBindGroup,
+            &ExtractedAlignmentMaterialOverrides,
+        ),
+        Without<Rendering>,
+    >,
+    // alignments: Query<(
+    //     &Handle<AlignmentVertices>,
+    //     &Handle<AlignmentPolylineMaterial>,
+    // )>,
+) {
+    let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline) else {
+        return;
+    };
+
+    for (tgt_entity, tgt, proj_config, overrides) in targets.iter() {
+        let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("AlignmentRenderer".into()),
+        });
+
+        let tgt_handle = &tgt.image;
+
+        let tgt_img = gpu_images.get(tgt_handle).unwrap();
+
+        let attch = wgpu::RenderPassColorAttachment {
+            view: &tgt_img.texture_view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                // load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                store: wgpu::StoreOp::Store,
+            },
+        };
+
+        {
+            let mut pass = cmds.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("AlignmentRendererPass".into()),
+                color_attachments: &[Some(attch)],
+                ..default()
+            });
+
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, &proj_config.group_0, &[]);
+
+            for (ix, vertices) in overrides.vertices.iter() {
+                let Some(vertices) = gpu_alignments.get(vertices) else {
+                    println!("vertices missing!");
+                    continue;
+                };
+                let material = overrides.materials.get(ix).unwrap();
+                let Some(material) = gpu_materials.get(material) else {
+                    println!("material missing!");
+                    continue;
+                };
+
+                pass.set_bind_group(1, &material.bind_groups.group_1, &[]);
+                pass.set_bind_group(2, &material.bind_groups.group_2, &[]);
+                pass.set_vertex_buffer(0, wgpu::Buffer::slice(&vertices.vertex_buffer, ..));
+
+                pass.draw(0..6, 0..vertices.segment_count);
+            }
+        }
+
+        // this will be one submit per render, which is fine for
+        // as long as there will only be one (or a few) per frame,
+        // but later it may be worth combining into one
+        render_queue.0.submit([cmds.finish()]);
+
+        let is_ready = tgt.is_ready.clone();
+        render_queue.0.on_submitted_work_done(move || {
+            is_ready.store(true);
+        });
+        commands.entity(tgt_entity).insert(Rendering);
+    }
+}
+
+/*
+impl ExtractComponent for AlignmentPositionOverrides {
+    type QueryData = &'static Self;
+    type QueryFilter = ();
+    type Out = ExtractedAlignmentMaterialOverrides;
+
+    fn extract_component(
+        item: bevy::ecs::query::QueryItem<'_, Self::QueryData>,
+    ) -> Option<Self::Out> {
+        None
+    }
+}
+*/
