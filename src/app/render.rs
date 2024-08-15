@@ -166,8 +166,14 @@ fn setup_main_alignment_display_image(mut commands: Commands, mut images: ResMut
     let img_handle = images.add(image);
     let back_img_handle = images.add(back_image);
 
-    let display_sprite = commands.spawn((
+    use bevy_mod_picking::prelude::*;
+
+    let _display_sprite = commands.spawn((
         MainAlignmentView,
+        Pickable {
+            should_block_lower: false,
+            is_hoverable: false,
+        },
         AlignmentDisplayImage::default(),
         AlignmentDisplayBackImage {
             image: back_img_handle.clone(),
