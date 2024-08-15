@@ -132,7 +132,7 @@ fn update_alignment_shader_config(
 
 // marker for alignment images that are linked to the main viewport
 #[derive(Debug, Component)]
-struct MainAlignmentView;
+pub struct MainAlignmentView;
 
 fn setup_main_alignment_display_image(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     //
@@ -1060,17 +1060,3 @@ fn queue_alignment_draw_overrides(
         commands.entity(tgt_entity).insert(Rendering);
     }
 }
-
-/*
-impl ExtractComponent for AlignmentPositionOverrides {
-    type QueryData = &'static Self;
-    type QueryFilter = ();
-    type Out = ExtractedAlignmentMaterialOverrides;
-
-    fn extract_component(
-        item: bevy::ecs::query::QueryItem<'_, Self::QueryData>,
-    ) -> Option<Self::Out> {
-        None
-    }
-}
-*/

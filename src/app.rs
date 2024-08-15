@@ -2,6 +2,7 @@ pub mod alignments;
 pub mod annotations;
 pub mod figure_export;
 pub mod gui;
+pub mod picking;
 pub mod render;
 pub mod rulers;
 pub mod selection;
@@ -32,13 +33,15 @@ impl Plugin for PafViewerPlugin {
             // .add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::default())
             .add_event::<BaseLevelViewEvent>()
             .init_resource::<AlignmentRenderConfig>()
+            .add_plugins(alignments::AlignmentsPlugin)
             .add_plugins(gui::MenubarPlugin)
             .add_plugins(view::AlignmentViewPlugin)
             .add_plugins(annotations::AnnotationsPlugin)
             .add_plugins(rulers::ViewerRulersPlugin)
             .add_plugins(selection::RegionSelectionPlugin)
             .add_plugins(render::AlignmentRendererPlugin)
-            // .add_plugins(figure_export::FigureExportPlugin)
+            .add_plugins(picking::PickingPlugin)
+            .add_plugins(figure_export::FigureExportPlugin)
             .add_systems(Startup, setup_base_level_display_image)
             .add_systems(
                 Startup,
@@ -107,10 +110,10 @@ impl std::default::Default for AlignmentRenderConfig {
     }
 }
 
-#[derive(Component, Debug, Clone, Copy)]
-struct SequencePairTile {
-    target: SeqId,
-    query: SeqId,
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SequencePairTile {
+    pub target: SeqId,
+    pub query: SeqId,
 }
 
 #[derive(Component, Debug)]
@@ -306,6 +309,9 @@ fn prepare_alignments(
     alignments: Res<crate::Alignments>,
     alignment_grid: Res<crate::AlignmentGrid>,
     color_schemes: Res<AlignmentColorSchemes>,
+
+    mut seq_pair_entity_index: ResMut<alignments::SequencePairEntityIndex>,
+    mut alignment_entity_index: ResMut<alignments::AlignmentEntityIndex>,
     mut vertex_index: ResMut<render::AlignmentVerticesIndex>,
 
     mut alignment_materials: ResMut<Assets<render::AlignmentPolylineMaterial>>,
@@ -320,12 +326,14 @@ fn prepare_alignments(
         let transform =
             Transform::from_translation(Vec3::new(x_offset as f32, y_offset as f32, 0.0));
 
+        let seq_pair = SequencePairTile {
+            target: tgt_id,
+            query: qry_id,
+        };
+
         let parent = commands
             .spawn((
-                SequencePairTile {
-                    target: tgt_id,
-                    query: qry_id,
-                },
+                seq_pair,
                 SpatialBundle {
                     transform,
                     ..default()
@@ -353,9 +361,21 @@ fn prepare_alignments(
 
                     let location = &alignment.location;
 
-                    parent.spawn((alignment_materials.add(material), vx_handle));
+                    let al_comp = alignments::Alignment {
+                        target: alignment.target_id,
+                        query: alignment.query_id,
+                        pair_index: ix,
+                    };
+
+                    let al_entity = parent
+                        .spawn((al_comp, alignment_materials.add(material), vx_handle))
+                        .id();
+                    alignment_entity_index.insert(al_comp, al_entity);
                 }
-            });
+            })
+            .id();
+
+        seq_pair_entity_index.insert(seq_pair, parent);
     }
 }
 

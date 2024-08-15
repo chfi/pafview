@@ -4,7 +4,7 @@ use crate::{
     sequences::SeqId,
     PafViewerApp,
 };
-use bevy::prelude::*;
+use bevy::{prelude::*, utils::HashMap};
 
 /*
 
@@ -16,12 +16,22 @@ pub struct AlignmentsPlugin;
 
 impl Plugin for AlignmentsPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<AlignmentEntityIndex>()
+            .init_resource::<SequencePairEntityIndex>();
         //
     }
 }
 
-#[derive(Component)]
+#[derive(Default, Resource, Deref, DerefMut)]
+pub struct AlignmentEntityIndex(pub HashMap<Alignment, Entity>);
+
+#[derive(Default, Resource, Deref, DerefMut)]
+pub struct SequencePairEntityIndex(pub HashMap<super::SequencePairTile, Entity>);
+
+#[derive(Debug, Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Alignment {
     pub query: SeqId,
     pub target: SeqId,
+
+    pub pair_index: usize,
 }

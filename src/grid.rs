@@ -104,8 +104,12 @@ impl AlignmentGrid {
     }
     */
 
-    pub fn tile_at_world_point(&self, point: DVec2) -> Option<(SeqId, SeqId)> {
-        let (tile, _handle) = self.tile_aabbs.tile_at_point(point.to_f32())?;
+    // pub fn tile_at_world_point(&self, point: DVec2) -> Option<(SeqId, SeqId)> {
+    pub fn tile_at_world_point(&self, point: impl Into<[f64; 2]>) -> Option<(SeqId, SeqId)> {
+        let [x, y] = point.into();
+        let (tile, _handle) = self
+            .tile_aabbs
+            .tile_at_point(Vec2::new(x as f32, y as f32))?;
         Some(tile)
         // let p = point.to_f32();
         // self.tile_aabbs.query_pipeline.intersections_with_point(&self.bodies, colliders, point, filter, callback)
