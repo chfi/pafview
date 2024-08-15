@@ -236,9 +236,6 @@ fn rectangle_select_zoom_apply(
         let max = start_world.max(*end_world);
 
         if max.x - min.x > 100.0 && max.y - min.y > 100.0 {
-            let x_range = min.x..=max.x;
-            let y_range = min.y..=max.y;
-
             let new_view = app_view
                 .view
                 .fit_ranges_in_view_f64(Some(min.x..=max.x), Some(min.y..=max.y));
@@ -496,7 +493,11 @@ fn handle_view_events(
     for view_ev in view_events.read() {
         view_history.future.clear();
         view_history.past.push_back(app_view.view);
-        app_view.view = view_ev.view;
+
+        let new_view = app_view
+            .view
+            .fit_ranges_in_view_f64(Some(view_ev.view.x_range()), Some(view_ev.view.y_range()));
+        app_view.view = new_view;
     }
 }
 
