@@ -41,7 +41,7 @@ impl Plugin for PafViewerPlugin {
             .add_plugins(selection::RegionSelectionPlugin)
             .add_plugins(render::AlignmentRendererPlugin)
             .add_plugins(picking::PickingPlugin)
-            .add_plugins(figure_export::FigureExportPlugin)
+            // .add_plugins(figure_export::FigureExportPlugin)
             .add_systems(Startup, setup_base_level_display_image)
             .add_systems(
                 Startup,

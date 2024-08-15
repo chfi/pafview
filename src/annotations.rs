@@ -101,8 +101,8 @@ impl AnnotationStore {
                 let start = fields.get(from);
                 let end = fields.get(to);
                 start.zip(end).and_then(|(s, e)| {
-                    let s = s.parse().ok()?;
-                    let e = e.parse().ok()?;
+                    let s = s.trim().parse().ok()?;
+                    let e = e.trim().parse().ok()?;
                     Some(s..e)
                 })
             };
