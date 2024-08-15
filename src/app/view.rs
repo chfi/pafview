@@ -100,7 +100,7 @@ pub fn update_cursor_world(
 #[derive(Resource)]
 pub struct AlignmentViewport {
     pub view: crate::view::View,
-    initial_view: crate::view::View,
+    pub initial_view: crate::view::View,
 }
 
 impl AlignmentViewport {

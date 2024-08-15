@@ -197,7 +197,7 @@ fn update_main_alignment_image_view(
 // checks all alignment display sprites that have an `AlignmentRenderTarget`
 // signaling a render in progress; if the render is complete, the sprite texture
 // is flipped to the new render and the `AlignmentRenderTarget` component removed
-fn update_alignment_display_target(
+pub(super) fn update_alignment_display_target(
     mut commands: Commands,
 
     mut sprites: Query<(
@@ -218,6 +218,7 @@ fn update_alignment_display_target(
         display_img.rendered_view = Some(render_target.alignment_view);
         display_img.last_render_time = Some(std::time::Instant::now());
 
+        // println!("swapping front/back for {entity:?}");
         std::mem::swap(old_sprite_img.as_mut(), &mut back_image.image);
 
         commands.entity(entity).remove::<AlignmentRenderTarget>();
@@ -228,12 +229,15 @@ fn update_alignment_display_transform(
     images: Res<Assets<Image>>,
     // alignment_viewport: Res<AlignmentViewport>,
     windows: Query<&Window>,
-    mut display_sprites: Query<(
-        &mut Transform,
-        &mut Sprite,
-        &Handle<Image>,
-        &AlignmentDisplayImage,
-    )>,
+    mut display_sprites: Query<
+        (
+            &mut Transform,
+            &mut Sprite,
+            &Handle<Image>,
+            &AlignmentDisplayImage,
+        ),
+        With<MainAlignmentView>,
+    >,
 ) {
     let window = windows.single();
     let win_size = window.resolution.size();
@@ -288,7 +292,7 @@ pub struct AlignmentDisplayBackImage {
     pub image: Handle<Image>,
 }
 
-#[derive(Clone, Component, ExtractComponent)]
+#[derive(Debug, Clone, Component, ExtractComponent)]
 pub struct AlignmentRenderTarget {
     pub alignment_view: crate::view::View,
     pub canvas_size: UVec2,
@@ -298,7 +302,7 @@ pub struct AlignmentRenderTarget {
 }
 
 #[derive(Component)]
-struct Rendering;
+pub(super) struct Rendering;
 
 #[derive(Component)]
 struct VertexBindGroup {
@@ -386,7 +390,7 @@ fn trigger_render(
     windows: Query<&Window>,
     display_sprites: Query<
         (Entity, &AlignmentDisplayImage, &AlignmentDisplayBackImage),
-        Without<AlignmentRenderTarget>,
+        (With<MainAlignmentView>, Without<AlignmentRenderTarget>),
     >,
 ) {
     if frame_count.0 < 3 {
@@ -423,8 +427,12 @@ fn trigger_render(
         };
 
         if let Some(next_view) = display_img.next_view {
-            if display_img.rendered_view != Some(next_view) || resized || shader_config.is_changed()
-            {
+            let changed_view = display_img.rendered_view != Some(next_view);
+            if changed_view || resized || shader_config.is_changed() {
+                // println!(
+                //     "triggering render for {sprite_ent:?}\t\
+                //     view changed: {changed_view}, resized: {resized}"
+                // );
                 commands.entity(sprite_ent).insert(AlignmentRenderTarget {
                     alignment_view: next_view,
                     canvas_size: win_size,
@@ -887,8 +895,13 @@ fn cleanup_finished_renders(
     targets: Query<(Entity, &AlignmentRenderTarget), With<Rendering>>,
 ) {
     for (entity, tgt) in targets.iter() {
+        // print!("{entity:?} rendering: ");
         if tgt.is_ready.load() {
+            // println!("complete");
+            // println!("finished render for entity {entity:?}");
             commands.entity(entity).remove::<AlignmentRenderTarget>();
+        } else {
+            // println!("pending");
         }
     }
 }

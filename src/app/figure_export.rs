@@ -20,8 +20,23 @@ impl Plugin for FigureExportPlugin {
                 (update_egui_textures, show_figure_export_window)
                     .chain()
                     .after(bevy_egui::EguiSet::BeginFrame),
+            )
+            .add_systems(
+                PreUpdate,
+                swap_egui_textures.before(super::render::update_alignment_display_target),
             );
-        //
+
+        // app.add_systems(
+        //     Update,
+        //     |query: Query<
+        //         (Entity, &AlignmentRenderTarget),
+        //         (With<FigureExportImage>, Added<AlignmentRenderTarget>),
+        //     >| {
+        //         for (ent, tgt) in query.iter() {
+        //             println!("render target added for {ent:?}:\t{tgt:?}");
+        //         }
+        //     },
+        // );
     }
 }
 
@@ -67,6 +82,8 @@ fn setup_figure_export_window(mut commands: Commands, mut images: ResMut<Assets<
         ))
         .id();
 
+    // println!("figure export display sprite: {display_img:?}");
+
     commands.insert_resource(FigureExportWindow {
         display_img,
         egui_textures: None,
@@ -84,17 +101,26 @@ struct FigureExportWindow {
     // back_egui_img: Option<egui::TextureId>,
 }
 
-// fn swap_egui_textures(
+fn swap_egui_textures(
+    mut fig_export: ResMut<FigureExportWindow>,
+    // mut egui_textures: ResMut<EguiUserTextures>,
+    sprites: Query<(
+        // Entity,
+        &Handle<Image>,
+        &AlignmentDisplayBackImage,
+        &AlignmentRenderTarget,
+    )>,
+) {
+    let Ok((front, back, tgt)) = sprites.get(fig_export.display_img) else {
+        return;
+    };
 
-//     mut fig_export: ResMut<FigureExportWindow>,
-//     img_query: Query<(
-//         &AlignmentDisplayImage,
-//         &Handle<Image>,
-//         &AlignmentDisplayBackImage,
-//     ), (With<FigureExportImage>, )>,
-// ) {
-
-// }
+    if tgt.is_ready.load() {
+        if let Some(txs) = fig_export.egui_textures.as_mut() {
+            txs.swap(0, 1);
+        }
+    }
+}
 
 fn update_egui_textures(
     mut egui_textures: ResMut<EguiUserTextures>,
@@ -112,7 +138,7 @@ fn update_egui_textures(
         return;
     }
 
-    let Ok((disp_image, image, back_img)) = img_query.get(fig_export.display_img) else {
+    let Ok((_disp_image, image, back_img)) = img_query.get(fig_export.display_img) else {
         return;
     };
 
@@ -126,14 +152,20 @@ fn show_figure_export_window(
     mut commands: Commands,
     mut contexts: EguiContexts,
 
+    // mut is_rendering: Local<bool>,
     alignment_viewport: Res<AlignmentViewport>,
 
-    img_query: Query<(&AlignmentDisplayImage, &Handle<Image>)>,
+    img_query: Query<(Entity, &AlignmentDisplayImage, &AlignmentDisplayBackImage)>,
     mut fig_export: ResMut<FigureExportWindow>,
 ) {
-    let Ok((disp_image, image)) = img_query.get(fig_export.display_img) else {
+    let Ok((_disp_ent, _disp_image, back_image)) = img_query.get(fig_export.display_img) else {
         return;
     };
+
+    let image = &back_image.image;
+
+    // let is_rendering = rendering_query.get(disp_ent).is_ok();
+    let is_rendering = false;
 
     let ctx = contexts.ctx_mut();
 
@@ -147,11 +179,30 @@ fn show_figure_export_window(
                 ui.image((*front, egui::vec2(500.0, 500.0)));
             }
 
-            if ui.button("render current view").clicked() {
+            let mut button = |text: &str| ui.add_enabled(!is_rendering, egui::Button::new(text));
+
+            if button("render current view").clicked() {
                 commands
                     .entity(fig_export.display_img)
                     .insert(AlignmentRenderTarget {
                         alignment_view: alignment_viewport.view.clone(),
+                        canvas_size: [500, 500].into(),
+                        image: image.clone(),
+                        is_ready: Arc::new(false.into()),
+                    });
+            }
+
+            if button("render initial view").clicked() {
+                let view = &alignment_viewport.initial_view;
+
+                let new_view = alignment_viewport
+                    .view
+                    .fit_ranges_in_view_f64(Some(view.x_range()), Some(view.y_range()));
+
+                commands
+                    .entity(fig_export.display_img)
+                    .insert(AlignmentRenderTarget {
+                        alignment_view: new_view,
                         canvas_size: [500, 500].into(),
                         image: image.clone(),
                         is_ready: Arc::new(false.into()),
