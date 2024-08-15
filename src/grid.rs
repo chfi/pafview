@@ -505,8 +505,9 @@ impl GridAABBs {
             let width = alignment.location.target_total_len as f32;
             let height = alignment.location.query_total_len as f32;
 
-            let pair_u128 =
-                (tgt_id.0 as u128) << (std::mem::size_of::<usize>() as u128) | qry_id.0 as u128;
+            let pair_u128 = usize_pair_u128((tgt_id.0, qry_id.0));
+            // let pair_u128 =
+            //     (tgt_id.0 as u128) << (std::mem::size_of::<usize>() as u128) | qry_id.0 as u128;
             let halfwidth = width * 0.5;
             let halfheight = height * 0.5;
 
@@ -555,11 +556,12 @@ impl GridAABBs {
         let handle = last?;
 
         let collider = self.colliders.get(handle)?;
-        let &[tgt_id, qry_id]: &[SeqId] = bytemuck::cast_slice(&[collider.user_data]) else {
-            unreachable!();
-        };
+        let (tgt_id, qry_id) = u128_usize_pair(collider.user_data);
+        // let &[tgt_id, qry_id]: &[SeqId] = bytemuck::cast_slice(&[collider.user_data]) else {
+        //     unreachable!();
+        // };
 
-        Some(((tgt_id, qry_id), handle))
+        Some(((SeqId(tgt_id), SeqId(qry_id)), handle))
         // self.query_pipeline.cast_ray(&self._rigid_bodies, &self.colliders, ray, max_toi, solid, filter)
     }
 

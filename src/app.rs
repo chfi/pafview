@@ -319,6 +319,8 @@ fn prepare_alignments(
 ) {
     let grid = &alignment_grid;
 
+    use bevy_mod_picking::prelude::*;
+
     for (pair_id @ &(tgt_id, qry_id), alignments) in alignments.pairs.iter() {
         let x_offset = grid.x_axis.sequence_offset(tgt_id).unwrap();
         let y_offset = grid.y_axis.sequence_offset(qry_id).unwrap();
@@ -338,6 +340,9 @@ fn prepare_alignments(
                     transform,
                     ..default()
                 },
+                On::<Pointer<Over>>::run(|input: Res<ListenerInput<Pointer<Over>>>| {
+                    println!("hovering: {:?}", input.listener());
+                }),
             ))
             .with_children(|parent| {
                 for (ix, alignment) in alignments.iter().enumerate() {
@@ -376,6 +381,7 @@ fn prepare_alignments(
             .id();
 
         seq_pair_entity_index.insert(seq_pair, parent);
+        println!("{seq_pair_entity_index:?}");
     }
 }
 

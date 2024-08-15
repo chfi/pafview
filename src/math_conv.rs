@@ -105,3 +105,13 @@ impl<Via: Into<[[f32; 3]; 3]>> ConvertMat3 for Via {
         nalgebra::Matrix3::from_data(nalgebra::ArrayStorage(self.into()))
     }
 }
+
+pub fn usize_pair_u128((a, b): (usize, usize)) -> u128 {
+    (a as u128) << (std::mem::size_of::<usize>() as u128) | b as u128
+}
+
+pub fn u128_usize_pair(v: u128) -> (usize, usize) {
+    let a = (v >> (std::mem::size_of::<usize>() as u128)) as usize;
+    let b = v as usize;
+    (a, b)
+}

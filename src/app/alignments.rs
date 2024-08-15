@@ -22,10 +22,10 @@ impl Plugin for AlignmentsPlugin {
     }
 }
 
-#[derive(Default, Resource, Deref, DerefMut)]
+#[derive(Debug, Default, Resource, Deref, DerefMut)]
 pub struct AlignmentEntityIndex(pub HashMap<Alignment, Entity>);
 
-#[derive(Default, Resource, Deref, DerefMut)]
+#[derive(Debug, Default, Resource, Deref, DerefMut)]
 pub struct SequencePairEntityIndex(pub HashMap<super::SequencePairTile, Entity>);
 
 #[derive(Debug, Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
