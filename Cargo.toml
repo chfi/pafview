@@ -57,7 +57,7 @@ bevy = { version = "0.14", features = ["bevy_dev_tools"] }
 bevy_egui = "0.28.0"
 bevy_polyline = "0.10.0"
 leafwing-input-manager = "0.14.0"
-# bevy_mod_picking = "0.20.1"
+bevy_mod_picking = "0.20.1"
 bevy-inspector-egui = "0.25.2"
 
 [dev-dependencies]
