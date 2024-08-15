@@ -482,7 +482,11 @@ impl FromWorld for AlignmentPolylinePipeline {
             ),
         );
 
-        let shader = world.load_asset::<Shader>("shaders/lines_color_scheme.wgsl");
+        let shader = Shader::from_wgsl(
+            include_str!("../../assets/shaders/lines_color_scheme.wgsl"),
+            "internal/shaders/lines_color_scheme.wgsl",
+        );
+        let shader = world.resource::<AssetServer>().add(shader);
         let pipeline_cache = world.resource::<PipelineCache>();
 
         let pipeline = pipeline_cache.queue_render_pipeline(RenderPipelineDescriptor {
