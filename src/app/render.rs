@@ -286,11 +286,34 @@ pub struct AlignmentColor {
     pub color_scheme: AlignmentColorScheme,
 }
 
-#[derive(Debug, Component, ExtractComponent, Clone, Default)]
+#[derive(Debug, Component, ExtractComponent, Clone)]
 pub struct AlignmentDisplayImage {
     pub next_view: Option<crate::view::View>,
     rendered_view: Option<crate::view::View>,
     last_render_time: Option<std::time::Instant>,
+
+    pub background_color: Color,
+}
+
+impl Default for AlignmentDisplayImage {
+    fn default() -> Self {
+        Self {
+            next_view: None,
+            rendered_view: None,
+            last_render_time: None,
+            background_color: Color::NONE,
+        }
+    }
+}
+
+impl AlignmentDisplayImage {
+    pub fn with_bg_color(&self, color: Color) -> Self {
+        Self {
+            next_view: self.next_view,
+            background_color: color,
+            ..default()
+        }
+    }
 }
 
 #[derive(Component)]
@@ -821,7 +844,12 @@ fn queue_alignment_draw(
     gpu_materials: Res<RenderAssets<GpuAlignmentPolylineMaterial>>,
 
     targets: Query<
-        (Entity, &AlignmentRenderTarget, &VertexBindGroup),
+        (
+            Entity,
+            &AlignmentRenderTarget,
+            &AlignmentDisplayImage,
+            &VertexBindGroup,
+        ),
         (
             Without<Rendering>,
             Without<ExtractedAlignmentMaterialOverrides>,
@@ -836,7 +864,7 @@ fn queue_alignment_draw(
         return;
     };
 
-    for (tgt_entity, tgt, proj_config) in targets.iter() {
+    for (tgt_entity, tgt, display_img, proj_config) in targets.iter() {
         let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("AlignmentRenderer".into()),
         });
@@ -845,12 +873,18 @@ fn queue_alignment_draw(
 
         let tgt_img = gpu_images.get(tgt_handle).unwrap();
 
+        let bg = display_img.background_color.to_srgba();
+        let clear_color = wgpu::Color {
+            r: bg.red as f64,
+            g: bg.green as f64,
+            b: bg.blue as f64,
+            a: bg.alpha as f64,
+        };
         let attch = wgpu::RenderPassColorAttachment {
             view: &tgt_img.texture_view,
             resolve_target: None,
             ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                // load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                load: wgpu::LoadOp::Clear(clear_color),
                 store: wgpu::StoreOp::Store,
             },
         };
@@ -992,6 +1026,7 @@ fn queue_alignment_draw_overrides(
         (
             Entity,
             &AlignmentRenderTarget,
+            &AlignmentDisplayImage,
             &VertexBindGroup,
             &ExtractedAlignmentMaterialOverrides,
         ),
@@ -1006,7 +1041,7 @@ fn queue_alignment_draw_overrides(
         return;
     };
 
-    for (tgt_entity, tgt, proj_config, overrides) in targets.iter() {
+    for (tgt_entity, tgt, display_img, proj_config, overrides) in targets.iter() {
         let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("AlignmentRenderer".into()),
         });
@@ -1015,12 +1050,18 @@ fn queue_alignment_draw_overrides(
 
         let tgt_img = gpu_images.get(tgt_handle).unwrap();
 
+        let bg = display_img.background_color.to_srgba();
+        let clear_color = wgpu::Color {
+            r: bg.red as f64,
+            g: bg.green as f64,
+            b: bg.blue as f64,
+            a: bg.alpha as f64,
+        };
         let attch = wgpu::RenderPassColorAttachment {
             view: &tgt_img.texture_view,
             resolve_target: None,
             ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                // load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                load: wgpu::LoadOp::Clear(clear_color),
                 store: wgpu::StoreOp::Store,
             },
         };

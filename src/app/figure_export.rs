@@ -74,7 +74,7 @@ fn setup_figure_export_window(mut commands: Commands, mut images: ResMut<Assets<
     let display_img = commands
         .spawn((
             FigureExportImage,
-            AlignmentDisplayImage::default(),
+            AlignmentDisplayImage::default().with_bg_color(Color::WHITE),
             img_handle,
             AlignmentDisplayBackImage {
                 image: back_img_handle,
