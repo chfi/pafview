@@ -285,7 +285,7 @@ fn update_measure(
     //
     mut commands: Commands,
     alignment_cursor: Res<CursorAlignmentPosition>,
-    selection_actions: Query<&ActionState<super::selection::SelectionAction>>,
+    mut selection_actions: Query<&mut ActionState<super::selection::SelectionAction>>,
 
     selections: Query<
         (Entity, &Selection),
@@ -294,13 +294,13 @@ fn update_measure(
 ) {
     use super::selection::SelectionAction as Action;
 
-    let selection_actions = selection_actions.single();
+    let mut selection_actions = selection_actions.single_mut();
 
     if let Ok((sel_entity, _selection)) = selections.get_single() {
         // TODO: probably want a dedicated action for "completing" a selection;
         // as it is, the full chord must be held the entire time
-        if selection_actions.just_released(&Action::DistanceMeasurement) {
-            println!("completing distance measurement");
+        if selection_actions.just_released(&Action::SelectionRelease) {
+            selection_actions.consume(&Action::ZoomRectangle);
             commands.entity(sel_entity).insert(SelectionComplete);
         }
     } else {
@@ -308,8 +308,9 @@ fn update_measure(
             return;
         };
 
-        if selection_actions.just_pressed(&Action::DistanceMeasurement) {
-            println!("spawning distance measurement");
+        if selection_actions.just_pressed(&Action::DistanceMeasurement)
+            && !selection_actions.just_released(&Action::ZoomRectangle)
+        {
             commands.spawn((
                 Selection {
                     start_world: cursor,

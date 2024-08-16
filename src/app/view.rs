@@ -183,7 +183,7 @@ fn rectangle_select_zoom_input(
     mut commands: Commands,
     alignment_cursor: Res<CursorAlignmentPosition>,
     // mouse_button: Res<ButtonInput<MouseButton>>,
-    selection_actions: Query<&ActionState<super::selection::SelectionAction>>,
+    mut selection_actions: Query<&mut ActionState<super::selection::SelectionAction>>,
 
     selections: Query<
         (Entity, &Selection),
@@ -192,11 +192,11 @@ fn rectangle_select_zoom_input(
 ) {
     use super::selection::SelectionAction as Action;
 
-    let selection_actions = selection_actions.single();
+    let mut selection_actions = selection_actions.single_mut();
 
     if let Ok((sel_entity, _selection)) = selections.get_single() {
-        if selection_actions.just_released(&Action::ZoomRectangle) {
-            // if mouse_button.just_released(MouseButton::Right) {
+        if selection_actions.just_released(&Action::SelectionRelease) {
+            selection_actions.consume(&Action::ZoomRectangle);
             commands.entity(sel_entity).insert(SelectionComplete);
         }
     } else {
@@ -204,7 +204,9 @@ fn rectangle_select_zoom_input(
             return;
         };
 
-        if selection_actions.just_pressed(&Action::ZoomRectangle) {
+        if selection_actions.just_pressed(&Action::ZoomRectangle)
+            && !selection_actions.just_released(&Action::DistanceMeasurement)
+        {
             commands.spawn((
                 Selection {
                     start_world: cursor,

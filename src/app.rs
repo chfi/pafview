@@ -321,7 +321,7 @@ fn prepare_alignments(
 
     use bevy_mod_picking::prelude::*;
 
-    for (pair_id @ &(tgt_id, qry_id), alignments) in alignments.pairs.iter() {
+    for (&(tgt_id, qry_id), alignments) in alignments.pairs.iter() {
         let x_offset = grid.x_axis.sequence_offset(tgt_id).unwrap();
         let y_offset = grid.y_axis.sequence_offset(qry_id).unwrap();
 
@@ -367,8 +367,6 @@ fn prepare_alignments(
                     let vx_handle = alignment_vertices.add(vertices);
 
                     vertex_index.vertices.insert(al_ix, vx_handle.clone());
-
-                    let location = &alignment.location;
 
                     let al_comp = alignments::Alignment {
                         target: alignment.target_id,

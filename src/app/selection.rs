@@ -38,6 +38,7 @@ impl Plugin for RegionSelectionPlugin {
 
 #[derive(Actionlike, PartialEq, Eq, Hash, Clone, Copy, Debug, Reflect)]
 pub enum SelectionAction {
+    SelectionRelease,
     ZoomRectangle,
     DistanceMeasurement,
 }
@@ -45,6 +46,7 @@ pub enum SelectionAction {
 fn setup_selection_input_map(mut commands: Commands) {
     let mut input_map: InputMap<SelectionAction> = InputMap::default();
 
+    input_map.insert(SelectionAction::SelectionRelease, MouseButton::Right);
     input_map.insert(SelectionAction::ZoomRectangle, MouseButton::Right);
 
     let dist_chord = UserInput::Chord(vec![
