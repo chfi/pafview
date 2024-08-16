@@ -340,9 +340,13 @@ fn prepare_alignments(
                     transform,
                     ..default()
                 },
-                On::<Pointer<Over>>::run(|input: Res<ListenerInput<Pointer<Over>>>| {
-                    println!("hovering: {:?}", input.listener());
-                }),
+                Pickable {
+                    should_block_lower: false,
+                    is_hoverable: true,
+                },
+                // On::<Pointer<Over>>::run(|input: Res<ListenerInput<Pointer<Over>>>| {
+                //     println!("hovering seq pair: {:?}", input.listener());
+                // }),
             ))
             .with_children(|parent| {
                 for (ix, alignment) in alignments.iter().enumerate() {
@@ -373,7 +377,20 @@ fn prepare_alignments(
                     };
 
                     let al_entity = parent
-                        .spawn((al_comp, alignment_materials.add(material), vx_handle))
+                        .spawn((
+                            al_comp,
+                            alignment_materials.add(material),
+                            vx_handle,
+                            Pickable {
+                                should_block_lower: false,
+                                is_hoverable: true,
+                            },
+                        ))
+                        // .insert(
+                        //     On::<Pointer<Over>>::run(|input: Res<ListenerInput<Pointer<Over>>>, alignments: Query<&alignments::Alignment>| {
+                        //         println!("hovering alignment: {:?}", input.listener());
+                        //     })
+                        // )
                         .id();
                     alignment_entity_index.insert(al_comp, al_entity);
                 }
@@ -381,7 +398,6 @@ fn prepare_alignments(
             .id();
 
         seq_pair_entity_index.insert(seq_pair, parent);
-        println!("{seq_pair_entity_index:?}");
     }
 }
 

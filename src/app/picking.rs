@@ -22,6 +22,7 @@ pub fn alignment_picking_grid(
 
     // TODO positions should be taken from the cache associated with the
     // AlignmentDisplayImage, but that's not quite ready yet
+    alignments: Res<crate::Alignments>,
     alignment_grid: Res<crate::AlignmentGrid>,
 
     seq_pair_entity_index: Res<super::alignments::SequencePairEntityIndex>,
@@ -29,7 +30,7 @@ pub fn alignment_picking_grid(
 
     // this should be all `super::render::AlignmentDisplayImage`s that
     // need user interaction w/ alignments... so probably just the
-    // main display image
+    // main display image, but maybe some type of splitscreen view later
     targets: Query<
         &AlignmentDisplayImage,
         //
@@ -75,10 +76,7 @@ pub fn alignment_picking_grid(
             // -> get seq pair hit
             let tile = alignment_grid.tile_at_world_point(world_pos);
 
-            // if there's a seq pair hit, search alignments associated
-            // w/ that seq pair for alignment hits
-
-            let Some((tgt_id, qry_id)) = tile else {
+            let Some(seq_pair @ (tgt_id, qry_id)) = tile else {
                 continue;
             };
 
@@ -90,17 +88,69 @@ pub fn alignment_picking_grid(
             };
             let hit_data = backend::HitData::new(
                 camera_ent,
-                0.0,
-                Some(Vec3::new(world_pos.x as f32, world_pos.y as f32, 0.0)),
+                10.0,
+                Some(Vec3::new(world_pos.x as f32, world_pos.y as f32, 10.0)),
                 None,
             );
+
+            // output seq pair hit
             let hits = vec![(*seq_pair_ent, hit_data)];
-            let ptr_hits = backend::PointerHits::new(*ptr_id, hits, 0.0);
+            let ptr_hits = backend::PointerHits::new(*ptr_id, hits, 10.0);
+            // println!("sending seq pair pointer hits: {ptr_hits:?}");
             output.send(ptr_hits);
 
-            // TODO
-            // use seq pair -> entity and al_ix -> entity maps to produce
-            // final PointerHits
+            // if there's a seq pair hit, search alignments associated
+            // w/ that seq pair for alignment hits
+            let Some(pair_aligns) = alignments.pairs.get(&seq_pair) else {
+                continue;
+            };
+
+            let seq_x = alignment_grid
+                .x_axis
+                .global_to_axis_exact(world_pos.x as u64);
+            let seq_y = alignment_grid
+                .y_axis
+                .global_to_axis_exact(world_pos.y as u64);
+
+            let Some(((_tgt_id, seq_x), (_qry_id, seq_y))) = seq_x.zip(seq_y) else {
+                continue;
+            };
+
+            // output alignment hits
+            let hits = pair_aligns
+                .iter()
+                .enumerate()
+                .filter_map(|(ix, al)| {
+                    let loc = &al.location;
+                    if seq_x >= loc.target_range.start
+                        && seq_x < loc.target_range.end
+                        && seq_y >= loc.query_range.start
+                        && seq_y < loc.query_range.end
+                    {
+                        let al_ix = super::alignments::Alignment {
+                            query: qry_id,
+                            target: tgt_id,
+                            pair_index: ix,
+                        };
+                        let al_ent = alignment_entity_index.get(&al_ix)?;
+
+                        let hit_data = backend::HitData::new(
+                            camera_ent,
+                            5.0,
+                            Some(Vec3::new(world_pos.x as f32, world_pos.y as f32, 10.0)),
+                            None,
+                        );
+                        Some((*al_ent, hit_data))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            if !hits.is_empty() {
+                let ptr_hits = backend::PointerHits::new(*ptr_id, hits, 5.0);
+                // println!("sending alignment pointer hits: {ptr_hits:?}");
+                output.send(ptr_hits);
+            }
         }
     }
 }
