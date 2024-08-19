@@ -288,6 +288,96 @@ pub struct Alignments {
     cigar_range_index_map: bimap::BiHashMap<AlignmentIndex, std::ops::Range<u64>>,
 }
 
+#[derive(bevy::prelude::Resource)]
+pub struct AlignmentOptionalFields {
+    // pairs: FxHashMap<(SeqId, SeqId), Vec<Vec<String>>>,
+    pairs: FxHashMap<(SeqId, SeqId), Vec<FxHashMap<[u8; 2], (char, String)>>>,
+}
+
+impl AlignmentOptionalFields {
+    // pub fn get(&self, alignment: &crate::app::alignments::Alignment) -> Option<&[String]> {
+    pub fn get(
+        &self,
+        alignment: &crate::app::alignments::Alignment,
+    ) -> Option<&FxHashMap<[u8; 2], (char, String)>> {
+        let pair = self.pairs.get(&(alignment.target, alignment.query))?;
+        let fields = pair.get(alignment.pair_index)?;
+        Some(fields)
+    }
+
+    pub fn from_paf(
+        sequences: &Sequences,
+        paf_path: impl AsRef<std::path::Path>,
+    ) -> anyhow::Result<Self> {
+        use std::io::prelude::*;
+
+        let reader = std::fs::File::open(paf_path)
+            .map(std::io::BufReader::new)
+            .map_err(|e| anyhow!("Error opening PAF file: {e:?}"))?;
+
+        // let mut pairs: FxHashMap<(SeqId, SeqId), Vec<(u64, Vec<String>)>> = FxHashMap::default();
+        let mut pairs: FxHashMap<(SeqId, SeqId), Vec<(u64, FxHashMap<[u8; 2], (char, String)>)>> =
+            FxHashMap::default();
+
+        for line in reader.lines() {
+            let line = line?;
+            let fields = line.trim().split('\t').collect::<Vec<_>>();
+
+            let qry_name = fields[0];
+            let tgt_name = fields[5];
+            let tgt_start = fields[7];
+
+            let qry_id = sequences.sequence_names.get_by_left(qry_name).copied();
+            let tgt_id = sequences.sequence_names.get_by_left(tgt_name).copied();
+
+            let Some(pair @ (tgt_id, qry_id)) = tgt_id.zip(qry_id) else {
+                continue;
+            };
+
+            let opt_fields = fields
+                .iter()
+                .skip(8)
+                .filter_map(|field| {
+                    if field.len() < 5 {
+                        return None;
+                    }
+
+                    let bytes = field.as_bytes();
+                    if bytes.get(2) == Some(&b':') && bytes.get(4) == Some(&b':') {
+                        let tag = &bytes[..2];
+                        if tag.eq_ignore_ascii_case(b"cg") {
+                            return None;
+                        }
+                        let &[a, b] = tag else {
+                            return None;
+                        };
+                        let ty = bytes[3] as char;
+                        let key = [a, b];
+
+                        let value = &field[5..];
+                        Some((key, (ty, value.to_string())))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<FxHashMap<_, _>>();
+
+            let tgt_start = tgt_start.parse::<u64>().unwrap();
+            pairs.entry(pair).or_default().push((tgt_start, opt_fields));
+        }
+
+        let pairs = pairs.into_iter().map(|(key, mut fields)| {
+            fields.sort_by_key(|(s, _)| *s);
+            let fields = fields.into_iter().map(|(_, f)| f).collect::<Vec<_>>();
+            (key, fields)
+        });
+
+        Ok(Self {
+            pairs: pairs.collect(),
+        })
+    }
+}
+
 pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Sequences)> {
     use std::io::prelude::*;
 

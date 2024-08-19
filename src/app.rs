@@ -287,7 +287,11 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
         });
     }
 
-    App::new()
+    let paf_opt_fields = crate::paf::AlignmentOptionalFields::from_paf(&app.sequences, &args.paf);
+
+    let mut viewer_app = App::new();
+
+    viewer_app
         .add_plugins(DefaultPlugins)
         .add_plugins(PolylinePlugin)
         .insert_resource(ClearColor(Color::WHITE))
@@ -300,9 +304,13 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
         .insert_resource(AlignmentColorSchemes {
             colors: paf_color_schemes,
         })
-        .add_plugins(PafViewerPlugin)
-        .run();
-    //
+        .add_plugins(PafViewerPlugin);
+
+    if let Ok(opt_fields) = paf_opt_fields {
+        viewer_app.insert_resource(opt_fields);
+    }
+
+    viewer_app.run();
 
     Ok(())
 }
