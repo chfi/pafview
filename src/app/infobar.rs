@@ -7,7 +7,10 @@ impl Plugin for InfobarPlugin {
     fn build(&self, app: &mut App) {
         app.add_event::<InfobarAlignmentEvent>()
             .add_systems(Startup, setup_infobar)
-            .add_systems(Update, update_infobar);
+            .add_systems(
+                Update,
+                update_infobar.run_if(resource_exists::<crate::paf::AlignmentOptionalFields>),
+            );
     }
 }
 
@@ -62,7 +65,7 @@ fn setup_infobar(
         .with_children(|parent| {
             parent.spawn((
                 TextBundle::from_section(
-                    "<info>",
+                    "",
                     TextStyle {
                         font_size: 22.0,
                         color: Color::BLACK,
@@ -83,6 +86,7 @@ fn update_infobar(
 
     alignments: Res<crate::Alignments>,
     alignment_query: Query<&super::alignments::Alignment>,
+    paf_opt_fields: Res<crate::paf::AlignmentOptionalFields>,
 ) {
     // let last_visible = alignment_events.read().fold(None, |last, ev| {
     //     if let Some(last) = last {
@@ -122,12 +126,51 @@ fn update_infobar(
     };
 
     if let Ok(mut text) = infobar_text.get_single_mut() {
+        if let Some(opt_fields) = paf_opt_fields.get(alignment) {
+            let mut floats = opt_fields
+                .iter()
+                .filter_map(|(tag, (ty, val))| {
+                    if *ty != 'f' {
+                        return None;
+                    }
+
+                    Some((tag, val.parse::<f32>().ok()?))
+                })
+                .collect::<Vec<_>>();
+
+            let mut ints = opt_fields
+                .iter()
+                .filter_map(|(tag, (ty, val))| {
+                    if *ty != 'i' {
+                        return None;
+                    }
+
+                    Some((tag, val.parse::<i32>().ok()?))
+                })
+                .collect::<Vec<_>>();
+
+            floats.sort_by_key(|(tag, _)| *tag);
+            ints.sort_by_key(|(tag, _)| *tag);
+
+            let new_text = floats
+                .iter()
+                .map(|(tag, val)| {
+                    let tag_txt = std::str::from_utf8(tag.as_slice()).unwrap();
+                    format!("{tag_txt}:f:{val}")
+                })
+                .chain(ints.iter().map(|(tag, val)| {
+                    let tag_txt = std::str::from_utf8(tag.as_slice()).unwrap();
+                    format!("{tag_txt}:i:{val}")
+                }));
+
+            text.sections[0].value.clear();
+
+            for (_ix, field) in new_text.into_iter().enumerate() {
+                text.sections[0].value.extend(field.chars());
+                text.sections[0].value.push_str(" \t");
+            }
+        }
         //
-        text.sections[0].value = format!(
-            "Hovered ({:?}, {:?})[{}]",
-            alignment.target, alignment.query, alignment.pair_index
-        );
-        println!("setting infobar text: {}", text.sections[0].value);
     }
 }
 
