@@ -2,6 +2,7 @@ pub mod alignments;
 pub mod annotations;
 pub mod figure_export;
 pub mod gui;
+pub mod infobar;
 pub mod picking;
 pub mod render;
 pub mod rulers;
@@ -16,6 +17,7 @@ use bevy_polyline::{
     PolylinePlugin,
 };
 use clap::Parser;
+use infobar::InfobarAlignmentEvent;
 use wgpu::{Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
 
 use crate::{
@@ -35,6 +37,7 @@ impl Plugin for PafViewerPlugin {
             .init_resource::<AlignmentRenderConfig>()
             .add_plugins(alignments::AlignmentsPlugin)
             .add_plugins(gui::MenubarPlugin)
+            .add_plugins(infobar::InfobarPlugin)
             .add_plugins(view::AlignmentViewPlugin)
             .add_plugins(annotations::AnnotationsPlugin)
             .add_plugins(rulers::ViewerRulersPlugin)
@@ -316,6 +319,8 @@ fn prepare_alignments(
 
     mut alignment_materials: ResMut<Assets<render::AlignmentPolylineMaterial>>,
     mut alignment_vertices: ResMut<Assets<render::AlignmentVertices>>,
+
+    mut infobar_writer: EventWriter<infobar::InfobarAlignmentEvent>,
 ) {
     let grid = &alignment_grid;
 
@@ -383,6 +388,8 @@ fn prepare_alignments(
                                 should_block_lower: false,
                                 is_hoverable: true,
                             },
+                            On::<Pointer<Out>>::send_event::<infobar::InfobarAlignmentEvent>(),
+                            On::<Pointer<Over>>::send_event::<infobar::InfobarAlignmentEvent>(),
                         ))
                         // .insert(
                         //     On::<Pointer<Over>>::run(|input: Res<ListenerInput<Pointer<Over>>>, alignments: Query<&alignments::Alignment>| {
