@@ -287,7 +287,7 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
         });
     }
 
-    let paf_opt_fields = crate::paf::AlignmentOptionalFields::from_paf(&app.sequences, &args.paf);
+    let paf_opt_fields = crate::paf::PafMetadata::from_paf(&app.sequences, &args.paf);
 
     let mut viewer_app = App::new();
 

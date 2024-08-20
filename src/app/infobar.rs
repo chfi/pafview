@@ -9,7 +9,7 @@ impl Plugin for InfobarPlugin {
             .add_systems(Startup, setup_infobar)
             .add_systems(
                 Update,
-                update_infobar.run_if(resource_exists::<crate::paf::AlignmentOptionalFields>),
+                update_infobar.run_if(resource_exists::<crate::paf::PafMetadata>),
             );
     }
 }
@@ -86,7 +86,7 @@ fn update_infobar(
 
     alignments: Res<crate::Alignments>,
     alignment_query: Query<&super::alignments::Alignment>,
-    paf_opt_fields: Res<crate::paf::AlignmentOptionalFields>,
+    paf_opt_fields: Res<crate::paf::PafMetadata>,
 ) {
     // let last_visible = alignment_events.read().fold(None, |last, ev| {
     //     if let Some(last) = last {
@@ -126,7 +126,9 @@ fn update_infobar(
     };
 
     if let Ok(mut text) = infobar_text.get_single_mut() {
-        if let Some(opt_fields) = paf_opt_fields.get(alignment) {
+        if let Some(metadata) = paf_opt_fields.get(alignment) {
+            // if let Some(opt_fields) = paf_opt_fields.get_optional_fields(alignment) {
+            let opt_fields = &metadata.optional_fields;
             let mut floats = opt_fields
                 .iter()
                 .filter_map(|(tag, (ty, val))| {
@@ -163,11 +165,22 @@ fn update_infobar(
                     format!("{tag_txt}:i:{val}")
                 }));
 
-            text.sections[0].value.clear();
+            let (pfx, val) = {
+                let len = metadata.alignment_block_length;
+                if len > 1_000_000 {
+                    ("M", len / 1_000_000)
+                } else if len > 1_000 {
+                    ("k", len / 1_000)
+                } else {
+                    ("", len)
+                }
+            };
+
+            text.sections[0].value = format!("Length: {val}{pfx}B ");
 
             for (_ix, field) in new_text.into_iter().enumerate() {
-                text.sections[0].value.extend(field.chars());
                 text.sections[0].value.push_str(" \t");
+                text.sections[0].value.extend(field.chars());
             }
         }
         //

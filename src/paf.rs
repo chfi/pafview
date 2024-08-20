@@ -288,21 +288,33 @@ pub struct Alignments {
     cigar_range_index_map: bimap::BiHashMap<AlignmentIndex, std::ops::Range<u64>>,
 }
 
-#[derive(bevy::prelude::Resource)]
-pub struct AlignmentOptionalFields {
-    // pairs: FxHashMap<(SeqId, SeqId), Vec<Vec<String>>>,
-    pairs: FxHashMap<(SeqId, SeqId), Vec<FxHashMap<[u8; 2], (char, String)>>>,
+pub struct AlignmentMetadata {
+    pub residue_matches: usize,
+    pub alignment_block_length: usize,
+    pub mapping_quality: u8,
+
+    pub optional_fields: FxHashMap<[u8; 2], (char, String)>,
 }
 
-impl AlignmentOptionalFields {
+#[derive(bevy::prelude::Resource)]
+pub struct PafMetadata {
+    metadata: FxHashMap<(SeqId, SeqId), Vec<AlignmentMetadata>>,
+}
+
+impl PafMetadata {
     // pub fn get(&self, alignment: &crate::app::alignments::Alignment) -> Option<&[String]> {
-    pub fn get(
+    pub fn get_optional_fields(
         &self,
         alignment: &crate::app::alignments::Alignment,
     ) -> Option<&FxHashMap<[u8; 2], (char, String)>> {
-        let pair = self.pairs.get(&(alignment.target, alignment.query))?;
-        let fields = pair.get(alignment.pair_index)?;
-        Some(fields)
+        let pair = self.metadata.get(&(alignment.target, alignment.query))?;
+        let metadata = pair.get(alignment.pair_index)?;
+        Some(&metadata.optional_fields)
+    }
+
+    pub fn get(&self, alignment: &crate::app::alignments::Alignment) -> Option<&AlignmentMetadata> {
+        let pair = self.metadata.get(&(alignment.target, alignment.query))?;
+        pair.get(alignment.pair_index)
     }
 
     pub fn from_paf(
@@ -315,8 +327,7 @@ impl AlignmentOptionalFields {
             .map(std::io::BufReader::new)
             .map_err(|e| anyhow!("Error opening PAF file: {e:?}"))?;
 
-        // let mut pairs: FxHashMap<(SeqId, SeqId), Vec<(u64, Vec<String>)>> = FxHashMap::default();
-        let mut pairs: FxHashMap<(SeqId, SeqId), Vec<(u64, FxHashMap<[u8; 2], (char, String)>)>> =
+        let mut pairs: FxHashMap<(SeqId, SeqId), Vec<(u64, AlignmentMetadata)>> =
             FxHashMap::default();
 
         for line in reader.lines() {
@@ -326,6 +337,10 @@ impl AlignmentOptionalFields {
             let qry_name = fields[0];
             let tgt_name = fields[5];
             let tgt_start = fields[7];
+
+            let residue_matches: usize = fields[9].parse().unwrap_or_default();
+            let alignment_block_length: usize = fields[10].parse().unwrap_or_default();
+            let mapping_quality: u8 = fields[11].parse().unwrap_or_default();
 
             let qry_id = sequences.sequence_names.get_by_left(qry_name).copied();
             let tgt_id = sequences.sequence_names.get_by_left(tgt_name).copied();
@@ -363,7 +378,15 @@ impl AlignmentOptionalFields {
                 .collect::<FxHashMap<_, _>>();
 
             let tgt_start = tgt_start.parse::<u64>().unwrap();
-            pairs.entry(pair).or_default().push((tgt_start, opt_fields));
+
+            let metadata = AlignmentMetadata {
+                residue_matches,
+                alignment_block_length,
+                mapping_quality,
+                optional_fields: opt_fields,
+            };
+
+            pairs.entry(pair).or_default().push((tgt_start, metadata));
         }
 
         let pairs = pairs.into_iter().map(|(key, mut fields)| {
@@ -373,7 +396,7 @@ impl AlignmentOptionalFields {
         });
 
         Ok(Self {
-            pairs: pairs.collect(),
+            metadata: pairs.collect(),
         })
     }
 }
