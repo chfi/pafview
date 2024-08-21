@@ -83,10 +83,10 @@ impl AlignmentLocation {
 pub struct Alignment {
     pub target_id: SeqId,
     pub query_id: SeqId,
-    pub cigar_file_byte_range: std::ops::Range<u64>,
 
     pub location: AlignmentLocation,
     // pub cigar: CigarIndex,
+    pub cigar_file_byte_range: Option<std::ops::Range<u64>>,
     pub cigar: std::sync::Arc<dyn IndexedCigar + Send + Sync + 'static>,
 }
 
@@ -254,15 +254,21 @@ impl Alignment {
             query_total_len: paf_line.query_seq_len,
         };
 
-        let cigar_index = CigarIndex::from_paf_line(&paf_line);
+        let (cigar, cigar_file_byte_range) =
+            if let Some(cigar) = CigarIndex::from_paf_line(&paf_line) {
+                let range = paf_line.cigar_file_range.clone();
+                (Arc::new(cigar) as _, range)
+            } else {
+                (Arc::new(crate::cigar::NoCigar) as _, None)
+            };
 
         Self {
             target_id,
             query_id,
             location,
             // cigar: cigar_index,
-            cigar_file_byte_range: paf_line.cigar_file_range.clone(),
-            cigar: Arc::new(cigar_index),
+            cigar_file_byte_range,
+            cigar,
         }
     }
 
@@ -516,7 +522,9 @@ impl Alignments {
 
             for (index, al) in alignments.iter_mut().enumerate() {
                 let al_ix = AlignmentIndex { pair, index };
-                cigar_range_index_map.insert(al_ix, al.cigar_file_byte_range.clone());
+                if let Some(range) = al.cigar_file_byte_range.clone() {
+                    cigar_range_index_map.insert(al_ix, range);
+                }
             }
         }
 
@@ -562,7 +570,7 @@ impl Alignments {
                     target_id,
                     query_id,
                     location,
-                    cigar_file_byte_range: impg_cg.cigar_file_byte_range.clone(),
+                    cigar_file_byte_range: Some(impg_cg.cigar_file_byte_range.clone()),
                     cigar: Arc::new(impg_cg),
                 };
 
@@ -593,8 +601,8 @@ pub struct PafLine<S> {
     pub tgt_seq_end: u64,
 
     pub strand_rev: bool,
-    pub cigar: S,
-    pub cigar_file_range: std::ops::Range<u64>,
+    pub cigar: Option<S>,
+    pub cigar_file_range: Option<std::ops::Range<u64>>,
 }
 
 pub fn parse_paf_line<'a>(line: &'a str, line_offset: u64) -> Option<PafLine<&'a str>> {
@@ -611,9 +619,16 @@ pub fn parse_paf_line<'a>(line: &'a str, line_offset: u64) -> Option<PafLine<&'a
     let (tgt_name, tgt_seq_len, tgt_seq_start, tgt_seq_end) =
         parse_ranged_paf_name_range(&mut ranged_fields)?;
 
-    let (cigar, cigar_file_range) = ranged_fields
+    // let (cigar, cigar_file_range) = ranged_fields
+    let cigar = ranged_fields
         .skip(3)
-        .find_map(|(s, r)| Some((s.strip_prefix("cg:Z:")?, r)))?;
+        .find_map(|(s, r)| Some((s.strip_prefix("cg:Z:")?, r)));
+
+    let (cigar, cigar_file_range) = if let Some((cg, r)) = cigar {
+        (Some(cg), Some(r))
+    } else {
+        (None, None)
+    };
 
     Some(PafLine {
         query_name,

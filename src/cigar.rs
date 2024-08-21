@@ -10,7 +10,10 @@ pub mod implicit;
 pub type BoxedCigarIter<'a> = Box<dyn Iterator<Item = CigarIterItem> + 'a>;
 
 pub trait IndexedCigar {
-    // fn iter(&self) -> Box<dyn Iterator<Item = CigarIterItem> + '_>;
+    fn is_empty(&self) -> bool {
+        self.whole_cigar().next().is_none()
+    }
+
     fn whole_cigar(&self) -> Box<dyn Iterator<Item = (CigarOp, u32)> + '_>;
 
     fn iter_target_range(
@@ -20,7 +23,10 @@ pub trait IndexedCigar {
 }
 
 impl IndexedCigar for CigarIndex {
-    // fn iter(&self) -> Box<dyn Iterator<Item = CigarIterItem> + '_> {
+    fn is_empty(&self) -> bool {
+        self.cigar.0.is_empty()
+    }
+
     fn whole_cigar(&self) -> Box<dyn Iterator<Item = (CigarOp, u32)> + '_> {
         let iter = self.cigar.iter();
         Box::new(iter)
@@ -32,6 +38,26 @@ impl IndexedCigar for CigarIndex {
     ) -> Box<dyn Iterator<Item = CigarIterItem> + '_> {
         let iter = self.iter_target_range_impl(target_range);
         Box::new(iter)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct NoCigar;
+
+impl IndexedCigar for NoCigar {
+    fn is_empty(&self) -> bool {
+        true
+    }
+
+    fn whole_cigar(&self) -> Box<dyn Iterator<Item = (CigarOp, u32)> + '_> {
+        Box::new(std::iter::empty())
+    }
+
+    fn iter_target_range(
+        &self,
+        _target_range: std::ops::Range<u64>,
+    ) -> Box<dyn Iterator<Item = CigarIterItem> + '_> {
+        Box::new(std::iter::empty())
     }
 }
 
@@ -478,7 +504,11 @@ impl CigarIndex {
         paf_line: &crate::PafLine<&str>,
         // target_seq_id: usize,
         // query_seq_id: usize,
-    ) -> Self {
+    ) -> Option<Self> {
+        let cigar = paf_line.cigar.as_ref()?;
+        if paf_line.cigar_file_range.is_none() {
+            return None;
+        }
         let query_strand = if paf_line.strand_rev {
             Strand::Reverse
         } else {
@@ -488,7 +518,12 @@ impl CigarIndex {
         let target_len = paf_line.tgt_seq_end - paf_line.tgt_seq_start;
         let query_len = paf_line.query_seq_end - paf_line.query_seq_start;
 
-        Self::from_cigar_string(&paf_line.cigar, target_len, query_len, query_strand)
+        Some(Self::from_cigar_string(
+            cigar,
+            target_len,
+            query_len,
+            query_strand,
+        ))
     }
 }
 
