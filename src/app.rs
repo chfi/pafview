@@ -304,8 +304,21 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
 
     let mut viewer_app = App::new();
 
+    let paf_file_name = args
+        .paf
+        .file_name()
+        .map(|n| format!(" - {}", n.to_string_lossy()))
+        .unwrap_or_default();
+    let window_title = format!("pafview - {paf_file_name}");
+
     viewer_app
-        .add_plugins(DefaultPlugins)
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                title: window_title,
+                ..default()
+            }),
+            ..default()
+        }))
         .add_plugins(PolylinePlugin)
         .insert_resource(ClearColor(Color::WHITE))
         .insert_resource(app.app_config)
