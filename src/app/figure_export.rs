@@ -24,7 +24,7 @@ impl Plugin for FigureExportPlugin {
             )
             .add_systems(
                 PreUpdate,
-                swap_egui_textures.before(super::render::update_alignment_display_target),
+                swap_egui_textures.before(super::render::swap_rendered_alignment_viewer_images),
             );
 
         // app.add_systems(

@@ -81,29 +81,36 @@ impl Plugin for AlignmentRendererPlugin {
             .add_systems(
                 PreUpdate,
                 (
+                    update_alignment_shader_config,
                     swap_rendered_alignment_viewer_images,
-                    update_swapped_viewer_sprite.after(swap_rendered_alignment_viewer_images),
+                    (
+                        resize_alignment_viewer_back_image,
+                        update_swapped_viewer_sprite,
+                        update_alignment_display_transform, // MainAlignmentView only
+                    )
+                        .after(swap_rendered_alignment_viewer_images),
                 ),
             )
-            .add_systems(Startup, setup_main_alignment_display_image)
-            .add_systems(PreUpdate, create_override_material_assets)
             .add_systems(
-                PreUpdate,
-                (
-                    update_alignment_display_target,
-                    update_alignment_shader_config,
-                ),
+                Startup,
+                setup_main_alignment_viewer.after(prepare_alignment_grid_layout_materials),
             )
             .add_systems(PreUpdate, update_main_alignment_image_view)
+            // .add_systems(Startup, setup_main_alignment_display_image)
+            // .add_systems(PreUpdate, create_override_material_assets)
+            // .add_systems(
+            //     PreUpdate,
+            //     (
+            //     ),
+            // )
             .add_systems(
                 Update,
-                (
-                    update_main_alignment_image_view,
-                    trigger_render,
-                    update_alignment_display_transform,
-                )
-                    .chain()
+                trigger_alignment_viewer_line_render
                     .after(super::view::update_camera_from_viewport),
+                // Update,
+                // (trigger_render, update_alignment_display_transform)
+                //     .chain()
+                //     .after(super::view::update_camera_from_viewport),
             );
     }
 
@@ -117,11 +124,13 @@ impl Plugin for AlignmentRendererPlugin {
                     .chain()
                     .in_set(RenderSet::Prepare),
             )
-            .add_systems(ExtractSchedule, extract_alignment_position_overrides)
-            .add_systems(
-                Render,
-                (queue_alignment_draw, queue_alignment_draw_overrides).in_set(RenderSet::Render),
-            )
+            // .add_systems(ExtractSchedule, extract_alignment_position_overrides)
+            // .add_systems(ExtractSchedule, extract_)
+            .add_systems(Render, queue_draw_alignment_lines.in_set(RenderSet::Render))
+            // .add_systems(
+            //     Render,
+            //     (queue_alignment_draw, queue_alignment_draw_overrides).in_set(RenderSet::Render),
+            // )
             .add_systems(Render, cleanup_finished_renders.in_set(RenderSet::Cleanup));
     }
 }
@@ -132,6 +141,7 @@ pub struct AlignmentViewer {
     rendered_view: Option<crate::view::View>,
     last_render_time: Option<std::time::Instant>,
 
+    pub image_size: UVec2,
     pub background_color: Color,
 }
 
@@ -218,13 +228,11 @@ fn prepare_alignment_grid_layout_materials(
     });
 }
 
-fn spawn_alignment_viewer_grid_layout(
-    mut commands: Commands,
+fn spawn_alignment_viewer_grid_layout<'a>(
+    commands: &'a mut Commands,
     mut images: ResMut<Assets<Image>>,
     grid_layout: Res<AlignmentGridLayout>,
-) -> Entity {
-    use bevy_mod_picking::prelude::*;
-
+) -> EntityCommands<'a> {
     let size = wgpu::Extent3d {
         width: 512,
         height: 512,
@@ -255,10 +263,6 @@ fn spawn_alignment_viewer_grid_layout(
     let back_h = images.add(back_image);
 
     let mut display_sprite = commands.spawn((
-        Pickable {
-            should_block_lower: false,
-            is_hoverable: false,
-        },
         AlignmentViewer::default(),
         AlignmentViewerImages {
             front: front_h,
@@ -271,10 +275,10 @@ fn spawn_alignment_viewer_grid_layout(
         parent.spawn((grid_layout.line_only.clone(), LineOnlyAlignment));
     });
     //
-    display_sprite.id()
+    display_sprite
 }
 
-fn swap_rendered_alignment_viewer_images(
+pub(crate) fn swap_rendered_alignment_viewer_images(
     mut commands: Commands,
 
     mut viewers: Query<(
@@ -312,6 +316,36 @@ fn update_swapped_viewer_sprite(
     }
 }
 
+fn setup_main_alignment_viewer(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+
+    grid_layout: Res<AlignmentGridLayout>,
+) {
+    use bevy_mod_picking::prelude::*;
+
+    let mut viewer = spawn_alignment_viewer_grid_layout(&mut commands, images, grid_layout);
+
+    viewer.insert((
+        MainAlignmentView,
+        Pickable {
+            should_block_lower: false,
+            is_hoverable: false,
+        },
+        RenderLayers::layer(1),
+        SpriteBundle {
+            sprite: Sprite {
+                color: Color::WHITE,
+                ..default()
+            },
+            // texture: img_handle.clone(),
+            transform: Transform::IDENTITY,
+            ..default()
+        },
+    ));
+}
+
+/*
 fn setup_main_alignment_display_image(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     //
 
@@ -368,6 +402,7 @@ fn setup_main_alignment_display_image(mut commands: Commands, mut images: ResMut
         },
     ));
 }
+*/
 
 fn update_main_alignment_image_view(
     alignment_viewport: Res<AlignmentViewport>,
@@ -381,6 +416,7 @@ fn update_main_alignment_image_view(
 // checks all alignment display sprites that have an `AlignmentRenderTarget`
 // signaling a render in progress; if the render is complete, the sprite texture
 // is flipped to the new render and the `AlignmentRenderTarget` component removed
+/*
 pub(super) fn update_alignment_display_target(
     mut commands: Commands,
 
@@ -408,6 +444,7 @@ pub(super) fn update_alignment_display_target(
         commands.entity(entity).remove::<AlignmentRenderTarget>();
     }
 }
+*/
 
 fn update_alignment_display_transform(
     images: Res<Assets<Image>>,
@@ -471,6 +508,7 @@ impl Default for AlignmentViewer {
             rendered_view: None,
             last_render_time: None,
             background_color: Color::NONE,
+            image_size: [512, 512].into(),
         }
     }
 }
@@ -580,6 +618,70 @@ fn update_vertex_uniforms(
             .config_buffer
             .write_buffer(&render_device, &render_queue);
         // }
+    }
+}
+
+fn resize_alignment_viewer_back_image(
+    mut images: ResMut<Assets<Image>>,
+
+    viewers: Query<(&AlignmentViewer, &AlignmentViewerImages), Changed<AlignmentViewer>>,
+) {
+    for (viewer, viewer_imgs) in viewers.iter() {
+        let Some(img) = images.get_mut(&viewer_imgs.back) else {
+            continue;
+        };
+
+        let set_size = viewer.image_size;
+        if img.size() != set_size {
+            img.resize(wgpu::Extent3d {
+                width: set_size.x,
+                height: set_size.y,
+                depth_or_array_layers: 1,
+            });
+        }
+    }
+}
+
+fn trigger_alignment_viewer_line_render(
+    mut commands: Commands,
+
+    frame_count: Res<bevy::core::FrameCount>,
+    shader_config: Res<AlignmentShaderConfig>,
+
+    viewers: Query<
+        (Entity, &AlignmentViewer, &AlignmentViewerImages),
+        Without<AlignmentRenderTarget>,
+    >,
+) {
+    if frame_count.0 < 3 {
+        return;
+    }
+
+    for (viewer_ent, viewer, viewer_imgs) in viewers.iter() {
+        // this could be handled with a timer...
+        // & the delay shouldn't be built-in to every viewer (though it shouldn't matter)
+        if let Some(ms_since_last_render) = viewer.last_render_time.map(|t| t.elapsed().as_millis())
+        {
+            if ms_since_last_render < 10 {
+                return;
+            }
+        }
+
+        if let Some(next_view) = viewer.next_view {
+            let changed_view = viewer.rendered_view != Some(next_view);
+            if changed_view || shader_config.is_changed() {
+                // println!(
+                //     "triggering render for {sprite_ent:?}\t\
+                //     view changed: {changed_view}, resized: {resized}"
+                // );
+                commands.entity(viewer_ent).insert(AlignmentRenderTarget {
+                    alignment_view: next_view,
+                    canvas_size: viewer.image_size,
+                    image: viewer_imgs.back.clone(),
+                    is_ready: Arc::new(false.into()),
+                });
+            }
+        }
     }
 }
 
@@ -1359,6 +1461,8 @@ fn queue_draw_alignment_lines(
 
     layout_mats: Res<RenderAssets<AlignmentLayoutMaterials>>,
 
+    children: Query<&Children>,
+
     targets: Query<
         (
             Entity,
@@ -1372,15 +1476,19 @@ fn queue_draw_alignment_lines(
 
     alignments: Query<(&Handle<AlignmentLayoutMaterials>, Has<LineOnlyAlignment>)>,
 ) {
+    println!("children is empty: {}", children.is_empty());
     let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline) else {
         return;
     };
+    println!("in queue_draw_alignment_lines");
 
     for (tgt_entity, viewer, render_target, vx_bind_group, children) in targets.iter() {
         //
         let Some(view) = viewer.next_view else {
             continue;
         };
+
+        println!("rendering view {view:?}");
 
         let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("AlignmentRenderer".into()),
@@ -1418,6 +1526,7 @@ fn queue_draw_alignment_lines(
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, &vx_bind_group.group_0, &[]);
 
+            println!("iterating children");
             for &child in children.iter() {
                 let Ok((mats, line_only)) = alignments.get(child) else {
                     continue;
@@ -1434,6 +1543,7 @@ fn queue_draw_alignment_lines(
                     continue;
                 };
 
+                println!("iterating materials");
                 for (alignment, mat) in mats.materials.iter() {
                     let Some(verts) = mats.vertices.get(alignment) else {
                         continue;
@@ -1450,6 +1560,7 @@ fn queue_draw_alignment_lines(
                     pass.set_bind_group(2, &mat.bind_groups.group_2, &[]);
                     pass.set_vertex_buffer(0, wgpu::Buffer::slice(&verts.vertex_buffer, ..));
 
+                    println!("draw!");
                     pass.draw(0..6, 0..verts.segment_count);
                 }
             }
