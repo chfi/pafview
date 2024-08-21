@@ -38,14 +38,14 @@ pub struct PafViewerApp {
     pub app_config: config::AppConfig,
 }
 
-#[derive(Debug, Clone)]
-pub enum AppEvent {
-    LoadAnnotationFile { path: std::path::PathBuf },
-    // AnnotationShapeDisplay {
-    //     shape_id: annotations::draw::AnnotShapeId,
-    //     enable: Option<bool>,
-    // },
+// #[derive(Debug, Clone)]
+// pub enum AppEvent {
+//     LoadAnnotationFile { path: std::path::PathBuf },
+//     // AnnotationShapeDisplay {
+//     //     shape_id: annotations::draw::AnnotShapeId,
+//     //     enable: Option<bool>,
+//     // },
 
-    // idk if this is a good idea but worth a try
-    RequestSelection { target: regions::SelectionTarget },
-}
+//     // idk if this is a good idea but worth a try
+//     RequestSelection { target: regions::SelectionTarget },
+// }

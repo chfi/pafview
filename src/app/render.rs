@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bevy::{
-    ecs::system::lifetimeless::SRes,
+    ecs::system::{lifetimeless::SRes, EntityCommands},
     prelude::*,
     render::{
         extract_component::{ExtractComponent, ExtractComponentPlugin},
@@ -25,7 +25,6 @@ use wgpu::{util::BufferInitDescriptor, ColorWrites, ShaderStages, VertexStepMode
 
 use crate::{
     math_conv::{ConvertFloat32, ConvertVec2},
-    paf::AlignmentIndex,
     render::color::AlignmentColorScheme,
     CigarOp,
 };
@@ -69,7 +68,7 @@ impl Plugin for AlignmentRendererPlugin {
                 brightness: 1.0,
             })
             .init_resource::<AlignmentVerticesIndex>()
-            .add_plugins(ExtractComponentPlugin::<AlignmentDisplayImage>::default())
+            .add_plugins(ExtractComponentPlugin::<AlignmentViewer>::default())
             .add_plugins(ExtractComponentPlugin::<AlignmentRenderTarget>::default())
             .add_plugins(ExtractResourcePlugin::<AlignmentShaderConfig>::default())
             .add_systems(Startup, setup_main_alignment_display_image)
@@ -113,9 +112,17 @@ impl Plugin for AlignmentRendererPlugin {
     }
 }
 
-#[derive(Resource, Default)]
-pub struct AlignmentVerticesIndex {
-    pub vertices: HashMap<AlignmentIndex, Handle<AlignmentVertices>>,
+#[derive(Debug, Component, ExtractComponent, Clone)]
+pub struct AlignmentViewer {
+    pub next_view: Option<crate::view::View>,
+    rendered_view: Option<crate::view::View>,
+    last_render_time: Option<std::time::Instant>,
+
+    pub background_color: Color,
+}
+
+fn spawn_alignment_viewer(mut commands: Commands) -> Entity {
+    todo!();
 }
 
 // NB: for now the shader config is shared by all alignment display images
@@ -174,7 +181,7 @@ fn setup_main_alignment_display_image(mut commands: Commands, mut images: ResMut
             should_block_lower: false,
             is_hoverable: false,
         },
-        AlignmentDisplayImage::default(),
+        AlignmentViewer::default(),
         AlignmentDisplayBackImage {
             image: back_img_handle.clone(),
         },
@@ -193,7 +200,7 @@ fn setup_main_alignment_display_image(mut commands: Commands, mut images: ResMut
 
 fn update_main_alignment_image_view(
     alignment_viewport: Res<AlignmentViewport>,
-    mut sprites: Query<&mut AlignmentDisplayImage, With<MainAlignmentView>>,
+    mut sprites: Query<&mut AlignmentViewer, With<MainAlignmentView>>,
 ) {
     for mut display_img in sprites.iter_mut() {
         display_img.next_view = Some(alignment_viewport.view);
@@ -210,7 +217,7 @@ pub(super) fn update_alignment_display_target(
         Entity,
         &mut Handle<Image>,
         &AlignmentRenderTarget,
-        &mut AlignmentDisplayImage,
+        &mut AlignmentViewer,
         &mut AlignmentDisplayBackImage,
     )>,
 ) {
@@ -240,7 +247,7 @@ fn update_alignment_display_transform(
             &mut Transform,
             &mut Sprite,
             &Handle<Image>,
-            &AlignmentDisplayImage,
+            &AlignmentViewer,
         ),
         With<MainAlignmentView>,
     >,
@@ -286,16 +293,16 @@ pub struct AlignmentColor {
     pub color_scheme: AlignmentColorScheme,
 }
 
-#[derive(Debug, Component, ExtractComponent, Clone)]
-pub struct AlignmentDisplayImage {
-    pub next_view: Option<crate::view::View>,
-    rendered_view: Option<crate::view::View>,
-    last_render_time: Option<std::time::Instant>,
+// #[derive(Debug, Component, ExtractComponent, Clone)]
+// pub struct AlignmentViewer {
+//     pub next_view: Option<crate::view::View>,
+//     rendered_view: Option<crate::view::View>,
+//     last_render_time: Option<std::time::Instant>,
 
-    pub background_color: Color,
-}
+//     pub background_color: Color,
+// }
 
-impl Default for AlignmentDisplayImage {
+impl Default for AlignmentViewer {
     fn default() -> Self {
         Self {
             next_view: None,
@@ -306,7 +313,7 @@ impl Default for AlignmentDisplayImage {
     }
 }
 
-impl AlignmentDisplayImage {
+impl AlignmentViewer {
     pub fn with_bg_color(&self, color: Color) -> Self {
         Self {
             next_view: self.next_view,
@@ -348,7 +355,7 @@ fn init_display_image_vertex_bind_group(
     render_queue: Res<RenderQueue>,
     pipeline: Res<AlignmentPolylinePipeline>,
 
-    sprites: Query<Entity, Added<AlignmentDisplayImage>>,
+    sprites: Query<Entity, Added<AlignmentViewer>>,
 ) {
     for entity in sprites.iter() {
         let mut proj_buffer: UniformBuffer<_> = Mat4::IDENTITY.into();
@@ -418,7 +425,7 @@ fn trigger_render(
 
     windows: Query<&Window>,
     display_sprites: Query<
-        (Entity, &AlignmentDisplayImage, &AlignmentDisplayBackImage),
+        (Entity, &AlignmentViewer, &AlignmentDisplayBackImage),
         (With<MainAlignmentView>, Without<AlignmentRenderTarget>),
     >,
 ) {
@@ -847,7 +854,7 @@ fn queue_alignment_draw(
         (
             Entity,
             &AlignmentRenderTarget,
-            &AlignmentDisplayImage,
+            &AlignmentViewer,
             &VertexBindGroup,
         ),
         (
@@ -948,9 +955,9 @@ fn cleanup_finished_renders(
 
 #[derive(Debug, Component, Clone)]
 pub struct AlignmentPositionOverrides {
-    positions: HashMap<AlignmentIndex, Vec2>,
-    materials: HashMap<AlignmentIndex, Handle<AlignmentPolylineMaterial>>,
-    vertices: HashMap<AlignmentIndex, Handle<AlignmentVertices>>,
+    positions: HashMap<super::alignments::Alignment, Vec2>,
+    materials: HashMap<super::alignments::Alignment, Handle<AlignmentPolylineMaterial>>,
+    vertices: HashMap<super::alignments::Alignment, Handle<AlignmentVertices>>,
 }
 
 fn create_override_material_assets(
@@ -962,11 +969,12 @@ fn create_override_material_assets(
     mut overrides: Query<&mut AlignmentPositionOverrides, Changed<AlignmentPositionOverrides>>,
 ) {
     for mut overrides in overrides.iter_mut() {
+        let overrides = overrides.bypass_change_detection();
         let mut override_mats = Vec::with_capacity(overrides.positions.len());
 
         for (&ix, &pos) in overrides.positions.iter() {
             let model = Transform::from_xyz(pos.x, pos.y, 0.0).compute_matrix();
-            let color_scheme = color_schemes.colors.get(ix).clone();
+            let color_scheme = color_schemes.get(&ix).clone();
 
             let mat = AlignmentPolylineMaterial {
                 color_scheme,
@@ -986,8 +994,8 @@ fn create_override_material_assets(
 
 #[derive(Debug, Component)]
 struct ExtractedAlignmentMaterialOverrides {
-    materials: HashMap<AlignmentIndex, Handle<AlignmentPolylineMaterial>>,
-    vertices: HashMap<AlignmentIndex, Handle<AlignmentVertices>>,
+    materials: HashMap<super::alignments::Alignment, Handle<AlignmentPolylineMaterial>>,
+    vertices: HashMap<super::alignments::Alignment, Handle<AlignmentVertices>>,
 }
 
 fn extract_alignment_position_overrides(
@@ -1026,7 +1034,7 @@ fn queue_alignment_draw_overrides(
         (
             Entity,
             &AlignmentRenderTarget,
-            &AlignmentDisplayImage,
+            &AlignmentViewer,
             &VertexBindGroup,
             &ExtractedAlignmentMaterialOverrides,
         ),
@@ -1107,3 +1115,78 @@ fn queue_alignment_draw_overrides(
         commands.entity(tgt_entity).insert(Rendering);
     }
 }
+
+#[derive(Resource, Default)]
+pub struct AlignmentVerticesIndex {
+    pub vertices: HashMap<super::alignments::Alignment, Handle<AlignmentVertices>>,
+}
+
+#[derive(Debug)]
+pub struct AlignmentLayoutMaterials {
+    materials: HashMap<super::alignments::Alignment, Handle<AlignmentPolylineMaterial>>,
+    vertices: HashMap<super::alignments::Alignment, Handle<AlignmentVertices>>,
+}
+
+impl AlignmentLayoutMaterials {
+    pub fn from_positions_iter(
+        material_store: &mut Assets<AlignmentPolylineMaterial>,
+        vertex_index: &AlignmentVerticesIndex,
+
+        color_schemes: &super::AlignmentColorSchemes,
+        grid: &crate::AlignmentGrid,
+        positions: impl IntoIterator<Item = (super::alignments::Alignment, Vec2)>,
+    ) -> Self {
+        let mut materials = HashMap::default();
+        let mut vertices = HashMap::default();
+
+        for (alignment, pos) in positions {
+            let Some(verts) = vertex_index.vertices.get(&alignment) else {
+                continue;
+            };
+        }
+
+        Self {
+            materials,
+            vertices,
+        }
+    }
+}
+
+/*
+fn extract_alignment_layout(
+    mut commands: Commands,
+
+    layout_query: Extract<
+        Query<
+            (
+                Entity,
+                &AlignmentLayout,
+                //
+            ),
+            Changed<AlignmentLayout>,
+        >,
+    >,
+
+    // layouts:
+    extracted_layouts: Query<(Entity, &ExtractedAlignmentLayout)>,
+) {
+
+    for (entity, layout) in layout_query.iter() {
+
+        // let mut
+
+
+    }
+
+    todo!();
+}
+
+#[derive(Debug, Component)]
+struct ExtractedAlignmentLayout {
+    positions: HashMap<super::alignments::Alignment, Vec2>,
+    assets: HashMap<
+        super::alignments::Alignment,
+        (Handle<AlignmentPolylineMaterial>, Handle<AlignmentVertices>),
+    >,
+}
+*/

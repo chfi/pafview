@@ -1,56 +1,31 @@
-use bimap::BiMap;
 use bytemuck::{Pod, Zeroable};
 use clap::Parser;
-use egui_wgpu::ScreenDescriptor;
 use grid::AlignmentGrid;
-use paf::Alignments;
-use regions::SelectionHandler;
-use rustc_hash::FxHashMap;
-use sequences::Sequences;
-use std::{
-    borrow::Cow,
-    str::FromStr,
-    sync::{atomic::AtomicBool, Arc},
-};
-use ultraviolet::{DVec2, Mat4, Vec2, Vec3};
-use wgpu::util::{BufferInitDescriptor, DeviceExt};
-use winit::{
-    event::{ElementState, Event, Modifiers, MouseButton, WindowEvent},
-    event_loop::{EventLoop, EventLoopBuilder},
-    keyboard::{KeyCode, PhysicalKey},
-    window::Window,
-};
+use winit::{event::ElementState, keyboard::KeyCode};
 
-use std::io::prelude::*;
-
-use anyhow::anyhow;
-
+use pafview::cigar;
+use pafview::paf;
 use pafview::pixels;
-use pafview::{cigar, AppEvent};
-use pafview::{math_conv, PafViewerApp};
-use pafview::{paf, render::color::PafColorSchemes};
+use pafview::PafViewerApp;
 
 use pafview::config;
-use pafview::config::AppConfig;
 
-use pafview::annotations;
-use pafview::cli;
+// use pafview::annotations;
+// use pafview::cli;
 use pafview::grid;
-use pafview::gui;
-use pafview::regions;
+// use pafview::gui;
+// use pafview::regions;
 use pafview::render;
-use pafview::sequences;
+// use pafview::sequences;
 use pafview::view;
 
-use cigar::*;
-use paf::PafLine;
-use pixels::*;
-use render::*;
-use view::View;
+// use cigar::*;
+// use paf::PafLine;
+// use pixels::*;
+// use render::*;
+// use view::View;
 
-use pafview::{
-    annotations::AnnotationStore, gui::AppWindowStates, paf::parse_paf_line, sequences::SeqId,
-};
+use pafview::annotations::AnnotationStore;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct AlignedSeq {

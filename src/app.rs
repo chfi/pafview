@@ -100,6 +100,19 @@ pub struct AlignmentColorSchemes {
     colors: PafColorSchemes,
 }
 
+impl AlignmentColorSchemes {
+    pub fn get(
+        &self,
+        alignment: &alignments::Alignment,
+    ) -> &crate::render::color::AlignmentColorScheme {
+        let alignment = AlignmentIndex {
+            pair: (alignment.target, alignment.query),
+            index: alignment.pair_index,
+        };
+        self.colors.get(alignment)
+    }
+}
+
 #[derive(Resource)]
 pub struct AlignmentRenderConfig {
     base_level_render_min_bp_per_px: f32,
@@ -379,13 +392,13 @@ fn prepare_alignments(
 
                     let vx_handle = alignment_vertices.add(vertices);
 
-                    vertex_index.vertices.insert(al_ix, vx_handle.clone());
-
                     let al_comp = alignments::Alignment {
                         target: alignment.target_id,
                         query: alignment.query_id,
                         pair_index: ix,
                     };
+
+                    vertex_index.vertices.insert(al_comp, vx_handle.clone());
 
                     let al_entity = parent
                         .spawn((

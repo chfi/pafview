@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_mod_picking::prelude::*;
 use picking_core::PickSet;
 
-use super::render::AlignmentDisplayImage;
+use super::render::AlignmentViewer;
 
 pub struct PickingPlugin;
 
@@ -32,7 +32,7 @@ pub fn alignment_picking_grid(
     // need user interaction w/ alignments... so probably just the
     // main display image, but maybe some type of splitscreen view later
     targets: Query<
-        &AlignmentDisplayImage,
+        &AlignmentViewer,
         //
         With<super::render::MainAlignmentView>,
     >,

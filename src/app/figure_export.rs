@@ -6,7 +6,7 @@ use bevy_egui::{EguiContexts, EguiUserTextures};
 use crate::paf::AlignmentIndex;
 
 use super::{
-    render::{AlignmentDisplayBackImage, AlignmentDisplayImage, AlignmentRenderTarget},
+    render::{AlignmentDisplayBackImage, AlignmentRenderTarget, AlignmentViewer},
     view::AlignmentViewport,
 };
 
@@ -14,7 +14,8 @@ pub struct FigureExportPlugin;
 
 impl Plugin for FigureExportPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_figure_export_window)
+        app.init_resource::<FigureExportWindowOpen>()
+            .add_systems(Startup, setup_figure_export_window)
             .add_systems(
                 PreUpdate,
                 (update_egui_textures, show_figure_export_window)
@@ -38,6 +39,11 @@ impl Plugin for FigureExportPlugin {
         //     },
         // );
     }
+}
+
+#[derive(Debug, Default, Resource, Reflect)]
+pub struct FigureExportWindowOpen {
+    pub is_open: bool,
 }
 
 // initializes the figure export window object and relevant assets (image for rendering etc.)
@@ -74,7 +80,7 @@ fn setup_figure_export_window(mut commands: Commands, mut images: ResMut<Assets<
     let display_img = commands
         .spawn((
             FigureExportImage,
-            AlignmentDisplayImage::default().with_bg_color(Color::WHITE),
+            AlignmentViewer::default().with_bg_color(Color::WHITE),
             img_handle,
             AlignmentDisplayBackImage {
                 image: back_img_handle,
@@ -126,11 +132,7 @@ fn update_egui_textures(
     mut egui_textures: ResMut<EguiUserTextures>,
 
     mut fig_export: ResMut<FigureExportWindow>,
-    img_query: Query<(
-        &AlignmentDisplayImage,
-        &Handle<Image>,
-        &AlignmentDisplayBackImage,
-    )>,
+    img_query: Query<(&AlignmentViewer, &Handle<Image>, &AlignmentDisplayBackImage)>,
 ) {
     // the egui_textures field should be set to None when the images change (e.g. due to resize)
     // (and/or maybe this should be redesigned)
@@ -152,10 +154,11 @@ fn show_figure_export_window(
     mut commands: Commands,
     mut contexts: EguiContexts,
 
+    mut window_open: ResMut<FigureExportWindowOpen>,
     // mut is_rendering: Local<bool>,
     alignment_viewport: Res<AlignmentViewport>,
 
-    img_query: Query<(Entity, &AlignmentDisplayImage, &AlignmentDisplayBackImage)>,
+    img_query: Query<(Entity, &AlignmentViewer, &AlignmentDisplayBackImage)>,
     mut fig_export: ResMut<FigureExportWindow>,
 ) {
     let Ok((_disp_ent, _disp_image, back_image)) = img_query.get(fig_export.display_img) else {
@@ -172,6 +175,7 @@ fn show_figure_export_window(
     egui::Window::new("Figure Exporter")
         .default_width(600.0)
         .resizable(true)
+        .open(&mut window_open.is_open)
         .show(&ctx, |ui| {
             //
 
