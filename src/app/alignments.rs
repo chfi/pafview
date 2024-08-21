@@ -28,7 +28,7 @@ pub struct AlignmentEntityIndex(pub HashMap<Alignment, Entity>);
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
 pub struct SequencePairEntityIndex(pub HashMap<super::SequencePairTile, Entity>);
 
-#[derive(Debug, Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
 pub struct Alignment {
     pub query: SeqId,
     pub target: SeqId,

@@ -4,7 +4,9 @@ use bytemuck::{Pod, Zeroable};
 
 use rustc_hash::FxHashMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Pod, Zeroable)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Pod, Zeroable, bevy::prelude::Reflect,
+)]
 #[repr(C)]
 pub struct SeqId(pub usize);
 

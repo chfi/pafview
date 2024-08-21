@@ -63,6 +63,9 @@ impl Plugin for AlignmentRendererPlugin {
             .init_asset::<AlignmentPolylineMaterial>()
             .add_plugins(RenderAssetPlugin::<GpuAlignmentPolylineMaterial>::default())
             .add_plugins(ExtractComponentPlugin::<Handle<AlignmentPolylineMaterial>>::default())
+            .init_asset::<AlignmentLayoutMaterials>()
+            .add_plugins(RenderAssetPlugin::<AlignmentLayoutMaterials>::default())
+            .add_plugins(ExtractComponentPlugin::<Handle<AlignmentLayoutMaterials>>::default())
             .insert_resource(AlignmentShaderConfig {
                 line_width: 8.0,
                 brightness: 1.0,
@@ -292,15 +295,6 @@ fn update_alignment_display_transform(
 pub struct AlignmentColor {
     pub color_scheme: AlignmentColorScheme,
 }
-
-// #[derive(Debug, Component, ExtractComponent, Clone)]
-// pub struct AlignmentViewer {
-//     pub next_view: Option<crate::view::View>,
-//     rendered_view: Option<crate::view::View>,
-//     last_render_time: Option<std::time::Instant>,
-
-//     pub background_color: Color,
-// }
 
 impl Default for AlignmentViewer {
     fn default() -> Self {
@@ -972,16 +966,16 @@ fn create_override_material_assets(
         let overrides = overrides.bypass_change_detection();
         let mut override_mats = Vec::with_capacity(overrides.positions.len());
 
-        for (&ix, &pos) in overrides.positions.iter() {
+        for (&alignment, &pos) in overrides.positions.iter() {
             let model = Transform::from_xyz(pos.x, pos.y, 0.0).compute_matrix();
-            let color_scheme = color_schemes.get(&ix).clone();
+            let color_scheme = color_schemes.get(&alignment).clone();
 
             let mat = AlignmentPolylineMaterial {
                 color_scheme,
                 model,
             };
 
-            override_mats.push((ix, materials.add(mat)));
+            override_mats.push((alignment, materials.add(mat)));
         }
 
         for (ix, mat_handle) in override_mats {
@@ -1116,24 +1110,38 @@ fn queue_alignment_draw_overrides(
     }
 }
 
+#[derive(Debug, Component)]
+pub struct LineOnlyAlignment;
+
 #[derive(Resource, Default)]
 pub struct AlignmentVerticesIndex {
     pub vertices: HashMap<super::alignments::Alignment, Handle<AlignmentVertices>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Asset, Clone, Reflect)]
 pub struct AlignmentLayoutMaterials {
     materials: HashMap<super::alignments::Alignment, Handle<AlignmentPolylineMaterial>>,
     vertices: HashMap<super::alignments::Alignment, Handle<AlignmentVertices>>,
+}
+
+impl RenderAsset for AlignmentLayoutMaterials {
+    type SourceAsset = Self;
+
+    type Param = ();
+
+    fn prepare_asset(
+        source_asset: Self::SourceAsset,
+        _param: &mut bevy::ecs::system::SystemParamItem<Self::Param>,
+    ) -> Result<Self, PrepareAssetError<Self::SourceAsset>> {
+        Ok(source_asset)
+    }
 }
 
 impl AlignmentLayoutMaterials {
     pub fn from_positions_iter(
         material_store: &mut Assets<AlignmentPolylineMaterial>,
         vertex_index: &AlignmentVerticesIndex,
-
         color_schemes: &super::AlignmentColorSchemes,
-        grid: &crate::AlignmentGrid,
         positions: impl IntoIterator<Item = (super::alignments::Alignment, Vec2)>,
     ) -> Self {
         let mut materials = HashMap::default();
@@ -1143,12 +1151,143 @@ impl AlignmentLayoutMaterials {
             let Some(verts) = vertex_index.vertices.get(&alignment) else {
                 continue;
             };
+
+            let model = Transform::from_xyz(pos.x, pos.y, 0.0).compute_matrix();
+            let color_scheme = color_schemes.get(&alignment).clone();
+
+            let mat = AlignmentPolylineMaterial {
+                color_scheme,
+                model,
+            };
+
+            materials.insert(alignment, material_store.add(mat));
+            vertices.insert(alignment, verts.clone());
         }
 
         Self {
             materials,
             vertices,
         }
+    }
+}
+
+fn queue_draw_alignment_lines(
+    mut commands: Commands,
+
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    pipeline_cache: Res<PipelineCache>,
+    pipeline: Res<AlignmentPolylinePipeline>,
+
+    gpu_images: Res<RenderAssets<GpuImage>>,
+    gpu_vertices: Res<RenderAssets<GpuAlignmentVertices>>,
+    gpu_materials: Res<RenderAssets<GpuAlignmentPolylineMaterial>>,
+
+    layout_mats: Res<RenderAssets<AlignmentLayoutMaterials>>,
+
+    targets: Query<
+        (
+            Entity,
+            &AlignmentViewer,
+            &AlignmentRenderTarget,
+            &VertexBindGroup,
+            &Children,
+        ),
+        Without<Rendering>,
+    >,
+
+    alignments: Query<(&Handle<AlignmentLayoutMaterials>, Has<LineOnlyAlignment>)>,
+) {
+    let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline) else {
+        return;
+    };
+
+    for (tgt_entity, viewer, render_target, vx_bind_group, children) in targets.iter() {
+        //
+        let Some(view) = viewer.next_view else {
+            continue;
+        };
+
+        let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("AlignmentRenderer".into()),
+        });
+
+        let tgt_handle = &render_target.image;
+        let tgt_img = gpu_images.get(tgt_handle).unwrap();
+
+        let bp_per_px = (view.width() / tgt_img.size.x as f64) as f32;
+
+        let bg = viewer.background_color.to_srgba();
+        let clear_color = wgpu::Color {
+            r: bg.red as f64,
+            g: bg.green as f64,
+            b: bg.blue as f64,
+            a: bg.alpha as f64,
+        };
+        let attch = wgpu::RenderPassColorAttachment {
+            view: &tgt_img.texture_view,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(clear_color),
+                store: wgpu::StoreOp::Store,
+            },
+        };
+        // let
+
+        {
+            let mut pass = cmds.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("AlignmentRendererPass".into()),
+                color_attachments: &[Some(attch)],
+                ..default()
+            });
+
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, &vx_bind_group.group_0, &[]);
+
+            for &child in children.iter() {
+                let Ok((mats, line_only)) = alignments.get(child) else {
+                    continue;
+                };
+
+                // TODO `super::AlignmentRenderConfig` has the `base_level...min_bp_per_px`
+                // value, but it's not extracted into the render world & should be reorganized
+                // so i'll just hardcode it for now (might need to take DPI scaling into account)
+                if bp_per_px > 1.0 && !line_only {
+                    continue;
+                }
+
+                let Some(mats) = layout_mats.get(mats) else {
+                    continue;
+                };
+
+                for (alignment, mat) in mats.materials.iter() {
+                    let Some(verts) = mats.vertices.get(alignment) else {
+                        continue;
+                    };
+
+                    let gpu_mat = gpu_materials.get(mat);
+                    let gpu_verts = gpu_vertices.get(verts);
+
+                    let Some((mat, verts)) = gpu_mat.zip(gpu_verts) else {
+                        continue;
+                    };
+
+                    pass.set_bind_group(1, &mat.bind_groups.group_1, &[]);
+                    pass.set_bind_group(2, &mat.bind_groups.group_2, &[]);
+                    pass.set_vertex_buffer(0, wgpu::Buffer::slice(&verts.vertex_buffer, ..));
+
+                    pass.draw(0..6, 0..verts.segment_count);
+                }
+            }
+        }
+
+        render_queue.0.submit([cmds.finish()]);
+
+        let is_ready = render_target.is_ready.clone();
+        render_queue.0.on_submitted_work_done(move || {
+            is_ready.store(true);
+        });
+        commands.entity(tgt_entity).insert(Rendering);
     }
 }
 
