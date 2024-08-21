@@ -74,6 +74,17 @@ impl Plugin for AlignmentRendererPlugin {
             .add_plugins(ExtractComponentPlugin::<AlignmentViewer>::default())
             .add_plugins(ExtractComponentPlugin::<AlignmentRenderTarget>::default())
             .add_plugins(ExtractResourcePlugin::<AlignmentShaderConfig>::default())
+            .add_systems(
+                Startup,
+                prepare_alignment_grid_layout_materials.after(super::prepare_alignments),
+            )
+            .add_systems(
+                PreUpdate,
+                (
+                    swap_rendered_alignment_viewer_images,
+                    update_swapped_viewer_sprite.after(swap_rendered_alignment_viewer_images),
+                ),
+            )
             .add_systems(Startup, setup_main_alignment_display_image)
             .add_systems(PreUpdate, create_override_material_assets)
             .add_systems(
@@ -124,10 +135,6 @@ pub struct AlignmentViewer {
     pub background_color: Color,
 }
 
-fn spawn_alignment_viewer(mut commands: Commands) -> Entity {
-    todo!();
-}
-
 // NB: for now the shader config is shared by all alignment display images
 fn update_alignment_shader_config(
     app_config: Res<crate::config::AppConfig>,
@@ -143,6 +150,167 @@ fn update_alignment_shader_config(
 // marker for alignment images that are linked to the main viewport
 #[derive(Debug, Component)]
 pub struct MainAlignmentView;
+
+#[derive(Resource)]
+pub struct AlignmentGridLayout {
+    line_only: Handle<AlignmentLayoutMaterials>,
+    with_base_level: Handle<AlignmentLayoutMaterials>,
+}
+
+fn prepare_alignment_grid_layout_materials(
+    mut commands: Commands,
+    mut alignment_mats: ResMut<Assets<AlignmentPolylineMaterial>>,
+    mut layout_mats: ResMut<Assets<AlignmentLayoutMaterials>>,
+
+    alignments: Res<crate::Alignments>,
+    grid: Res<crate::AlignmentGrid>,
+
+    color_schemes: Res<super::AlignmentColorSchemes>,
+    vertex_index: Res<AlignmentVerticesIndex>,
+) {
+    let mut line_only_pos = Vec::new();
+    let mut with_base_level_pos = Vec::new();
+
+    for (&(target_id, query_id), aligns) in alignments.pairs.iter() {
+        let x_range = grid.x_axis.sequence_axis_range(target_id);
+        let y_range = grid.y_axis.sequence_axis_range(query_id);
+
+        let Some((x_range, y_range)) = x_range.zip(y_range) else {
+            continue;
+        };
+
+        let x0 = x_range.start as f64;
+        let y0 = y_range.start as f64;
+        let pos = Vec2::new(x0 as f32, y0 as f32);
+
+        for (ix, alignment) in aligns.iter().enumerate() {
+            let index = super::alignments::Alignment {
+                target: target_id,
+                query: query_id,
+                pair_index: ix,
+            };
+
+            if alignment.cigar.is_empty() {
+                line_only_pos.push((index, pos));
+            } else {
+                with_base_level_pos.push((index, pos));
+            }
+        }
+    }
+
+    let line_only = layout_mats.add(AlignmentLayoutMaterials::from_positions_iter(
+        &mut alignment_mats,
+        &vertex_index,
+        &color_schemes,
+        line_only_pos,
+    ));
+
+    let with_base_level = layout_mats.add(AlignmentLayoutMaterials::from_positions_iter(
+        &mut alignment_mats,
+        &vertex_index,
+        &color_schemes,
+        with_base_level_pos,
+    ));
+
+    commands.insert_resource(AlignmentGridLayout {
+        line_only,
+        with_base_level,
+    });
+}
+
+fn spawn_alignment_viewer_grid_layout(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    grid_layout: Res<AlignmentGridLayout>,
+) -> Entity {
+    use bevy_mod_picking::prelude::*;
+
+    let size = wgpu::Extent3d {
+        width: 512,
+        height: 512,
+        depth_or_array_layers: 1,
+    };
+
+    let mut image = Image {
+        texture_descriptor: wgpu::TextureDescriptor {
+            label: None,
+            size,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        },
+        ..default()
+    };
+
+    image.resize(size);
+    let front_image = image;
+    let back_image = front_image.clone();
+
+    let front_h = images.add(front_image);
+    let back_h = images.add(back_image);
+
+    let mut display_sprite = commands.spawn((
+        Pickable {
+            should_block_lower: false,
+            is_hoverable: false,
+        },
+        AlignmentViewer::default(),
+        AlignmentViewerImages {
+            front: front_h,
+            back: back_h,
+        },
+    ));
+
+    display_sprite.with_children(|parent| {
+        parent.spawn(grid_layout.with_base_level.clone());
+        parent.spawn((grid_layout.line_only.clone(), LineOnlyAlignment));
+    });
+    //
+    display_sprite.id()
+}
+
+fn swap_rendered_alignment_viewer_images(
+    mut commands: Commands,
+
+    mut viewers: Query<(
+        Entity,
+        &AlignmentRenderTarget,
+        &mut AlignmentViewer,
+        &mut AlignmentViewerImages,
+    )>,
+) {
+    for (entity, render_target, mut viewer, mut images) in viewers.iter_mut() {
+        if !render_target.is_ready.load() {
+            continue;
+        }
+
+        viewer.rendered_view = Some(render_target.alignment_view);
+        viewer.last_render_time = Some(std::time::Instant::now());
+
+        let images = images.as_mut();
+        let front = &mut images.front;
+        let back = &mut images.back;
+        std::mem::swap(front, back);
+
+        commands.entity(entity).remove::<AlignmentRenderTarget>();
+    }
+}
+
+fn update_swapped_viewer_sprite(
+    mut sprites: Query<
+        (&mut Handle<Image>, &AlignmentViewerImages),
+        Changed<AlignmentViewerImages>,
+    >,
+) {
+    for (mut img, images) in sprites.iter_mut() {
+        *img = images.front.clone();
+    }
+}
 
 fn setup_main_alignment_display_image(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     //
@@ -315,6 +483,12 @@ impl AlignmentViewer {
             ..default()
         }
     }
+}
+
+#[derive(Component)]
+pub struct AlignmentViewerImages {
+    pub front: Handle<Image>,
+    pub back: Handle<Image>,
 }
 
 #[derive(Component)]
@@ -1290,42 +1464,3 @@ fn queue_draw_alignment_lines(
         commands.entity(tgt_entity).insert(Rendering);
     }
 }
-
-/*
-fn extract_alignment_layout(
-    mut commands: Commands,
-
-    layout_query: Extract<
-        Query<
-            (
-                Entity,
-                &AlignmentLayout,
-                //
-            ),
-            Changed<AlignmentLayout>,
-        >,
-    >,
-
-    // layouts:
-    extracted_layouts: Query<(Entity, &ExtractedAlignmentLayout)>,
-) {
-
-    for (entity, layout) in layout_query.iter() {
-
-        // let mut
-
-
-    }
-
-    todo!();
-}
-
-#[derive(Debug, Component)]
-struct ExtractedAlignmentLayout {
-    positions: HashMap<super::alignments::Alignment, Vec2>,
-    assets: HashMap<
-        super::alignments::Alignment,
-        (Handle<AlignmentPolylineMaterial>, Handle<AlignmentVertices>),
-    >,
-}
-*/
