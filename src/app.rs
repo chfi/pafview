@@ -307,7 +307,7 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
     let paf_file_name = args
         .paf
         .file_name()
-        .map(|n| format!(" - {}", n.to_string_lossy()))
+        .map(|n| n.to_string_lossy())
         .unwrap_or_default();
     let window_title = format!("pafview - {paf_file_name}");
 
