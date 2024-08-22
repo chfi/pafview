@@ -9,7 +9,7 @@ use leafwing_input_manager::action_state::ActionState;
 use crate::sequences::SeqId;
 
 use super::{
-    selection::{Selection, SelectionComplete},
+    selection::{Selection, SelectionActionTrait, SelectionComplete},
     AlignmentCamera,
 };
 
@@ -49,7 +49,12 @@ impl Plugin for AlignmentViewPlugin {
             .add_systems(Update, update_cursor_world)
             .add_systems(
                 Update,
-                (rectangle_select_zoom_input, rectangle_select_zoom_apply).chain(),
+                // (rectangle_select_zoom_input, rectangle_select_zoom_apply).chain(),
+                (
+                    super::selection::selection_action_input_system::<RectangleZoomSelection>,
+                    rectangle_select_zoom_apply,
+                )
+                    .chain(),
             )
             .add_systems(Update, (handle_view_events, view_history_input));
     }
@@ -176,9 +181,16 @@ pub(super) fn update_camera_from_viewport(
     proj.scale = scale;
 }
 
-#[derive(Component)]
+#[derive(Component, Default)]
 pub(crate) struct RectangleZoomSelection;
 
+impl SelectionActionTrait for RectangleZoomSelection {
+    fn action() -> super::selection::SelectionAction {
+        super::selection::SelectionAction::ZoomRectangle
+    }
+}
+
+/*
 fn rectangle_select_zoom_input(
     mut commands: Commands,
     alignment_cursor: Res<CursorAlignmentPosition>,
@@ -217,6 +229,7 @@ fn rectangle_select_zoom_input(
         }
     }
 }
+*/
 
 fn rectangle_select_zoom_apply(
     mut commands: Commands,

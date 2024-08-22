@@ -2,7 +2,7 @@ use bevy::{prelude::*, render::view::RenderLayers, sprite::Anchor};
 use leafwing_input_manager::action_state::ActionState;
 
 use super::{
-    selection::{Selection, SelectionComplete},
+    selection::{Selection, SelectionActionTrait, SelectionComplete},
     view::{AlignmentViewport, CursorAlignmentPosition},
 };
 
@@ -155,13 +155,25 @@ pub(super) struct MeasurePlugin;
 
 impl Plugin for MeasurePlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_measure_text)
-            .add_systems(Update, (update_measure, update_measure_display).chain());
+        app.add_systems(Startup, setup_measure_text).add_systems(
+            Update,
+            (
+                super::selection::selection_action_input_system::<MeasurementSelection>,
+                update_measure_display,
+            )
+                .chain(),
+        );
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Default)]
 struct MeasurementSelection;
+
+impl SelectionActionTrait for MeasurementSelection {
+    fn action() -> super::selection::SelectionAction {
+        super::selection::SelectionAction::DistanceMeasurement
+    }
+}
 
 #[derive(Component, Clone, Copy)]
 enum MeasureRuler {
@@ -277,47 +289,6 @@ fn update_measure_display(
                 transform.translation.x = s0.x;
                 transform.translation.y = (s0.y + s1.y) * 0.5;
             }
-        }
-    }
-}
-
-fn update_measure(
-    //
-    mut commands: Commands,
-    alignment_cursor: Res<CursorAlignmentPosition>,
-    mut selection_actions: Query<&mut ActionState<super::selection::SelectionAction>>,
-
-    selections: Query<
-        (Entity, &Selection),
-        (With<MeasurementSelection>, Without<SelectionComplete>),
-    >,
-) {
-    use super::selection::SelectionAction as Action;
-
-    let mut selection_actions = selection_actions.single_mut();
-
-    if let Ok((sel_entity, _selection)) = selections.get_single() {
-        // TODO: probably want a dedicated action for "completing" a selection;
-        // as it is, the full chord must be held the entire time
-        if selection_actions.just_released(&Action::SelectionRelease) {
-            selection_actions.consume(&Action::ZoomRectangle);
-            commands.entity(sel_entity).insert(SelectionComplete);
-        }
-    } else {
-        let Some(cursor) = alignment_cursor.world_pos else {
-            return;
-        };
-
-        if selection_actions.just_pressed(&Action::DistanceMeasurement)
-            && !selection_actions.just_released(&Action::ZoomRectangle)
-        {
-            commands.spawn((
-                Selection {
-                    start_world: cursor,
-                    end_world: cursor,
-                },
-                MeasurementSelection,
-            ));
         }
     }
 }

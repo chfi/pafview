@@ -18,7 +18,9 @@ pub(super) struct RegionSelectionPlugin;
 
 impl Plugin for RegionSelectionPlugin {
     fn build(&self, app: &mut App) {
-        app.init_gizmo_group::<SelectionGizmos>()
+        app
+            // .init_state::<SelectionState>()
+            .init_gizmo_group::<SelectionGizmos>()
             .add_plugins(InputManagerPlugin::<SelectionAction>::default())
             .add_systems(Startup, setup_selection_input_map)
             .add_systems(Startup, setup_selection_gizmo_config)
@@ -35,6 +37,17 @@ impl Plugin for RegionSelectionPlugin {
         // .add_systems(Update, (menubar_system, regions_of_interest_system).chain());
     }
 }
+
+// #[derive(States, Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Hash, Debug, Reflect)]
+// pub enum SelectionState {
+//     #[default]
+//     Nothing,
+//     WorldRegion,
+//     Alignments,
+//     SeqPairs,
+//     Columns,
+//     Rows,
+// }
 
 #[derive(Actionlike, PartialEq, Eq, Hash, Clone, Copy, Debug, Reflect)]
 pub enum SelectionAction {
@@ -58,6 +71,46 @@ fn setup_selection_input_map(mut commands: Commands) {
     commands.spawn(InputManagerBundle::with_map(input_map));
 }
 
+pub trait SelectionActionTrait {
+    fn action() -> SelectionAction; // the Actionlike enum
+}
+
+/// generic system that handles rectangular selections marked with the `T` component
+pub fn selection_action_input_system<T: Component + SelectionActionTrait + Default>(
+    mut commands: Commands,
+    alignment_cursor: Res<CursorAlignmentPosition>,
+    mut selection_actions: Query<&mut ActionState<super::selection::SelectionAction>>,
+
+    selections: Query<(Entity, &Selection), (With<T>, Without<SelectionComplete>)>,
+) {
+    use super::selection::SelectionAction as Action;
+
+    let mut selection_actions = selection_actions.single_mut();
+
+    if let Ok((sel_entity, _selection)) = selections.get_single() {
+        if selection_actions.just_released(&Action::SelectionRelease) {
+            selection_actions.consume_all();
+            commands.entity(sel_entity).insert(SelectionComplete);
+        }
+    } else {
+        let Some(cursor) = alignment_cursor.world_pos else {
+            return;
+        };
+
+        if selection_actions.just_pressed(&T::action())
+            && selection_actions.get_just_released().is_empty()
+        {
+            commands.spawn((
+                Selection {
+                    start_world: cursor,
+                    end_world: cursor,
+                },
+                T::default(),
+            ));
+        }
+    }
+}
+
 #[derive(Component)]
 pub struct Selection {
     pub start_world: DVec2,
@@ -75,34 +128,6 @@ fn setup_selection_gizmo_config(mut config_store: ResMut<GizmoConfigStore>) {
     config.render_layers = RenderLayers::layer(1);
 }
 
-fn initialize_selection(
-    mut commands: Commands,
-    // mut materials: ResMut<Assets<StandardMaterial>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-
-    new_selection: Query<Entity, Added<Selection>>,
-) {
-    // create material & mesh
-    /*
-    let mesh = Mesh2dHandle(meshes.add(Rectangle::new(1.0, 1.0)));
-    let material = materials.add(Color::srgba(0.7, 0.0, 0.0, 0.3));
-
-    for select_ent in new_selection.iter() {
-        if let Some(mut cmds) = commands.get_entity(select_ent) {
-            cmds.insert((
-                RenderLayers::layer(1),
-                MaterialMesh2dBundle {
-                    mesh: mesh.clone(),
-                    material: material.clone(),
-                    ..default()
-                },
-            ));
-        }
-    }
-    */
-}
-
 fn update_selection(
     alignment_cursor: Res<CursorAlignmentPosition>,
     // mut endpoints: Query<(&SelectStart, &mut SelectEnd)>,
@@ -114,37 +139,6 @@ fn update_selection(
         }
     }
 }
-
-/*
-fn right_click_selection_test(
-    mut commands: Commands,
-    alignment_cursor: Res<CursorAlignmentPosition>,
-    mouse_button: Res<ButtonInput<MouseButton>>,
-
-    selections: Query<(Entity, &Selection), Without<SelectionComplete>>,
-) {
-    if let Ok((sel_entity, _selection)) = selections.get_single() {
-        // let Some(cursor) = alignment_cursor.world_pos else {
-        //     return;
-        // };
-
-        if mouse_button.just_released(MouseButton::Right) {
-            commands.entity(sel_entity).insert(SelectionComplete);
-        }
-    } else {
-        let Some(cursor) = alignment_cursor.world_pos else {
-            return;
-        };
-
-        if mouse_button.just_pressed(MouseButton::Right) {
-            commands.spawn(Selection {
-                start_world: cursor,
-                end_world: cursor,
-            });
-        }
-    }
-}
-*/
 
 // this should probably go in the module with the rect select logic,
 // but that should also move, so lol
