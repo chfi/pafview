@@ -66,6 +66,7 @@ impl Plugin for AlignmentRendererPlugin {
             .init_asset::<AlignmentLayoutMaterials>()
             .add_plugins(RenderAssetPlugin::<AlignmentLayoutMaterials>::default())
             .add_plugins(ExtractComponentPlugin::<Handle<AlignmentLayoutMaterials>>::default())
+            .add_plugins(ExtractComponentPlugin::<LineOnlyAlignment>::default())
             .insert_resource(AlignmentShaderConfig {
                 line_width: 8.0,
                 brightness: 1.0,
@@ -95,22 +96,17 @@ impl Plugin for AlignmentRendererPlugin {
                 Startup,
                 setup_main_alignment_viewer.after(prepare_alignment_grid_layout_materials),
             )
-            .add_systems(PreUpdate, update_main_alignment_image_view)
-            // .add_systems(Startup, setup_main_alignment_display_image)
-            // .add_systems(PreUpdate, create_override_material_assets)
-            // .add_systems(
-            //     PreUpdate,
-            //     (
-            //     ),
-            // )
+            .add_systems(
+                PreUpdate,
+                (
+                    update_main_alignment_image_view,
+                    set_main_viewer_image_size.before(resize_alignment_viewer_back_image),
+                ),
+            )
             .add_systems(
                 Update,
                 trigger_alignment_viewer_line_render
                     .after(super::view::update_camera_from_viewport),
-                // Update,
-                // (trigger_render, update_alignment_display_transform)
-                //     .chain()
-                //     .after(super::view::update_camera_from_viewport),
             );
     }
 
@@ -125,7 +121,7 @@ impl Plugin for AlignmentRendererPlugin {
                     .in_set(RenderSet::Prepare),
             )
             // .add_systems(ExtractSchedule, extract_alignment_position_overrides)
-            // .add_systems(ExtractSchedule, extract_)
+            .add_systems(ExtractSchedule, extract_alignment_viewer_children)
             .add_systems(Render, queue_draw_alignment_lines.in_set(RenderSet::Render))
             // .add_systems(
             //     Render,
@@ -143,6 +139,29 @@ pub struct AlignmentViewer {
 
     pub image_size: UVec2,
     pub background_color: Color,
+}
+
+#[derive(Component)]
+struct ExtractedViewerChildren(Vec<Entity>);
+
+fn extract_alignment_viewer_children(
+    mut commands: Commands,
+    viewers: Extract<Query<(Entity, &Children), With<AlignmentViewer>>>,
+    children: Extract<Query<&Handle<AlignmentLayoutMaterials>>>,
+) {
+    for (viewer_entity, viewer_children) in viewers.iter() {
+        let child_handles: Vec<Entity> = viewer_children
+            .iter()
+            .filter_map(|&child_entity| children.get(child_entity).ok().map(|_| child_entity))
+            .collect();
+
+        if !child_handles.is_empty() {
+            commands
+                .insert_or_spawn_batch([(viewer_entity, ExtractedViewerChildren(child_handles))]);
+            // .entity(viewer_entity)
+            // .insert(ExtractedViewerChildren(child_handles));
+        }
+    }
 }
 
 // NB: for now the shader config is shared by all alignment display images
@@ -642,6 +661,17 @@ fn resize_alignment_viewer_back_image(
     }
 }
 
+fn set_main_viewer_image_size(
+    windows: Query<&Window>,
+    mut viewers: Query<&mut AlignmentViewer, With<MainAlignmentView>>,
+) {
+    let window = windows.single();
+
+    for mut viewer in viewers.iter_mut() {
+        viewer.image_size = window.resolution.physical_size();
+    }
+}
+
 fn trigger_alignment_viewer_line_render(
     mut commands: Commands,
 
@@ -1010,14 +1040,29 @@ pub struct AlignmentVertices {
 impl AlignmentVertices {
     pub fn from_alignment(alignment: &crate::Alignment) -> Self {
         use crate::cigar::CigarOp;
-        // use ultraviolet::DVec2;
+
+        let location = &alignment.location;
 
         let mut vertices = Vec::new();
 
+        if alignment.cigar.is_empty() {
+            let tgt_range = &location.target_range;
+            let qry_range = &location.query_range;
+
+            let mut from = Vec2::new(tgt_range.start as f32, qry_range.start as f32);
+            let mut to = Vec2::new(tgt_range.end as f32, qry_range.end as f32);
+
+            if location.query_strand.is_rev() {
+                std::mem::swap(&mut from.y, &mut to.y);
+            }
+
+            vertices.push((from, to, CigarOp::M));
+
+            return Self { data: vertices };
+        }
+
         let mut tgt_cg = 0;
         let mut qry_cg = 0;
-
-        let location = &alignment.location;
 
         for (op, count) in alignment.cigar.whole_cigar() {
             // tgt_cg and qry_cg are offsets from the start of the cigar
@@ -1386,7 +1431,7 @@ fn queue_alignment_draw_overrides(
     }
 }
 
-#[derive(Debug, Component)]
+#[derive(Debug, Clone, Copy, Component, ExtractComponent)]
 pub struct LineOnlyAlignment;
 
 #[derive(Resource, Default)]
@@ -1461,34 +1506,29 @@ fn queue_draw_alignment_lines(
 
     layout_mats: Res<RenderAssets<AlignmentLayoutMaterials>>,
 
-    children: Query<&Children>,
-
+    // children: Query<&Children>,
     targets: Query<
         (
             Entity,
             &AlignmentViewer,
             &AlignmentRenderTarget,
             &VertexBindGroup,
-            &Children,
+            &ExtractedViewerChildren,
         ),
         Without<Rendering>,
     >,
 
     alignments: Query<(&Handle<AlignmentLayoutMaterials>, Has<LineOnlyAlignment>)>,
 ) {
-    println!("children is empty: {}", children.is_empty());
     let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline) else {
         return;
     };
-    println!("in queue_draw_alignment_lines");
 
     for (tgt_entity, viewer, render_target, vx_bind_group, children) in targets.iter() {
         //
         let Some(view) = viewer.next_view else {
             continue;
         };
-
-        println!("rendering view {view:?}");
 
         let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("AlignmentRenderer".into()),
@@ -1497,7 +1537,8 @@ fn queue_draw_alignment_lines(
         let tgt_handle = &render_target.image;
         let tgt_img = gpu_images.get(tgt_handle).unwrap();
 
-        let bp_per_px = (view.width() / tgt_img.size.x as f64) as f32;
+        // let bp_per_px = (view.width() / tgt_img.size.x as f64) as f32;
+        let px_per_bp = tgt_img.size.x as f64 / view.width();
 
         let bg = viewer.background_color.to_srgba();
         let clear_color = wgpu::Color {
@@ -1514,7 +1555,6 @@ fn queue_draw_alignment_lines(
                 store: wgpu::StoreOp::Store,
             },
         };
-        // let
 
         {
             let mut pass = cmds.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1526,16 +1566,16 @@ fn queue_draw_alignment_lines(
             pass.set_pipeline(pipeline);
             pass.set_bind_group(0, &vx_bind_group.group_0, &[]);
 
-            println!("iterating children");
-            for &child in children.iter() {
+            for &child in children.0.iter() {
                 let Ok((mats, line_only)) = alignments.get(child) else {
+                    dbg!();
                     continue;
                 };
 
                 // TODO `super::AlignmentRenderConfig` has the `base_level...min_bp_per_px`
                 // value, but it's not extracted into the render world & should be reorganized
                 // so i'll just hardcode it for now (might need to take DPI scaling into account)
-                if bp_per_px > 1.0 && !line_only {
+                if px_per_bp > 1.0 && !line_only {
                     continue;
                 }
 
@@ -1543,7 +1583,6 @@ fn queue_draw_alignment_lines(
                     continue;
                 };
 
-                println!("iterating materials");
                 for (alignment, mat) in mats.materials.iter() {
                     let Some(verts) = mats.vertices.get(alignment) else {
                         continue;
@@ -1560,7 +1599,6 @@ fn queue_draw_alignment_lines(
                     pass.set_bind_group(2, &mat.bind_groups.group_2, &[]);
                     pass.set_vertex_buffer(0, wgpu::Buffer::slice(&verts.vertex_buffer, ..));
 
-                    println!("draw!");
                     pass.draw(0..6, 0..verts.segment_count);
                 }
             }
