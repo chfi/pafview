@@ -754,7 +754,8 @@ pub(crate) fn draw_alignments_with_color_schemes(
         }
     };
 
-    let mut dst_pixels = PixelBuffer::new_color(canvas_size.x, canvas_size.y, egui::Color32::WHITE);
+    let mut dst_pixels =
+        PixelBuffer::new_color(canvas_size.x, canvas_size.y, egui::Color32::TRANSPARENT);
 
     for &target_id in &x_tiles {
         for &query_id in &y_tiles {

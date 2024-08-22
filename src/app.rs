@@ -513,7 +513,7 @@ fn setup_base_level_display_image(
                 height: Val::Percent(100.0),
                 ..default()
             },
-            background_color: Color::WHITE.into(),
+            background_color: Color::NONE.into(),
             ..default()
         },
         UiImage::new(img_handle),
