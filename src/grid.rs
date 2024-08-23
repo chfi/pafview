@@ -393,7 +393,7 @@ impl GridAxis {
         let ix = *self.seq_index_map.get(&seq_id)?;
         let start = *self.seq_offsets.get(ix)?;
 
-        let end = if ix == self.seq_offsets.len() {
+        let end = if ix < self.seq_offsets.len() + 1 {
             *self.seq_offsets.get(ix + 1)?
         } else {
             self.total_len

@@ -97,6 +97,7 @@ fn setup_figure_export_window(
     commands.insert_resource(FigureExportWindow {
         display_img: viewer,
         egui_textures: None,
+        export_layout_scale: Vec2::ONE,
         export_layout_size: None,
         export_layouts: None,
     });
@@ -110,6 +111,7 @@ struct FigureExportWindow {
     display_img: Entity,
     egui_textures: Option<[egui::TextureId; 2]>,
 
+    export_layout_scale: Vec2,
     export_layout_size: Option<DVec2>,
     export_layouts: Option<FigureExportLayouts>,
 }
@@ -317,6 +319,24 @@ fn show_figure_export_window(
                 });
 
                 ui.horizontal(|ui| {
+                    ui.label("X scale");
+                    ui.add(
+                        egui::DragValue::new(&mut fig_export.export_layout_scale.x)
+                            .speed(0.01)
+                            .range(0.01..=2.0),
+                    );
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Y scale");
+                    ui.add(
+                        egui::DragValue::new(&mut fig_export.export_layout_scale.y)
+                            .speed(0.01)
+                            .range(0.01..=2.0),
+                    );
+                });
+
+                ui.horizontal(|ui| {
                     if ui.button("Apply").clicked() {
                         fig_export.export_layout_size = Some(DVec2::new(tgt_len, query_len));
                     }
@@ -407,8 +427,8 @@ fn update_exported_tiles(
         let mut alignment_set = HashSet::default();
         // let layout_size = figure_export_window.export_layout_size;
 
-        for &query in &x_tiles {
-            for &target in &y_tiles {
+        for &target in &x_tiles {
+            for &query in &y_tiles {
                 let key = (target, query);
 
                 if let Some(als) = alignments.pairs.get(&key) {
@@ -468,10 +488,10 @@ fn update_figure_export_alignment_layout(
 
     // step through the entire `alignment_set`
     for alignment in alignment_set {
-        let Some(vx) = vertex_buffer_index.vertices.get(alignment) else {
-            continue;
-        };
-        let color = color_schemes.get(alignment);
+        // let Some(vx) = vertex_buffer_index.vertices.get(alignment) else {
+        //     continue;
+        // };
+        // let color = color_schemes.get(alignment);
 
         seq_tiles_to_place.insert((alignment.target, alignment.query));
     }
@@ -485,10 +505,17 @@ fn update_figure_export_alignment_layout(
 
     for pair @ &(target, query) in seq_tiles_to_place.iter() {
         //
+
+        if !alignment_store.pairs.contains_key(pair) {
+            continue;
+        }
+
         let Some([tgt_range, qry_range]) = alignment_grid.seq_pair_ranges(target, query) else {
             continue;
         };
 
+        // println!("{pair:?}");
+        println!(" {pair:?} >> {tgt_range:?}\t{qry_range:?}");
         x_min = tgt_range.start.min(x_min);
         x_max = tgt_range.end.max(x_max);
         y_min = qry_range.start.min(y_min);
@@ -505,6 +532,21 @@ fn update_figure_export_alignment_layout(
     let height = y_max.checked_sub(y_min).unwrap_or_default() as f64;
     println!("[{width}, {height}]");
 
+    // export_window.export_layout_size = Some(DVec2::new(width, height));
+    let scale = export_window.export_layout_scale;
+
+    for (pair, offsets) in seq_tile_positions.iter_mut() {
+        offsets[0] -= x_min as f64;
+        offsets[1] -= y_min as f64;
+
+        offsets[0] *= scale.x as f64;
+        offsets[1] *= scale.y as f64;
+        // offsets[1] *= 0.1;
+    }
+    export_window.export_layout_size =
+        Some(DVec2::new(width * scale.x as f64, height * scale.y as f64));
+
+    /*
     if let Some(layout_size) = export_window.export_layout_size {
         let x_scale = width / layout_size.x;
         let y_scale = height / layout_size.y;
@@ -519,6 +561,7 @@ fn update_figure_export_alignment_layout(
     } else {
         export_window.export_layout_size = Some(DVec2::new(width, height));
     }
+    */
 
     let mut line_only_pos = Vec::new();
     let mut with_base_level_pos = Vec::new();
