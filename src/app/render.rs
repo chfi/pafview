@@ -178,8 +178,8 @@ pub struct MainAlignmentView;
 
 #[derive(Resource)]
 pub struct AlignmentGridLayout {
-    line_only: Handle<AlignmentLayoutMaterials>,
-    with_base_level: Handle<AlignmentLayoutMaterials>,
+    pub line_only: Handle<AlignmentLayoutMaterials>,
+    pub with_base_level: Handle<AlignmentLayoutMaterials>,
 }
 
 pub(crate) fn prepare_alignment_grid_layout_materials(

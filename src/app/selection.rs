@@ -107,7 +107,9 @@ pub fn selection_action_input_system<T: Component + SelectionActionTrait + Defau
     use super::selection::SelectionAction as Action;
 
     if let Ok((sel_entity, _selection)) = selections.get_single() {
-        if selection_actions.just_released(&Action::SelectionRelease) {
+        if selection_actions.just_released(&Action::SelectionRelease)
+            && !selection_actions.pressed(&T::action())
+        {
             selection_actions.consume_all();
             commands.entity(sel_entity).insert(SelectionComplete);
         }

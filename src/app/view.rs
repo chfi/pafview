@@ -311,12 +311,16 @@ fn input_update_viewport(
 
     mut alignment_view: ResMut<AlignmentViewport>,
     mut view_events: EventWriter<ViewEvent>,
+
+    // TODO: this should be handled better; this system shouldn't depend
+    // on a specific state/mode in the figure export plugin
+    region_selection_mode: Res<super::figure_export::FigureRegionSelectionMode>,
 ) {
     let egui_using_cursor = egui_contexts.ctx_mut().wants_pointer_input();
 
     let window = windows.single();
 
-    if keyboard.just_pressed(KeyCode::Escape) {
+    if keyboard.just_pressed(KeyCode::Escape) && !region_selection_mode.user_is_selecting {
         view_events.send(ViewEvent {
             view: alignment_view.initial_view,
         });

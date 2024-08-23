@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bevy::{
-    math::DVec2,
+    math::{vec2, DVec2},
     prelude::*,
     utils::{HashMap, HashSet},
 };
@@ -10,7 +10,10 @@ use bevy_egui::{EguiContexts, EguiUserTextures};
 use crate::{grid::AxisRange, sequences::SeqId};
 
 use super::{
-    render::{AlignmentRenderTarget, AlignmentViewer, AlignmentViewerImages},
+    render::{
+        AlignmentLayoutMaterials, AlignmentPolylineMaterial, AlignmentRenderTarget,
+        AlignmentViewer, AlignmentViewerImages,
+    },
     selection::SelectionActionTrait,
     view::AlignmentViewport,
 };
@@ -46,6 +49,15 @@ impl Plugin for FigureExportPlugin {
             .add_systems(
                 PreUpdate,
                 swap_egui_textures.before(super::render::swap_rendered_alignment_viewer_images),
+            )
+            .add_systems(
+                Update,
+                (
+                    update_exported_tiles.after(send_region_change_event),
+                    update_figure_export_alignment_layout,
+                    update_figure_export_layout_children,
+                )
+                    .chain(),
             );
 
         // app.add_systems(
@@ -86,6 +98,7 @@ fn setup_figure_export_window(
         display_img: viewer,
         egui_textures: None,
         export_layout_size: None,
+        export_layouts: None,
     });
 }
 
@@ -98,6 +111,7 @@ struct FigureExportWindow {
     egui_textures: Option<[egui::TextureId; 2]>,
 
     export_layout_size: Option<DVec2>,
+    export_layouts: Option<FigureExportLayouts>,
 }
 
 fn swap_egui_textures(
@@ -152,14 +166,31 @@ fn show_figure_export_window(
         With<FigureExportImage>,
     >,
     mut fig_export: ResMut<FigureExportWindow>,
+    mut region_select_mode: ResMut<FigureRegionSelectionMode>,
+    keys: Res<ButtonInput<KeyCode>>,
+
+    mut region_events: EventWriter<ChangeExportTileRegion>,
     // mut
 ) {
+    // println!(
+    //     "user is selecting??: {}",
+    //     region_select_mode.user_is_selecting
+    // );
+
     let Ok((viewer_ent, mut viewer, viewer_images)) = img_query.get_mut(fig_export.display_img)
     else {
         return;
     };
 
     let is_rendering = active_renders.contains(viewer_ent);
+
+    if region_select_mode.user_is_selecting {
+        if keys.just_pressed(KeyCode::Escape) {
+            region_select_mode.user_is_selecting = false;
+        } else {
+            return;
+        }
+    }
 
     let ctx = contexts.ctx_mut();
 
@@ -169,6 +200,10 @@ fn show_figure_export_window(
         .open(&mut window_open.is_open)
         .show(&ctx, |ui| {
             //
+
+            if ui.button("Select tiles").clicked() {
+                region_select_mode.user_is_selecting = true;
+            }
 
             if let Some([front, _]) = fig_export.egui_textures.as_ref() {
                 ui.image((*front, egui::vec2(500.0, 500.0)));
@@ -190,10 +225,10 @@ fn show_figure_export_window(
                 viewer.next_view = Some(new_view);
             }
 
-            ui.vertical(|ui| {
-                let target_id = ui.id().with("target-range");
-                let query_id = ui.id().with("query-range");
+            let target_id = ui.id().with("target-range");
+            let query_id = ui.id().with("query-range");
 
+            ui.vertical(|ui| {
                 let (mut target_buf, mut query_buf) = ui
                     .data(|data| {
                         let t = data.get_temp::<String>(target_id)?;
@@ -225,9 +260,18 @@ fn show_figure_export_window(
                 )
                 .and_then(AxisRange::to_global);
 
-                // if ui.button("")
-                if let Some((x_range, y_range)) = x_range.zip(y_range) {
-                    // TODO
+                let ranges = x_range.zip(y_range);
+                if ui
+                    .add_enabled(ranges.is_some(), egui::Button::new("Export tile subset"))
+                    .clicked()
+                {
+                    if let Some((x_range, y_range)) = ranges {
+                        let p0 = DVec2::new(*x_range.start(), *y_range.start());
+                        let p1 = DVec2::new(*x_range.end(), *y_range.end());
+                        region_events.send(ChangeExportTileRegion {
+                            world_region: [p0, p1],
+                        });
+                    }
                 }
 
                 ui.data_mut(|data| {
@@ -235,6 +279,43 @@ fn show_figure_export_window(
                     data.insert_temp(query_id, query_buf);
                 });
             });
+
+            ui.vertical(|ui| {
+                let (mut tgt_len, mut query_len) = ui.data(|data| {
+                    let t = data
+                        .get_temp::<f64>(target_id)
+                        .unwrap_or(alignment_grid.x_axis.total_len as f64);
+                    let q = data
+                        .get_temp::<f64>(query_id)
+                        .unwrap_or(alignment_grid.y_axis.total_len as f64);
+                    (t, q)
+                });
+
+                ui.label("Custom layout");
+
+                ui.horizontal(|ui| {
+                    ui.label("X Size");
+                    ui.add(egui::DragValue::new(&mut tgt_len));
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Y Size");
+                    ui.add(egui::DragValue::new(&mut query_len));
+                });
+
+                ui.horizontal(|ui| {
+                    if ui.button("Apply").clicked() {
+                        fig_export.export_layout_size = Some(DVec2::new(tgt_len, query_len));
+                    }
+                    if ui.button("Clear").clicked() {
+                        fig_export.export_layout_size = None;
+                    }
+                });
+
+                ui.data_mut(|data| {
+                    data.insert_temp(target_id, tgt_len);
+                    data.insert_temp(query_id, query_len);
+                });
+            })
         });
 }
 
@@ -338,6 +419,11 @@ struct UpdateExportAlignmentLayout {
 
 fn update_figure_export_alignment_layout(
     mut update_events: EventReader<UpdateExportAlignmentLayout>,
+
+    mut alignment_mats: ResMut<Assets<AlignmentPolylineMaterial>>,
+    mut layout_mats: ResMut<Assets<AlignmentLayoutMaterials>>,
+
+    mut export_window: ResMut<FigureExportWindow>,
     //
     alignment_store: Res<crate::Alignments>,
     alignment_grid: Res<crate::AlignmentGrid>,
@@ -351,6 +437,11 @@ fn update_figure_export_alignment_layout(
     else {
         return;
     };
+
+    if alignment_set.is_empty() {
+        export_window.export_layouts = None;
+        return;
+    }
 
     let mut seq_tiles_to_place = HashSet::default();
 
@@ -405,26 +496,80 @@ fn update_figure_export_alignment_layout(
     let mut with_base_level_pos = Vec::new();
 
     for alignment in alignment_set {
-        let Some(pos) = seq_tile_positions.get(&(alignment.target, alignment.query)) else {
+        let Some(&[x, y]) = seq_tile_positions.get(&(alignment.target, alignment.query)) else {
             continue;
         };
+        let pos = vec2(x as f32, y as f32);
 
         let Some(al_data) = alignment_store.get(*alignment) else {
             continue;
         };
 
         if al_data.cigar.is_empty() {
-            line_only_pos.push((*alignment, *pos));
+            line_only_pos.push((*alignment, pos));
         } else {
-            with_base_level_pos.push((*alignment, *pos));
+            with_base_level_pos.push((*alignment, pos));
         }
     }
 
-    // let seq_tile_positions = seq_tiles_to_place.into_iter().filter_map(|(target, query)| {
+    let line_only = layout_mats.add(AlignmentLayoutMaterials::from_positions_iter(
+        &mut alignment_mats,
+        &vertex_buffer_index,
+        &color_schemes,
+        line_only_pos,
+    ));
 
-    // });
+    let with_base_level = layout_mats.add(AlignmentLayoutMaterials::from_positions_iter(
+        &mut alignment_mats,
+        &vertex_buffer_index,
+        &color_schemes,
+        with_base_level_pos,
+    ));
 
-    //
+    println!("Setting figure exporter custom layout");
+    export_window.export_layouts = Some(FigureExportLayouts {
+        line_only,
+        with_base_level,
+    });
+}
+
+fn update_figure_export_layout_children(
+    mut commands: Commands,
+
+    mut update_events: EventReader<UpdateExportAlignmentLayout>,
+
+    fig_export: Res<FigureExportWindow>,
+    grid_layout: Res<super::render::AlignmentGridLayout>,
+) {
+    if update_events.is_empty() {
+        return;
+    }
+    update_events.clear();
+    println!("updating figure export layout children");
+
+    let mut viewer = commands.entity(fig_export.display_img);
+    viewer.despawn_descendants();
+
+    viewer.with_children(|parent| {
+        if let Some(layouts) = fig_export.export_layouts.as_ref() {
+            println!("using custom layout");
+            parent.spawn(layouts.with_base_level.clone());
+            parent.spawn((layouts.line_only.clone(), super::render::LineOnlyAlignment));
+        } else {
+            println!("using default layout");
+            parent.spawn(grid_layout.with_base_level.clone());
+            parent.spawn((
+                grid_layout.line_only.clone(),
+                super::render::LineOnlyAlignment,
+            ));
+        }
+    });
+}
+
+#[derive(Debug, Reflect, Clone)]
+struct FigureExportLayouts {
+    line_only: Handle<AlignmentLayoutMaterials>,
+    with_base_level: Handle<AlignmentLayoutMaterials>,
 }
 
 #[derive(Component, Default, Clone, Copy, Reflect)]
@@ -439,6 +584,7 @@ impl SelectionActionTrait for FigureRegionSelection {
 // must run after selection_action_input_system::<FigureRegionSelection>
 fn send_region_change_event(
     mut region_events: EventWriter<ChangeExportTileRegion>,
+    mut select_mode: ResMut<FigureRegionSelectionMode>,
     selections: Query<
         &super::selection::Selection,
         (
@@ -452,6 +598,7 @@ fn send_region_change_event(
             world_region: [selection.start_world, selection.end_world],
         };
         region_events.send(ev);
+        select_mode.user_is_selecting = false;
     }
 }
 
@@ -468,10 +615,20 @@ fn handle_selection_user_input(
 
     mut selection_mode: ResMut<FigureRegionSelectionMode>,
 ) {
+    let select = super::selection::SelectionAction::RegionSelection;
+    let release = super::selection::SelectionAction::SelectionRelease;
+
     if !selection_mode.user_is_selecting {
-        selection_actions.consume(&super::selection::SelectionAction::RegionSelection);
+        selection_actions.consume(&select);
         return;
     }
 
-    //
+    let Some(data) = selection_actions.action_data(&select) else {
+        return;
+    };
+    let data = data.clone();
+
+    if let Some(rel_data) = selection_actions.action_data_mut(&release) {
+        *rel_data = data;
+    }
 }
