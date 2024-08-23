@@ -56,12 +56,53 @@ fn setup(mut commands: Commands, annotations: Res<super::annotations::Annotation
 pub(crate) fn menubar_system(
     mut contexts: EguiContexts,
     mut window_states: ResMut<WindowStates>,
+    mut figure_export_open: ResMut<super::figure_export::FigureExportWindowOpen>,
     mut menubar_size: ResMut<MenubarSize>,
 ) {
+    let window_states = &mut window_states.window_states;
     let ctx = contexts.ctx_mut();
+    let menubar_resp = egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            if ui.button("Regions of Interest").clicked() {
+                window_states.regions_of_interest_open = !window_states.regions_of_interest_open;
+            }
 
-    let menubar_rect = crate::gui::MenuBar::show(ctx, &mut window_states.window_states);
-    menubar_size.height = menubar_rect.height();
+            // show/hide goto range window
+            if ui.button("Go to range").clicked() {
+                window_states.goto_region_open = !window_states.goto_region_open;
+            }
+
+            // show/hide annotations list window
+            if let Some(open) = window_states.annotation_list_open.as_mut() {
+                if ui.button("Annotations").clicked() {
+                    *open = !*open;
+                }
+            }
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
+                let open = &mut figure_export_open.is_open;
+                if ui.button("Figure Export").clicked() {
+                    *open = !*open;
+                }
+
+                let open = &mut window_states.config_open;
+                if ui.button("Settings").clicked() {
+                    *open = !*open;
+                }
+
+                #[cfg(debug_assertions)]
+                {
+                    let open = &mut window_states.label_physics_debug_open;
+                    if ui.button("Debug label physics").clicked() {
+                        *open = !*open;
+                    }
+                }
+            });
+            // ui.spacing()
+        })
+    });
+
+    menubar_size.height = menubar_resp.response.rect.height();
 }
 
 fn settings_window(

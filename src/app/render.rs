@@ -243,6 +243,9 @@ fn prepare_alignment_grid_layout_materials(
     });
 }
 
+// spawns an entity with everything set up to render an alignment view
+// to an image, using the "global" alignment grid layout.
+//
 fn spawn_alignment_viewer_grid_layout<'a>(
     commands: &'a mut Commands,
     mut images: ResMut<Assets<Image>>,

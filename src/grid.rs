@@ -274,7 +274,7 @@ impl From<std::ops::RangeInclusive<f64>> for AxisRange {
 #[derive(Debug, Clone)]
 pub struct GridAxis {
     /// Maps global sequence indices to the indices in `seq_order`,
-    seq_index_map: FxHashMap<SeqId, usize>,
+    pub seq_index_map: FxHashMap<SeqId, usize>,
 
     /// The IDs of the sequences in the axis
     seq_order: Vec<SeqId>,

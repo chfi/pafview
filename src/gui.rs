@@ -202,55 +202,6 @@ pub fn draw_cursor_position_rulers_impl(
     }
 }
 
-pub struct MenuBar;
-
-impl MenuBar {
-    pub fn show(
-        // &self,
-        ctx: &egui::Context,
-        window_states: &mut AppWindowStates,
-    ) -> egui::Rect {
-        let resp = egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                if ui.button("Regions of Interest").clicked() {
-                    window_states.regions_of_interest_open =
-                        !window_states.regions_of_interest_open;
-                }
-
-                // show/hide goto range window
-                if ui.button("Go to range").clicked() {
-                    window_states.goto_region_open = !window_states.goto_region_open;
-                }
-
-                // show/hide annotations list window
-                if let Some(open) = window_states.annotation_list_open.as_mut() {
-                    if ui.button("Annotations").clicked() {
-                        *open = !*open;
-                    }
-                }
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                    let open = &mut window_states.config_open;
-                    if ui.button("Settings").clicked {
-                        *open = !*open;
-                    }
-
-                    #[cfg(debug_assertions)]
-                    {
-                        let open = &mut window_states.label_physics_debug_open;
-                        if ui.button("Debug label physics").clicked {
-                            *open = !*open;
-                        }
-                    }
-                });
-                // ui.spacing()
-            })
-        });
-
-        resp.response.rect
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct AppWindowStates {
     pub annotation_list_open: Option<bool>,

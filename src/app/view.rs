@@ -190,47 +190,6 @@ impl SelectionActionTrait for RectangleZoomSelection {
     }
 }
 
-/*
-fn rectangle_select_zoom_input(
-    mut commands: Commands,
-    alignment_cursor: Res<CursorAlignmentPosition>,
-    // mouse_button: Res<ButtonInput<MouseButton>>,
-    mut selection_actions: Query<&mut ActionState<super::selection::SelectionAction>>,
-
-    selections: Query<
-        (Entity, &Selection),
-        (With<RectangleZoomSelection>, Without<SelectionComplete>),
-    >,
-) {
-    use super::selection::SelectionAction as Action;
-
-    let mut selection_actions = selection_actions.single_mut();
-
-    if let Ok((sel_entity, _selection)) = selections.get_single() {
-        if selection_actions.just_released(&Action::SelectionRelease) {
-            selection_actions.consume(&Action::ZoomRectangle);
-            commands.entity(sel_entity).insert(SelectionComplete);
-        }
-    } else {
-        let Some(cursor) = alignment_cursor.world_pos else {
-            return;
-        };
-
-        if selection_actions.just_pressed(&Action::ZoomRectangle)
-            && !selection_actions.just_released(&Action::DistanceMeasurement)
-        {
-            commands.spawn((
-                Selection {
-                    start_world: cursor,
-                    end_world: cursor,
-                },
-                RectangleZoomSelection,
-            ));
-        }
-    }
-}
-*/
-
 fn rectangle_select_zoom_apply(
     mut commands: Commands,
     app_view: Res<AlignmentViewport>,
