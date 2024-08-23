@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use bevy::{prelude::*, utils::HashMap};
+use bevy::{math::DVec2, prelude::*, utils::HashMap};
 use bevy_egui::{EguiContexts, EguiUserTextures};
 
-use crate::paf::AlignmentIndex;
+use crate::{grid::AxisRange, paf::AlignmentIndex, sequences::SeqId};
 
 use super::{
     render::{AlignmentDisplayBackImage, AlignmentRenderTarget, AlignmentViewer},
+    selection::SelectionActionTrait,
     view::AlignmentViewport,
 };
 
@@ -14,7 +15,18 @@ pub struct FigureExportPlugin;
 
 impl Plugin for FigureExportPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<FigureExportWindowOpen>()
+        app.add_event::<ChangeExportTiles>()
+            .init_resource::<FigureExportWindowOpen>()
+            .init_resource::<FigureRegionSelectionMode>()
+            .add_systems(PreUpdate, handle_selection_user_input)
+            .add_systems(
+                Update,
+                (
+                    super::selection::selection_action_input_system::<FigureRegionSelection>,
+                    send_region_change_event,
+                )
+                    .chain(),
+            )
             .add_systems(Startup, setup_figure_export_window)
             .add_systems(
                 PreUpdate,
@@ -157,6 +169,7 @@ fn show_figure_export_window(
     mut window_open: ResMut<FigureExportWindowOpen>,
     // mut is_rendering: Local<bool>,
     alignment_viewport: Res<AlignmentViewport>,
+    alignment_grid: Res<crate::AlignmentGrid>,
 
     img_query: Query<(Entity, &AlignmentViewer, &AlignmentDisplayBackImage)>,
     mut fig_export: ResMut<FigureExportWindow>,
@@ -212,5 +225,165 @@ fn show_figure_export_window(
                         is_ready: Arc::new(false.into()),
                     });
             }
+
+            ui.vertical(|ui| {
+                let target_id = ui.id().with("target-range");
+                let query_id = ui.id().with("query-range");
+
+                let (mut target_buf, mut query_buf) = ui
+                    .data(|data| {
+                        let t = data.get_temp::<String>(target_id)?;
+                        let q = data.get_temp::<String>(query_id)?;
+                        Some((t, q))
+                    })
+                    .unwrap_or_default();
+
+                ui.horizontal(|ui| {
+                    ui.label("Target");
+                    ui.text_edit_singleline(&mut target_buf);
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Query");
+                    ui.text_edit_singleline(&mut query_buf);
+                });
+
+                let x_range = crate::grid::parse_axis_range_into_global(
+                    &alignment_grid.sequence_names,
+                    &alignment_grid.x_axis,
+                    &target_buf,
+                )
+                .and_then(AxisRange::to_global);
+                let y_range = crate::grid::parse_axis_range_into_global(
+                    &alignment_grid.sequence_names,
+                    &alignment_grid.y_axis,
+                    &query_buf,
+                )
+                .and_then(AxisRange::to_global);
+
+                // if ui.button("")
+                if let Some((x_range, y_range)) = x_range.zip(y_range) {
+                    // TODO
+                }
+
+                ui.data_mut(|data| {
+                    data.insert_temp(target_id, target_buf);
+                    data.insert_temp(query_id, query_buf);
+                });
+            });
         });
+}
+
+#[derive(Event, Debug, Clone, Copy, Reflect)]
+struct ChangeExportTiles {
+    world_region: [DVec2; 2],
+}
+
+fn update_exported_tiles(
+    mut commands: Commands,
+    mut last_tile_region: Local<Option<[std::ops::RangeInclusive<usize>; 2]>>,
+    mut export_region_events: EventReader<ChangeExportTiles>,
+
+    alignment_grid: Res<crate::AlignmentGrid>,
+) {
+    let Some(new_region) = export_region_events.read().last() else {
+        return;
+    };
+
+    let [p0, p1] = new_region.world_region;
+    let min = p0.min(p1);
+    let max = p0.max(p1);
+
+    let x_axis = &alignment_grid.x_axis;
+    let y_axis = &alignment_grid.y_axis;
+
+    let x_tiles = x_axis.tiles_covered_by_range(min.x..=max.x);
+    let y_tiles = y_axis.tiles_covered_by_range(min.y..=max.y);
+
+    let Some((x_tiles, y_tiles)) = x_tiles.zip(y_tiles) else {
+        return;
+    };
+    let x_tiles = x_tiles.collect::<Vec<_>>();
+    let y_tiles = y_tiles.collect::<Vec<_>>();
+
+    let map_ix = |s: Option<&SeqId>, a: &crate::grid::GridAxis| {
+        s.and_then(|s| a.seq_index_map.get(s).copied())
+    };
+
+    let x_ixs = map_ix(x_tiles.first(), x_axis).zip(map_ix(x_tiles.last(), x_axis));
+    let y_ixs = map_ix(y_tiles.first(), y_axis).zip(map_ix(y_tiles.last(), y_axis));
+    // let p1_ixs = map_ix(x_tiles.first(), x_axis).zip(map_ix(x_tiles.last(), x_axis));
+    // let p1_ixs = map_ix(x_tiles.first(), &x_axis).zip(x_tiles.last(), &x_axis);
+    // let x0_ix = x_tiles
+    //     .first()
+    //     .and_then(|s| x_axis.seq_index_map.get(s))
+    //     .unwrap();
+
+    let Some(((x0, x1), (y0, y1))) = x_ixs.zip(y_ixs) else {
+        return;
+    };
+    let x_range = x0..=x1;
+    let y_range = y0..=y1;
+
+    let region_changed = if let Some(prev_ranges) = last_tile_region.as_ref() {
+        let [prev_xr, prev_yr] = prev_ranges;
+        prev_xr != &x_range || prev_yr != &y_range
+    } else {
+        false
+    };
+
+    if region_changed {
+        // create layout material & update viewer entity
+    }
+
+    todo!();
+}
+
+#[derive(Component, Default, Clone, Copy, Reflect)]
+struct FigureRegionSelection;
+
+impl SelectionActionTrait for FigureRegionSelection {
+    fn action() -> super::selection::SelectionAction {
+        super::selection::SelectionAction::RegionSelection
+    }
+}
+
+// must run after selection_action_input_system::<FigureRegionSelection>
+fn send_region_change_event(
+    mut region_events: EventWriter<ChangeExportTiles>,
+    selections: Query<
+        &super::selection::Selection,
+        (
+            With<FigureRegionSelection>,
+            Added<super::selection::SelectionComplete>,
+        ),
+    >,
+) {
+    for selection in selections.iter() {
+        let ev = ChangeExportTiles {
+            world_region: [selection.start_world, selection.end_world],
+        };
+        region_events.send(ev);
+    }
+}
+
+#[derive(Resource, Default, Clone, Copy, Reflect)]
+pub struct FigureRegionSelectionMode {
+    pub user_is_selecting: bool,
+}
+
+use leafwing_input_manager::prelude::*;
+
+// NB: must run in PreUpdate (selection_action_input_systems should run in Update)
+fn handle_selection_user_input(
+    mut selection_actions: ResMut<ActionState<super::selection::SelectionAction>>,
+
+    mut selection_mode: ResMut<FigureRegionSelectionMode>,
+) {
+    if !selection_mode.user_is_selecting {
+        selection_actions.consume(&super::selection::SelectionAction::RegionSelection);
+        return;
+    }
+
+    //
 }

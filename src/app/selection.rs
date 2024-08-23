@@ -30,7 +30,8 @@ impl Plugin for RegionSelectionPlugin {
             .add_systems(
                 Update,
                 rectangle_zoom_selection_gizmos.after(update_selection),
-            );
+            )
+            .add_systems(PostUpdate, despawn_completed_selections);
         // app.init_resource::<RegionsOfInterest>()
         //     .add_systems(Startup, setup)
         //     .add_systems(Update, (menubar_system, settings_window));
@@ -54,10 +55,17 @@ pub enum SelectionAction {
     SelectionRelease,
     ZoomRectangle,
     DistanceMeasurement,
+    RegionSelection,
 }
 
 fn setup_selection_input_map(mut commands: Commands) {
     let mut input_map: InputMap<SelectionAction> = InputMap::default();
+
+    // this is pretty messed up, since the region selection is currently (8-23)
+    // used only by the figure export, and the inputs filtered by `handle_selection_user_input`
+    // in `figure_export.rs` unless the figure export window is waiting for
+    // a region selection
+    input_map.insert(SelectionAction::RegionSelection, MouseButton::Left);
 
     input_map.insert(SelectionAction::SelectionRelease, MouseButton::Right);
     input_map.insert(SelectionAction::ZoomRectangle, MouseButton::Right);
@@ -68,24 +76,35 @@ fn setup_selection_input_map(mut commands: Commands) {
     ]);
     input_map.insert(SelectionAction::DistanceMeasurement, dist_chord);
 
-    commands.spawn(InputManagerBundle::with_map(input_map));
+    commands.init_resource::<ActionState<SelectionAction>>();
+    commands.insert_resource(input_map);
+    // commands.spawn(InputManagerBundle::with_map(input_map));
 }
 
 pub trait SelectionActionTrait {
     fn action() -> SelectionAction; // the Actionlike enum
 }
 
+// #[derive(Default)]
+// pub struct SelectionActionInputPlugin<T: Component + SelectionActionTrait + Default> {
+//     _component: std::marker::PhantomData<T>,
+// }
+
+// impl<T: Component + SelectionActionTrait + Default> Plugin for SelectionActionInputPlugin<T> {
+//     fn build(&self, app: &mut App) {
+//         app.add_systems(Update, selection_action_input_system::<T>);
+//     }
+// }
+
 /// generic system that handles rectangular selections marked with the `T` component
 pub fn selection_action_input_system<T: Component + SelectionActionTrait + Default>(
     mut commands: Commands,
     alignment_cursor: Res<CursorAlignmentPosition>,
-    mut selection_actions: Query<&mut ActionState<super::selection::SelectionAction>>,
+    mut selection_actions: ResMut<ActionState<super::selection::SelectionAction>>,
 
     selections: Query<(Entity, &Selection), (With<T>, Without<SelectionComplete>)>,
 ) {
     use super::selection::SelectionAction as Action;
-
-    let mut selection_actions = selection_actions.single_mut();
 
     if let Ok((sel_entity, _selection)) = selections.get_single() {
         if selection_actions.just_released(&Action::SelectionRelease) {
@@ -108,6 +127,17 @@ pub fn selection_action_input_system<T: Component + SelectionActionTrait + Defau
                 T::default(),
             ));
         }
+    }
+}
+
+pub fn despawn_completed_selections(
+    mut commands: Commands,
+    // alignment_cursor: Res<CursorAlignmentPosition>,
+    // mut selection_actions: ResMut<ActionState<super::selection::SelectionAction>>,
+    selections: Query<Entity, With<SelectionComplete>>,
+) {
+    for selection in selections.iter() {
+        commands.entity(selection).despawn();
     }
 }
 

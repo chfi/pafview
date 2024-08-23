@@ -49,7 +49,6 @@ impl Plugin for AlignmentViewPlugin {
             .add_systems(Update, update_cursor_world)
             .add_systems(
                 Update,
-                // (rectangle_select_zoom_input, rectangle_select_zoom_apply).chain(),
                 (
                     super::selection::selection_action_input_system::<RectangleZoomSelection>,
                     rectangle_select_zoom_apply,
@@ -225,6 +224,10 @@ fn click_drag_pan_viewport(
     // mut click_origin: Local<Option<(bevy::math::DVec2, bevy::math::Vec2)>>,
     mut click_origin: Local<Option<bevy::math::Vec2>>,
 
+    // TODO: this should be handled better; this system shouldn't depend
+    // on a specific state/mode in the figure export plugin
+    region_selection_mode: Res<super::figure_export::FigureRegionSelectionMode>,
+
     mut egui_contexts: bevy_egui::EguiContexts,
     menubar_size: Res<super::gui::MenubarSize>,
 
@@ -235,6 +238,11 @@ fn click_drag_pan_viewport(
     windows: Query<&Window>,
     mut alignment_view: ResMut<AlignmentViewport>,
 ) {
+    if region_selection_mode.user_is_selecting {
+        *click_origin = None;
+        return;
+    }
+
     let window = windows.single();
     let win_size = window.resolution.size();
     let ptr_pos = window.cursor_position();
