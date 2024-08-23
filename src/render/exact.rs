@@ -3,7 +3,7 @@ use std::sync::Arc;
 use rustc_hash::FxHashMap;
 use ultraviolet::{DVec2, UVec2, Vec2};
 
-use crate::paf::AlignmentIndex;
+use crate::app::alignments::AlignmentIndex;
 use crate::render::color::AlignmentColorScheme;
 use crate::{sequences::SeqId, CigarOp};
 
@@ -776,10 +776,11 @@ pub(crate) fn draw_alignments_with_color_schemes(
 
             for (ix, alignment) in visible_alignments {
                 let align_ix = AlignmentIndex {
-                    pair: pair_id,
-                    index: ix,
+                    target: target_id,
+                    query: query_id,
+                    pair_index: ix,
                 };
-                let alignment_color_scheme = alignment_colors.get(align_ix);
+                let alignment_color_scheme = alignment_colors.get(&align_ix);
 
                 let Some(tile_buffers) = tile_cache.cache.get(&alignment_color_scheme) else {
                     log::error!("Did not find tile buffer for alignment");

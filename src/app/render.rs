@@ -209,7 +209,7 @@ pub(crate) fn prepare_alignment_grid_layout_materials(
         let pos = Vec2::new(x0 as f32, y0 as f32);
 
         for (ix, alignment) in aligns.iter().enumerate() {
-            let index = super::alignments::Alignment {
+            let index = super::alignments::AlignmentIndex {
                 target: target_id,
                 query: query_id,
                 pair_index: ix,
@@ -999,13 +999,13 @@ pub struct LineOnlyAlignment;
 
 #[derive(Resource, Default)]
 pub struct AlignmentVerticesIndex {
-    pub vertices: HashMap<super::alignments::Alignment, Handle<AlignmentVertices>>,
+    pub vertices: HashMap<super::alignments::AlignmentIndex, Handle<AlignmentVertices>>,
 }
 
 #[derive(Debug, Asset, Clone, Reflect)]
 pub struct AlignmentLayoutMaterials {
-    materials: HashMap<super::alignments::Alignment, Handle<AlignmentPolylineMaterial>>,
-    vertices: HashMap<super::alignments::Alignment, Handle<AlignmentVertices>>,
+    materials: HashMap<super::alignments::AlignmentIndex, Handle<AlignmentPolylineMaterial>>,
+    vertices: HashMap<super::alignments::AlignmentIndex, Handle<AlignmentVertices>>,
 }
 
 impl RenderAsset for AlignmentLayoutMaterials {
@@ -1026,7 +1026,7 @@ impl AlignmentLayoutMaterials {
         material_store: &mut Assets<AlignmentPolylineMaterial>,
         vertex_index: &AlignmentVerticesIndex,
         color_schemes: &super::AlignmentColorSchemes,
-        positions: impl IntoIterator<Item = (super::alignments::Alignment, Vec2)>,
+        positions: impl IntoIterator<Item = (super::alignments::AlignmentIndex, Vec2)>,
     ) -> Self {
         let mut materials = HashMap::default();
         let mut vertices = HashMap::default();

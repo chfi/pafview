@@ -127,7 +127,7 @@ pub fn alignment_picking_grid(
                         && seq_y >= loc.query_range.start
                         && seq_y < loc.query_range.end
                     {
-                        let al_ix = super::alignments::Alignment {
+                        let al_ix = super::alignments::AlignmentIndex {
                             query: qry_id,
                             target: tgt_id,
                             pair_index: ix,

@@ -6,6 +6,7 @@ use ultraviolet::DVec2;
 
 use anyhow::anyhow;
 
+use crate::app::alignments::AlignmentIndex;
 use crate::{
     cigar::implicit::ImpgIndex,
     sequences::{SeqId, Sequences},
@@ -280,11 +281,11 @@ impl Alignment {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct AlignmentIndex {
-    pub pair: (SeqId, SeqId),
-    pub index: usize,
-}
+// #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+// pub struct AlignmentIndex {
+//     pub pair: (SeqId, SeqId),
+//     pub index: usize,
+// }
 
 #[derive(bevy::prelude::Resource)]
 pub struct Alignments {
@@ -311,14 +312,17 @@ impl PafMetadata {
     // pub fn get(&self, alignment: &crate::app::alignments::Alignment) -> Option<&[String]> {
     pub fn get_optional_fields(
         &self,
-        alignment: &crate::app::alignments::Alignment,
+        alignment: &crate::app::alignments::AlignmentIndex,
     ) -> Option<&FxHashMap<[u8; 2], (char, String)>> {
         let pair = self.metadata.get(&(alignment.target, alignment.query))?;
         let metadata = pair.get(alignment.pair_index)?;
         Some(&metadata.optional_fields)
     }
 
-    pub fn get(&self, alignment: &crate::app::alignments::Alignment) -> Option<&AlignmentMetadata> {
+    pub fn get(
+        &self,
+        alignment: &crate::app::alignments::AlignmentIndex,
+    ) -> Option<&AlignmentMetadata> {
         let pair = self.metadata.get(&(alignment.target, alignment.query))?;
         pair.get(alignment.pair_index)
     }
@@ -493,8 +497,8 @@ pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Se
 
 impl Alignments {
     pub fn get(&self, index: AlignmentIndex) -> Option<&Alignment> {
-        let als = self.pairs.get(&index.pair)?;
-        als.get(index.index)
+        let als = self.pairs.get(&(index.target, index.query))?;
+        als.get(index.pair_index)
     }
 
     pub fn from_paf_lines<'l>(
@@ -517,11 +521,15 @@ impl Alignments {
         let mut cigar_range_index_map: bimap::BiHashMap<AlignmentIndex, std::ops::Range<u64>> =
             Default::default();
 
-        for (&pair, alignments) in pairs.iter_mut() {
+        for (&(target, query), alignments) in pairs.iter_mut() {
             alignments.sort_by_key(|al| al.location.target_range.start);
 
             for (index, al) in alignments.iter_mut().enumerate() {
-                let al_ix = AlignmentIndex { pair, index };
+                let al_ix = AlignmentIndex {
+                    target,
+                    query,
+                    pair_index: index,
+                };
                 if let Some(range) = al.cigar_file_byte_range.clone() {
                     cigar_range_index_map.insert(al_ix, range);
                 }
@@ -709,6 +717,8 @@ mod tests {
                 query_len,
                 Strand::Reverse,
             )),
+
+            cigar_file_byte_range: Some(0..cg_str.as_bytes().len() as u64),
         };
 
         for item in AlignmentIter::new(&alignment, 0..30) {

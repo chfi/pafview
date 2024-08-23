@@ -3,7 +3,7 @@ use rustc_hash::FxHashMap;
 use ultraviolet::{Mat4, Vec2, Vec3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
-use crate::{paf::AlignmentIndex, sequences::SeqId, IndexedCigar};
+use crate::{app::alignments::AlignmentIndex, sequences::SeqId, IndexedCigar};
 
 use super::{
     color::{AlignmentColorScheme, GPUColorScheme},
@@ -13,7 +13,7 @@ use super::{
 pub struct MatchDrawBatchData {
     // TODO: the cigars can't be combined if i want to color them separately
     // alignment_pair_index: FxHashMap<(SeqId, SeqId), usize>,
-    alignment_buffer_index: FxHashMap<crate::paf::AlignmentIndex, usize>,
+    alignment_buffer_index: FxHashMap<AlignmentIndex, usize>,
 
     buffers: DrawBatchBuffers,
 }
@@ -139,7 +139,7 @@ impl super::PafRenderer {
         rpass.set_bind_group(0, &uniforms.line_bind_group, &[]);
 
         for (&align_ix, &buf_ix) in &batch_data.alignment_buffer_index {
-            let color_scheme = alignment_colors.get(align_ix);
+            let color_scheme = alignment_colors.get(&align_ix);
 
             let Some(color_ix) = color_buffers.indices.get(color_scheme) else {
                 continue;
@@ -262,8 +262,9 @@ impl MatchDrawBatchData {
                 let buf_ix = buffers.vertex_pos_buffers.len();
 
                 let align_ix = AlignmentIndex {
-                    pair: *pair,
-                    index: cg_ix,
+                    target: target_id,
+                    query: query_id,
+                    pair_index: cg_ix,
                 };
                 alignment_buffer_index.insert(align_ix, buf_ix);
 

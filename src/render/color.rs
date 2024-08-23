@@ -1,6 +1,7 @@
 use rustc_hash::FxHashMap;
 
-use crate::paf::AlignmentIndex;
+use crate::app::alignments::AlignmentIndex;
+// use crate::paf::AlignmentIndex;
 
 #[derive(Debug)]
 pub struct PafColorSchemes {
@@ -18,8 +19,8 @@ impl std::default::Default for PafColorSchemes {
 }
 
 impl PafColorSchemes {
-    pub fn get(&self, alignment: AlignmentIndex) -> &AlignmentColorScheme {
-        if let Some(colors) = self.overrides.get(&alignment) {
+    pub fn get(&self, alignment: &AlignmentIndex) -> &AlignmentColorScheme {
+        if let Some(colors) = self.overrides.get(alignment) {
             colors
         } else {
             &self.default
@@ -97,8 +98,9 @@ impl PafColorSchemes {
             };
 
             let al_index = AlignmentIndex {
-                pair: pair_id,
-                index,
+                target: target_id,
+                query: query_id,
+                pair_index: index,
             };
 
             if let Some(color_scheme) = AlignmentColorScheme::from_def_str(color_str) {

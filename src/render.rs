@@ -19,7 +19,6 @@ pub mod color;
 pub mod exact;
 // pub mod gui;
 pub mod lines;
-pub mod thread;
 
 // pub use gui::EguiRenderer;
 pub use lines::LinePipeline;

@@ -89,6 +89,16 @@ impl AlignmentGrid {
         self.tile_aabbs.cast_ray(origin.as_uv(), dir.as_uv(), solid)
     }
 
+    pub fn seq_pair_ranges(
+        &self,
+        target: SeqId,
+        query: SeqId,
+    ) -> Option<[std::ops::Range<u64>; 2]> {
+        let target = self.x_axis.sequence_axis_range(target)?;
+        let query = self.y_axis.sequence_axis_range(query)?;
+        Some([target, query])
+    }
+
     /*
     pub fn debug_cast_ray(
         &self,

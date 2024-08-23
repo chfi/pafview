@@ -7,7 +7,7 @@ use bevy::{
 };
 use bevy_egui::{EguiContexts, EguiUserTextures};
 
-use crate::{grid::AxisRange, paf::AlignmentIndex, sequences::SeqId};
+use crate::{grid::AxisRange, sequences::SeqId};
 
 use super::{
     render::{AlignmentRenderTarget, AlignmentViewer, AlignmentViewerImages},
@@ -314,7 +314,7 @@ fn update_exported_tiles(
 
                 if let Some(als) = alignments.pairs.get(&key) {
                     for (ix, _al) in als.iter().enumerate() {
-                        alignment_set.insert(super::alignments::Alignment {
+                        alignment_set.insert(super::alignments::AlignmentIndex {
                             query,
                             target,
                             pair_index: ix,
@@ -332,13 +332,14 @@ fn update_exported_tiles(
 
 #[derive(Event, Debug, Reflect)]
 struct UpdateExportAlignmentLayout {
-    alignment_set: HashSet<super::alignments::Alignment>,
+    alignment_set: HashSet<super::alignments::AlignmentIndex>,
     layout_size: Option<DVec2>,
 }
 
 fn update_figure_export_alignment_layout(
     mut update_events: EventReader<UpdateExportAlignmentLayout>,
     //
+    alignment_store: Res<crate::Alignments>,
     alignment_grid: Res<crate::AlignmentGrid>,
     color_schemes: Res<super::AlignmentColorSchemes>,
     vertex_buffer_index: Res<super::render::AlignmentVerticesIndex>,
@@ -398,6 +399,25 @@ fn update_figure_export_alignment_layout(
 
         offsets[0] *= x_scale;
         offsets[1] *= y_scale;
+    }
+
+    let mut line_only_pos = Vec::new();
+    let mut with_base_level_pos = Vec::new();
+
+    for alignment in alignment_set {
+        let Some(pos) = seq_tile_positions.get(&(alignment.target, alignment.query)) else {
+            continue;
+        };
+
+        let Some(al_data) = alignment_store.get(*alignment) else {
+            continue;
+        };
+
+        if al_data.cigar.is_empty() {
+            line_only_pos.push((*alignment, *pos));
+        } else {
+            with_base_level_pos.push((*alignment, *pos));
+        }
     }
 
     // let seq_tile_positions = seq_tiles_to_place.into_iter().filter_map(|(target, query)| {

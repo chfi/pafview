@@ -85,7 +85,7 @@ fn update_infobar(
     mut infobar_text: Query<&mut Text, With<InfobarText>>,
 
     alignments: Res<crate::Alignments>,
-    alignment_query: Query<&super::alignments::Alignment>,
+    alignment_query: Query<&super::alignments::AlignmentIndex>,
     paf_opt_fields: Res<crate::paf::PafMetadata>,
 ) {
     // let last_visible = alignment_events.read().fold(None, |last, ev| {

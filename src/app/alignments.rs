@@ -1,5 +1,4 @@
 use crate::{
-    paf::AlignmentIndex,
     render::{color::PafColorSchemes, exact::CpuViewRasterizerEgui},
     sequences::SeqId,
     PafViewerApp,
@@ -23,13 +22,13 @@ impl Plugin for AlignmentsPlugin {
 }
 
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
-pub struct AlignmentEntityIndex(pub HashMap<Alignment, Entity>);
+pub struct AlignmentEntityIndex(pub HashMap<AlignmentIndex, Entity>);
 
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
 pub struct SequencePairEntityIndex(pub HashMap<super::SequencePairTile, Entity>);
 
 #[derive(Debug, Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
-pub struct Alignment {
+pub struct AlignmentIndex {
     pub query: SeqId,
     pub target: SeqId,
 

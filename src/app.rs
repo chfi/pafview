@@ -21,7 +21,6 @@ use infobar::InfobarAlignmentEvent;
 use wgpu::{Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
 
 use crate::{
-    paf::AlignmentIndex,
     render::{color::PafColorSchemes, exact::CpuViewRasterizerEgui},
     sequences::SeqId,
     PafViewerApp,
@@ -103,12 +102,8 @@ pub struct AlignmentColorSchemes {
 impl AlignmentColorSchemes {
     pub fn get(
         &self,
-        alignment: &alignments::Alignment,
+        alignment: &alignments::AlignmentIndex,
     ) -> &crate::render::color::AlignmentColorScheme {
-        let alignment = AlignmentIndex {
-            pair: (alignment.target, alignment.query),
-            index: alignment.pair_index,
-        };
         self.colors.get(alignment)
     }
 }
@@ -389,11 +384,12 @@ fn prepare_alignments(
             ))
             .with_children(|parent| {
                 for (ix, alignment) in alignments.iter().enumerate() {
-                    let al_ix = AlignmentIndex {
-                        pair: (alignment.target_id, alignment.query_id),
-                        index: ix,
+                    let al_comp = alignments::AlignmentIndex {
+                        target: alignment.target_id,
+                        query: alignment.query_id,
+                        pair_index: ix,
                     };
-                    let color_scheme = color_schemes.colors.get(al_ix);
+                    let color_scheme = color_schemes.colors.get(&al_comp);
 
                     let material = render::AlignmentPolylineMaterial::from_alignment(
                         grid,
@@ -404,12 +400,6 @@ fn prepare_alignments(
                     let vertices = render::AlignmentVertices::from_alignment(alignment);
 
                     let vx_handle = alignment_vertices.add(vertices);
-
-                    let al_comp = alignments::Alignment {
-                        target: alignment.target_id,
-                        query: alignment.query_id,
-                        pair_index: ix,
-                    };
 
                     vertex_index.vertices.insert(al_comp, vx_handle.clone());
 
