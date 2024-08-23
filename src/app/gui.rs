@@ -80,11 +80,6 @@ pub(crate) fn menubar_system(
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                let open = &mut figure_export_open.is_open;
-                if ui.button("Figure Export").clicked() {
-                    *open = !*open;
-                }
-
                 let open = &mut window_states.config_open;
                 if ui.button("Settings").clicked() {
                     *open = !*open;
@@ -97,6 +92,11 @@ pub(crate) fn menubar_system(
                         *open = !*open;
                     }
                 }
+
+                // let open = &mut figure_export_open.is_open;
+                // if ui.button("Figure Export").clicked() {
+                //     *open = !*open;
+                // }
             });
             // ui.spacing()
         })

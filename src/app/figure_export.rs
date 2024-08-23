@@ -223,9 +223,11 @@ fn show_figure_export_window(
                     let view = crate::view::View {
                         x_min: 0.0,
                         y_min: 0.0,
-                        x_max: size.x,
-                        y_max: size.y,
-                    };
+                        x_max: 500.0,
+                        y_max: 500.0,
+                    }
+                    .fit_ranges_in_view_f64(Some(0.0..=size.x), Some(0.0..=size.y));
+
 
                     println!("rendering view {view:?}");
                     viewer.next_view = Some(view);
@@ -309,6 +311,7 @@ fn show_figure_export_window(
 
                 ui.label("Custom layout");
 
+                /*
                 ui.horizontal(|ui| {
                     ui.label("X Size");
                     ui.add(egui::DragValue::new(&mut tgt_len));
@@ -317,6 +320,7 @@ fn show_figure_export_window(
                     ui.label("Y Size");
                     ui.add(egui::DragValue::new(&mut query_len));
                 });
+                */
 
                 ui.horizontal(|ui| {
                     ui.label("X scale");
@@ -336,6 +340,7 @@ fn show_figure_export_window(
                     );
                 });
 
+                /*
                 ui.horizontal(|ui| {
                     if ui.button("Apply").clicked() {
                         fig_export.export_layout_size = Some(DVec2::new(tgt_len, query_len));
@@ -344,6 +349,7 @@ fn show_figure_export_window(
                         fig_export.export_layout_size = None;
                     }
                 });
+                */
 
                 ui.data_mut(|data| {
                     data.insert_temp(target_id, tgt_len);
@@ -532,7 +538,6 @@ fn update_figure_export_alignment_layout(
     let height = y_max.checked_sub(y_min).unwrap_or_default() as f64;
     println!("[{width}, {height}]");
 
-    // export_window.export_layout_size = Some(DVec2::new(width, height));
     let scale = export_window.export_layout_scale;
 
     for (pair, offsets) in seq_tile_positions.iter_mut() {
@@ -541,27 +546,9 @@ fn update_figure_export_alignment_layout(
 
         offsets[0] *= scale.x as f64;
         offsets[1] *= scale.y as f64;
-        // offsets[1] *= 0.1;
     }
     export_window.export_layout_size =
         Some(DVec2::new(width * scale.x as f64, height * scale.y as f64));
-
-    /*
-    if let Some(layout_size) = export_window.export_layout_size {
-        let x_scale = width / layout_size.x;
-        let y_scale = height / layout_size.y;
-
-        for (pair, offsets) in seq_tile_positions.iter_mut() {
-            offsets[0] -= x_min as f64;
-            offsets[1] -= y_min as f64;
-
-            offsets[0] *= x_scale;
-            offsets[1] *= y_scale;
-        }
-    } else {
-        export_window.export_layout_size = Some(DVec2::new(width, height));
-    }
-    */
 
     let mut line_only_pos = Vec::new();
     let mut with_base_level_pos = Vec::new();
