@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
-use bevy::{math::DVec2, prelude::*, utils::HashMap};
+use bevy::{
+    math::DVec2,
+    prelude::*,
+    utils::{HashMap, HashSet},
+};
 use bevy_egui::{EguiContexts, EguiUserTextures};
 
 use crate::{grid::AxisRange, paf::AlignmentIndex, sequences::SeqId};
@@ -15,7 +19,8 @@ pub struct FigureExportPlugin;
 
 impl Plugin for FigureExportPlugin {
     fn build(&self, app: &mut App) {
-        app.add_event::<ChangeExportTiles>()
+        app.add_event::<ChangeExportTileRegion>()
+            .add_event::<UpdateExportAlignmentLayout>()
             .init_resource::<FigureExportWindowOpen>()
             .init_resource::<FigureRegionSelectionMode>()
             .add_systems(PreUpdate, handle_selection_user_input)
@@ -80,6 +85,7 @@ fn setup_figure_export_window(
     commands.insert_resource(FigureExportWindow {
         display_img: viewer,
         egui_textures: None,
+        export_layout_size: None,
     });
 }
 
@@ -90,6 +96,8 @@ struct FigureExportImage;
 struct FigureExportWindow {
     display_img: Entity,
     egui_textures: Option<[egui::TextureId; 2]>,
+
+    export_layout_size: Option<DVec2>,
 }
 
 fn swap_egui_textures(
@@ -138,21 +146,20 @@ fn show_figure_export_window(
     alignment_viewport: Res<AlignmentViewport>,
     alignment_grid: Res<crate::AlignmentGrid>,
 
+    active_renders: Query<&AlignmentRenderTarget>,
     mut img_query: Query<
         (Entity, &mut AlignmentViewer, &AlignmentViewerImages),
         With<FigureExportImage>,
     >,
     mut fig_export: ResMut<FigureExportWindow>,
+    // mut
 ) {
-    let Ok((_disp_ent, mut viewer, viewer_images)) = img_query.get_mut(fig_export.display_img)
+    let Ok((viewer_ent, mut viewer, viewer_images)) = img_query.get_mut(fig_export.display_img)
     else {
         return;
     };
 
-    // let image = &back_image.image;
-
-    // let is_rendering = rendering_query.get(disp_ent).is_ok();
-    let is_rendering = false;
+    let is_rendering = active_renders.contains(viewer_ent);
 
     let ctx = contexts.ctx_mut();
 
@@ -232,16 +239,21 @@ fn show_figure_export_window(
 }
 
 #[derive(Event, Debug, Clone, Copy, Reflect)]
-struct ChangeExportTiles {
+struct ChangeExportTileRegion {
     world_region: [DVec2; 2],
 }
 
 fn update_exported_tiles(
     mut commands: Commands,
     mut last_tile_region: Local<Option<[std::ops::RangeInclusive<usize>; 2]>>,
-    mut export_region_events: EventReader<ChangeExportTiles>,
+
+    mut export_region_events: EventReader<ChangeExportTileRegion>,
+    mut layout_events: EventWriter<UpdateExportAlignmentLayout>,
+
+    figure_export_window: Res<FigureExportWindow>,
 
     alignment_grid: Res<crate::AlignmentGrid>,
+    alignments: Res<crate::Alignments>,
 ) {
     let Some(new_region) = export_region_events.read().last() else {
         return;
@@ -291,10 +303,108 @@ fn update_exported_tiles(
     };
 
     if region_changed {
+        *last_tile_region = Some([x_range.clone(), y_range.clone()]);
         // create layout material & update viewer entity
+        let mut alignment_set = HashSet::default();
+        let layout_size = figure_export_window.export_layout_size;
+
+        for &query in &x_tiles {
+            for &target in &y_tiles {
+                let key = (target, query);
+
+                if let Some(als) = alignments.pairs.get(&key) {
+                    for (ix, _al) in als.iter().enumerate() {
+                        alignment_set.insert(super::alignments::Alignment {
+                            query,
+                            target,
+                            pair_index: ix,
+                        });
+                    }
+                }
+            }
+        }
+        layout_events.send(UpdateExportAlignmentLayout {
+            alignment_set,
+            layout_size,
+        });
+    }
+}
+
+#[derive(Event, Debug, Reflect)]
+struct UpdateExportAlignmentLayout {
+    alignment_set: HashSet<super::alignments::Alignment>,
+    layout_size: Option<DVec2>,
+}
+
+fn update_figure_export_alignment_layout(
+    mut update_events: EventReader<UpdateExportAlignmentLayout>,
+    //
+    alignment_grid: Res<crate::AlignmentGrid>,
+    color_schemes: Res<super::AlignmentColorSchemes>,
+    vertex_buffer_index: Res<super::render::AlignmentVerticesIndex>,
+) {
+    let Some(UpdateExportAlignmentLayout {
+        alignment_set,
+        layout_size,
+    }) = update_events.read().last()
+    else {
+        return;
+    };
+
+    let mut seq_tiles_to_place = HashSet::default();
+
+    // step through the entire `alignment_set`
+    for alignment in alignment_set {
+        let Some(vx) = vertex_buffer_index.vertices.get(alignment) else {
+            continue;
+        };
+        let color = color_schemes.get(alignment);
+
+        seq_tiles_to_place.insert((alignment.target, alignment.query));
     }
 
-    todo!();
+    let mut x_min = std::u64::MAX;
+    let mut x_max = std::u64::MIN;
+    let mut y_min = std::u64::MAX;
+    let mut y_max = std::u64::MIN;
+
+    let mut seq_tile_positions = HashMap::default();
+
+    for pair @ &(target, query) in seq_tiles_to_place.iter() {
+        //
+        let Some([tgt_range, qry_range]) = alignment_grid.seq_pair_ranges(target, query) else {
+            continue;
+        };
+
+        x_min = tgt_range.start.min(x_min);
+        x_max = tgt_range.end.min(x_max);
+        y_min = qry_range.start.min(y_min);
+        y_max = qry_range.end.min(y_max);
+
+        seq_tile_positions.insert(*pair, [tgt_range.start as f64, qry_range.start as f64]);
+    }
+
+    let width = (x_max - x_min) as f64;
+    let height = (y_max - y_min) as f64;
+
+    let layout_size = layout_size.unwrap_or(DVec2::new(width, height));
+
+    let x_scale = width / layout_size.x;
+    let y_scale = height / layout_size.y;
+
+    for (pair, offsets) in seq_tile_positions.iter_mut() {
+        offsets[0] -= x_min as f64;
+        offsets[1] -= y_min as f64;
+
+        offsets[0] *= x_scale;
+        offsets[1] *= y_scale;
+    }
+
+    // let seq_tile_positions = seq_tiles_to_place.into_iter().filter_map(|(target, query)| {
+
+    // });
+
+    //
 }
 
 #[derive(Component, Default, Clone, Copy, Reflect)]
@@ -308,7 +418,7 @@ impl SelectionActionTrait for FigureRegionSelection {
 
 // must run after selection_action_input_system::<FigureRegionSelection>
 fn send_region_change_event(
-    mut region_events: EventWriter<ChangeExportTiles>,
+    mut region_events: EventWriter<ChangeExportTileRegion>,
     selections: Query<
         &super::selection::Selection,
         (
@@ -318,7 +428,7 @@ fn send_region_change_event(
     >,
 ) {
     for selection in selections.iter() {
-        let ev = ChangeExportTiles {
+        let ev = ChangeExportTileRegion {
             world_region: [selection.start_world, selection.end_world],
         };
         region_events.send(ev);
