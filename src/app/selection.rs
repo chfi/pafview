@@ -187,14 +187,6 @@ fn rectangle_zoom_selection_gizmos(
     >,
     windows: Query<&Window>,
 ) {
-    // gizmos.grid_2d(
-    //     [0., 0.].into(),
-    //     0.0,
-    //     [10, 10].into(),
-    //     [20.0, 20.0].into(),
-    //     LinearRgba::rgb(0.5, 0.5, 0.5),
-    // );
-
     let res = &windows.single().resolution;
     let dims = [res.width(), res.height()];
 
@@ -219,15 +211,10 @@ fn rectangle_zoom_selection_gizmos(
             res.height() - p1.y - res.height() * 0.5,
         );
 
-        // let pos = [s0.x.min(s1.x), s0.y.min(s1.y)];
-
         let size = [(s1.x - s0.x).abs(), (s1.y - s0.y).abs()];
 
         let center = (s0 + s1) * 0.5;
 
         gizmos.rect_2d(center, 0.0, size.into(), LinearRgba::rgb(0.5, 0.5, 0.5));
-
-        // gizmos.circle_2d(s0, 5.0, LinearRgba::rgb(0.8, 0.0, 0.0));
-        // gizmos.circle_2d(s1, 5.0, LinearRgba::rgb(0.8, 0.0, 0.0));
     }
 }

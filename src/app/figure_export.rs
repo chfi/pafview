@@ -83,6 +83,8 @@ pub struct FigureExportWindowOpen {
 fn setup_figure_export_window(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
+
+    clear_color: Res<ClearColor>,
     grid_layout: Res<super::render::AlignmentGridLayout>,
 ) {
     let mut viewer =
@@ -90,7 +92,7 @@ fn setup_figure_export_window(
     let viewer = viewer
         .insert((
             FigureExportImage,
-            AlignmentViewer::default().with_bg_color(Color::WHITE),
+            AlignmentViewer::default().with_bg_color(clear_color.0),
         ))
         .id();
 
@@ -227,7 +229,6 @@ fn show_figure_export_window(
                         y_max: 500.0,
                     }
                     .fit_ranges_in_view_f64(Some(0.0..=size.x), Some(0.0..=size.y));
-
 
                     println!("rendering view {view:?}");
                     viewer.next_view = Some(view);

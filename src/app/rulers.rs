@@ -4,6 +4,7 @@ use leafwing_input_manager::action_state::ActionState;
 use super::{
     selection::{Selection, SelectionActionTrait, SelectionComplete},
     view::{AlignmentViewport, CursorAlignmentPosition},
+    ForegroundColor,
 };
 
 pub(super) struct ViewerRulersPlugin;
@@ -52,6 +53,7 @@ fn draw_cursor_ruler_gizmos(
     cursor: Res<CursorAlignmentPosition>,
     windows: Query<&Window>,
 
+    fg_color: Res<ForegroundColor>,
     measure_selection: Query<&Selection, With<MeasurementSelection>>,
 ) {
     let Some(sp) = cursor.screen_pos else {
@@ -64,7 +66,7 @@ fn draw_cursor_ruler_gizmos(
 
     let res = &windows.single().resolution;
 
-    let color = Color::srgb(0.1, 0.1, 0.1);
+    let color = fg_color.0;
 
     gizmos.linestrip_2d(
         [[sp.x, -res.height()].into(), [sp.x, res.height()].into()],
@@ -82,12 +84,13 @@ fn update_cursor_ruler(
     // viewer: Res<PafViewer>,
     cursor: Res<CursorAlignmentPosition>,
 
+    fg_color: Res<ForegroundColor>,
     ruler: Query<(Entity, &AlignmentRuler)>,
     windows: Query<&Window>,
 ) {
     let text_style = TextStyle {
         font_size: 22.0,
-        color: Color::srgb(0.0, 0.0, 0.0),
+        color: fg_color.0,
         ..default()
     };
 
@@ -181,7 +184,7 @@ enum MeasureRuler {
     Query,
 }
 
-fn setup_measure_text(mut commands: Commands) {
+fn setup_measure_text(mut commands: Commands, fg_color: Res<ForegroundColor>) {
     commands.spawn((
         MeasureRuler::Query,
         RenderLayers::layer(1),
@@ -189,7 +192,7 @@ fn setup_measure_text(mut commands: Commands) {
             text: Text::from_section(
                 "",
                 TextStyle {
-                    color: Color::BLACK,
+                    color: fg_color.0,
                     ..default()
                 },
             ),
@@ -206,7 +209,7 @@ fn setup_measure_text(mut commands: Commands) {
             text: Text::from_section(
                 "",
                 TextStyle {
-                    color: Color::BLACK,
+                    color: fg_color.0,
                     ..default()
                 },
             ),
@@ -220,6 +223,7 @@ fn setup_measure_text(mut commands: Commands) {
 fn update_measure_display(
     alignment_view: Res<AlignmentViewport>,
     windows: Query<&Window>,
+    fg_color: Res<ForegroundColor>,
 
     mut gizmos: Gizmos<RulerGizmos>,
 
@@ -247,7 +251,7 @@ fn update_measure_display(
         return;
     };
 
-    let color = Color::srgb(0.05, 0.05, 0.05);
+    let color = fg_color.0;
 
     let view = &alignment_view.view;
 

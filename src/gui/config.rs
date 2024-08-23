@@ -12,7 +12,7 @@ pub fn application_settings_window(
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 let mut line_width = config.alignment_line_width;
-                let alignment_line_width_range = 0.1..=50.0;
+                let alignment_line_width_range = 0.2..=10.0;
 
                 ui.label("Alignment line width");
 
@@ -29,7 +29,7 @@ pub fn application_settings_window(
 
             ui.horizontal(|ui| {
                 let mut line_width = config.grid_line_width;
-                let grid_line_width_range = 0.1..=5.0;
+                let grid_line_width_range = 0.0..=5.0;
 
                 ui.label("Grid line width");
 

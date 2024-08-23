@@ -19,6 +19,13 @@ impl std::default::Default for PafColorSchemes {
 }
 
 impl PafColorSchemes {
+    pub fn dark_mode() -> Self {
+        Self {
+            overrides: Default::default(),
+            default: AlignmentColorScheme::dark_mode(),
+        }
+    }
+
     pub fn get(&self, alignment: &AlignmentIndex) -> &AlignmentColorScheme {
         if let Some(colors) = self.overrides.get(alignment) {
             colors
@@ -27,11 +34,12 @@ impl PafColorSchemes {
         }
     }
 
-    pub fn from_paf_like(
+    pub fn fill_from_paf_like(
+        &mut self,
         sequences: &crate::sequences::Sequences,
         alignments: &crate::paf::Alignments,
         path: impl AsRef<std::path::Path>,
-    ) -> std::io::Result<Self> {
+    ) -> std::io::Result<()> {
         use crate::Strand;
         use std::io::prelude::*;
         use std::io::BufReader;
@@ -40,7 +48,7 @@ impl PafColorSchemes {
 
         let reader = std::fs::File::open(path).map(BufReader::new)?;
 
-        let mut result = Self::default();
+        // let mut result = Self::default();
 
         for line in reader.lines() {
             let line = line?;
@@ -104,11 +112,11 @@ impl PafColorSchemes {
             };
 
             if let Some(color_scheme) = AlignmentColorScheme::from_def_str(color_str) {
-                result.overrides.insert(al_index, color_scheme);
+                self.overrides.insert(al_index, color_scheme);
             }
         }
 
-        Ok(result)
+        Ok(())
     }
 }
 

@@ -205,10 +205,14 @@ fn config_update_grid_material(
     mat.width = app_config.grid_line_width;
 }
 
+// #[derive(Resource)]
+
 fn setup(
     mut commands: Commands,
 
     alignment_grid: Res<crate::AlignmentGrid>,
+
+    fg_color: Res<ForegroundColor>,
 
     // viewer: Res<PafViewer>,
     mut polyline_materials: ResMut<Assets<PolylineMaterial>>,
@@ -259,8 +263,8 @@ fn setup(
     }
 
     let grid_mat = polyline_materials.add(PolylineMaterial {
-        width: 1.0,
-        color: Color::BLACK.into(),
+        width: 0.8,
+        color: fg_color.0.into(),
         depth_bias: 0.0,
         perspective: false,
     });
@@ -276,14 +280,23 @@ fn setup(
     });
 }
 
+#[derive(Resource)]
+pub struct ForegroundColor(pub Color);
+
 pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
     let args = crate::cli::Cli::parse();
 
-    let paf_color_schemes = if let Some(path) = args.color_schemes {
-        PafColorSchemes::from_paf_like(&app.sequences, &app.alignments, path).unwrap_or_default()
+    let mut paf_color_schemes = if args.dark_mode {
+        PafColorSchemes::dark_mode()
     } else {
         PafColorSchemes::default()
     };
+
+    if let Some(path) = args.color_schemes {
+        paf_color_schemes
+            .fill_from_paf_like(&app.sequences, &app.alignments, path)
+            .unwrap_or_default()
+    }
 
     let mut rasterizer = CpuViewRasterizerEgui::initialize();
     {
@@ -306,6 +319,12 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
         .unwrap_or_default();
     let window_title = format!("pafview - {paf_file_name}");
 
+    let (foreground_color, clear_color) = if args.dark_mode {
+        (ForegroundColor(Color::WHITE), ClearColor(Color::BLACK))
+    } else {
+        (ForegroundColor(Color::BLACK), ClearColor(Color::WHITE))
+    };
+
     viewer_app
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
@@ -315,7 +334,8 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
             ..default()
         }))
         .add_plugins(PolylinePlugin)
-        .insert_resource(ClearColor(Color::WHITE))
+        .insert_resource(clear_color)
+        .insert_resource(foreground_color)
         .insert_resource(app.app_config)
         .insert_resource(app.sequences)
         .insert_resource(app.alignments)

@@ -42,4 +42,8 @@ pub struct Cli {
     /// Optional list of sequences to include as queries (Y axis)
     #[arg(long)]
     pub query_seqs: Option<Vec<String>>,
+
+    /// Start in dark mode
+    #[arg(long)]
+    pub dark_mode: bool,
 }

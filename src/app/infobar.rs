@@ -33,6 +33,8 @@ pub struct InfobarAlignmentEvent {
 fn setup_infobar(
     mut commands: Commands,
     //
+    bg_color: Res<ClearColor>,
+    fg_color: Res<ForegroundColor>,
 ) {
     let infobar = commands
         .spawn((
@@ -55,8 +57,8 @@ fn setup_infobar(
                     align_content: AlignContent::FlexStart,
                     ..default()
                 },
-                background_color: Color::WHITE.into(),
-                border_color: Color::BLACK.into(),
+                background_color: bg_color.0.into(),
+                border_color: fg_color.0.into(),
                 // background_color: Color::RED.into(),
                 // border_color: Color::WHITE.into(),
                 ..default()
@@ -68,7 +70,7 @@ fn setup_infobar(
                     "",
                     TextStyle {
                         font_size: 22.0,
-                        color: Color::BLACK,
+                        color: fg_color.0,
                         ..default()
                     },
                 ),
@@ -188,6 +190,8 @@ fn update_infobar(
 }
 
 use bevy_mod_picking::prelude::*;
+
+use super::ForegroundColor;
 
 impl From<ListenerInput<Pointer<Over>>> for InfobarAlignmentEvent {
     fn from(value: ListenerInput<Pointer<Over>>) -> Self {
