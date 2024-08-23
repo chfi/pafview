@@ -139,6 +139,13 @@ pub struct AlignmentViewer {
     pub background_color: Color,
 }
 
+impl AlignmentViewer {
+    pub fn clear_rendered(&mut self) {
+        self.rendered_view = None;
+        self.last_render_time = None;
+    }
+}
+
 #[derive(Component)]
 struct ExtractedViewerChildren(Vec<Entity>);
 

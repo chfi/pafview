@@ -213,16 +213,30 @@ fn show_figure_export_window(
 
             if button("render current view").clicked() {
                 viewer.next_view = Some(alignment_viewport.view.clone());
+                println!("rendering view {:?}", viewer.next_view);
             }
 
-            if button("render initial view").clicked() {
-                let view = &alignment_viewport.initial_view;
+            if button("render full view").clicked() {
+                if let Some(size) = fig_export.export_layout_size {
+                    let view = crate::view::View {
+                        x_min: 0.0,
+                        y_min: 0.0,
+                        x_max: size.x,
+                        y_max: size.y,
+                    };
 
-                let new_view = alignment_viewport
-                    .view
-                    .fit_ranges_in_view_f64(Some(view.x_range()), Some(view.y_range()));
+                    println!("rendering view {view:?}");
+                    viewer.next_view = Some(view);
+                } else {
+                    let view = &alignment_viewport.initial_view;
 
-                viewer.next_view = Some(new_view);
+                    let new_view = alignment_viewport
+                        .view
+                        .fit_ranges_in_view_f64(Some(view.x_range()), Some(view.y_range()));
+
+                    println!("rendering view {new_view:?}");
+                    viewer.next_view = Some(new_view);
+                }
             }
 
             let target_id = ui.id().with("target-range");
@@ -352,6 +366,7 @@ fn update_exported_tiles(
     let y_tiles = y_axis.tiles_covered_by_range(min.y..=max.y);
 
     let Some((x_tiles, y_tiles)) = x_tiles.zip(y_tiles) else {
+        dbg!();
         return;
     };
     let x_tiles = x_tiles.collect::<Vec<_>>();
@@ -371,23 +386,26 @@ fn update_exported_tiles(
     //     .unwrap();
 
     let Some(((x0, x1), (y0, y1))) = x_ixs.zip(y_ixs) else {
+        dbg!();
         return;
     };
     let x_range = x0..=x1;
     let y_range = y0..=y1;
 
+    println!("tile x_range: {x_range:?}\ty_range: {y_range:?}");
+
     let region_changed = if let Some(prev_ranges) = last_tile_region.as_ref() {
         let [prev_xr, prev_yr] = prev_ranges;
         prev_xr != &x_range || prev_yr != &y_range
     } else {
-        false
+        true
     };
 
     if region_changed {
         *last_tile_region = Some([x_range.clone(), y_range.clone()]);
         // create layout material & update viewer entity
         let mut alignment_set = HashSet::default();
-        let layout_size = figure_export_window.export_layout_size;
+        // let layout_size = figure_export_window.export_layout_size;
 
         for &query in &x_tiles {
             for &target in &y_tiles {
@@ -404,9 +422,11 @@ fn update_exported_tiles(
                 }
             }
         }
+
+        println!("sending alignment layout update event");
         layout_events.send(UpdateExportAlignmentLayout {
             alignment_set,
-            layout_size,
+            // layout_size,
         });
     }
 }
@@ -414,7 +434,7 @@ fn update_exported_tiles(
 #[derive(Event, Debug, Reflect)]
 struct UpdateExportAlignmentLayout {
     alignment_set: HashSet<super::alignments::AlignmentIndex>,
-    layout_size: Option<DVec2>,
+    // layout_size: Option<DVec2>,
 }
 
 fn update_figure_export_alignment_layout(
@@ -432,7 +452,7 @@ fn update_figure_export_alignment_layout(
 ) {
     let Some(UpdateExportAlignmentLayout {
         alignment_set,
-        layout_size,
+        // layout_size,
     }) = update_events.read().last()
     else {
         return;
@@ -440,6 +460,7 @@ fn update_figure_export_alignment_layout(
 
     if alignment_set.is_empty() {
         export_window.export_layouts = None;
+        export_window.export_layout_size = None;
         return;
     }
 
@@ -469,27 +490,34 @@ fn update_figure_export_alignment_layout(
         };
 
         x_min = tgt_range.start.min(x_min);
-        x_max = tgt_range.end.min(x_max);
+        x_max = tgt_range.end.max(x_max);
         y_min = qry_range.start.min(y_min);
-        y_max = qry_range.end.min(y_max);
+        y_max = qry_range.end.max(y_max);
 
         seq_tile_positions.insert(*pair, [tgt_range.start as f64, qry_range.start as f64]);
     }
 
-    let width = (x_max - x_min) as f64;
-    let height = (y_max - y_min) as f64;
+    // let height = (y_max - y_min) as f64;
 
-    let layout_size = layout_size.unwrap_or(DVec2::new(width, height));
+    // if let Some(layout_size) =
+    println!("x: {x_min}-{x_max}\ty: {y_min}-{y_max}");
+    let width = x_max.checked_sub(x_min).unwrap_or_default() as f64;
+    let height = y_max.checked_sub(y_min).unwrap_or_default() as f64;
+    println!("[{width}, {height}]");
 
-    let x_scale = width / layout_size.x;
-    let y_scale = height / layout_size.y;
+    if let Some(layout_size) = export_window.export_layout_size {
+        let x_scale = width / layout_size.x;
+        let y_scale = height / layout_size.y;
 
-    for (pair, offsets) in seq_tile_positions.iter_mut() {
-        offsets[0] -= x_min as f64;
-        offsets[1] -= y_min as f64;
+        for (pair, offsets) in seq_tile_positions.iter_mut() {
+            offsets[0] -= x_min as f64;
+            offsets[1] -= y_min as f64;
 
-        offsets[0] *= x_scale;
-        offsets[1] *= y_scale;
+            offsets[0] *= x_scale;
+            offsets[1] *= y_scale;
+        }
+    } else {
+        export_window.export_layout_size = Some(DVec2::new(width, height));
     }
 
     let mut line_only_pos = Vec::new();
@@ -538,6 +566,8 @@ fn update_figure_export_layout_children(
 
     mut update_events: EventReader<UpdateExportAlignmentLayout>,
 
+    mut viewer_query: Query<&mut AlignmentViewer, With<FigureExportImage>>,
+
     fig_export: Res<FigureExportWindow>,
     grid_layout: Res<super::render::AlignmentGridLayout>,
 ) {
@@ -564,6 +594,9 @@ fn update_figure_export_layout_children(
             ));
         }
     });
+    for mut viewer in viewer_query.iter_mut() {
+        viewer.clear_rendered();
+    }
 }
 
 #[derive(Debug, Reflect, Clone)]
@@ -594,6 +627,7 @@ fn send_region_change_event(
     >,
 ) {
     for selection in selections.iter() {
+        println!("selection complete");
         let ev = ChangeExportTileRegion {
             world_region: [selection.start_world, selection.end_world],
         };
