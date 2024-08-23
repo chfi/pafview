@@ -182,7 +182,7 @@ pub struct AlignmentGridLayout {
     with_base_level: Handle<AlignmentLayoutMaterials>,
 }
 
-fn prepare_alignment_grid_layout_materials(
+pub(crate) fn prepare_alignment_grid_layout_materials(
     mut commands: Commands,
     mut alignment_mats: ResMut<Assets<AlignmentPolylineMaterial>>,
     mut layout_mats: ResMut<Assets<AlignmentLayoutMaterials>>,
@@ -246,10 +246,10 @@ fn prepare_alignment_grid_layout_materials(
 // spawns an entity with everything set up to render an alignment view
 // to an image, using the "global" alignment grid layout.
 //
-fn spawn_alignment_viewer_grid_layout<'a>(
+pub(crate) fn spawn_alignment_viewer_grid_layout<'a>(
     commands: &'a mut Commands,
-    mut images: ResMut<Assets<Image>>,
-    grid_layout: Res<AlignmentGridLayout>,
+    images: &mut Assets<Image>,
+    grid_layout: &AlignmentGridLayout,
 ) -> EntityCommands<'a> {
     let size = wgpu::Extent3d {
         width: 512,
@@ -342,7 +342,7 @@ fn setup_main_alignment_viewer(
 ) {
     use bevy_mod_picking::prelude::*;
 
-    let mut viewer = spawn_alignment_viewer_grid_layout(&mut commands, images, grid_layout);
+    let mut viewer = spawn_alignment_viewer_grid_layout(&mut commands, &mut images, &grid_layout);
 
     viewer.insert((
         MainAlignmentView,
@@ -452,11 +452,6 @@ impl AlignmentViewer {
 pub struct AlignmentViewerImages {
     pub front: Handle<Image>,
     pub back: Handle<Image>,
-}
-
-#[derive(Component)]
-pub struct AlignmentDisplayBackImage {
-    pub image: Handle<Image>,
 }
 
 #[derive(Debug, Clone, Component, ExtractComponent)]

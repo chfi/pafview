@@ -6,7 +6,7 @@ use bevy_egui::{EguiContexts, EguiUserTextures};
 use crate::{grid::AxisRange, paf::AlignmentIndex, sequences::SeqId};
 
 use super::{
-    render::{AlignmentDisplayBackImage, AlignmentRenderTarget, AlignmentViewer},
+    render::{AlignmentRenderTarget, AlignmentViewer, AlignmentViewerImages},
     selection::SelectionActionTrait,
     view::AlignmentViewport,
 };
@@ -27,7 +27,11 @@ impl Plugin for FigureExportPlugin {
                 )
                     .chain(),
             )
-            .add_systems(Startup, setup_figure_export_window)
+            .add_systems(
+                Startup,
+                setup_figure_export_window
+                    .after(super::render::prepare_alignment_grid_layout_materials),
+            )
             .add_systems(
                 PreUpdate,
                 (update_egui_textures, show_figure_export_window)
@@ -59,51 +63,22 @@ pub struct FigureExportWindowOpen {
 }
 
 // initializes the figure export window object and relevant assets (image for rendering etc.)
-fn setup_figure_export_window(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
-    let size = wgpu::Extent3d {
-        width: 512,
-        height: 512,
-        depth_or_array_layers: 1,
-    };
-
-    let mut image = Image {
-        texture_descriptor: wgpu::TextureDescriptor {
-            label: None,
-            size,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            mip_level_count: 1,
-            sample_count: 1,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        },
-        ..default()
-    };
-
-    image.resize(size);
-
-    let back_image = image.clone();
-
-    let img_handle = images.add(image);
-    let back_img_handle = images.add(back_image);
-
-    let display_img = commands
-        .spawn((
+fn setup_figure_export_window(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    grid_layout: Res<super::render::AlignmentGridLayout>,
+) {
+    let mut viewer =
+        super::render::spawn_alignment_viewer_grid_layout(&mut commands, &mut images, &grid_layout);
+    let viewer = viewer
+        .insert((
             FigureExportImage,
             AlignmentViewer::default().with_bg_color(Color::WHITE),
-            img_handle,
-            AlignmentDisplayBackImage {
-                image: back_img_handle,
-            },
         ))
         .id();
 
-    // println!("figure export display sprite: {display_img:?}");
-
     commands.insert_resource(FigureExportWindow {
-        display_img,
+        display_img: viewer,
         egui_textures: None,
     });
 }
@@ -115,21 +90,13 @@ struct FigureExportImage;
 struct FigureExportWindow {
     display_img: Entity,
     egui_textures: Option<[egui::TextureId; 2]>,
-    // front_egui_img: Option<egui::TextureId>,
-    // back_egui_img: Option<egui::TextureId>,
 }
 
 fn swap_egui_textures(
     mut fig_export: ResMut<FigureExportWindow>,
-    // mut egui_textures: ResMut<EguiUserTextures>,
-    sprites: Query<(
-        // Entity,
-        &Handle<Image>,
-        &AlignmentDisplayBackImage,
-        &AlignmentRenderTarget,
-    )>,
+    sprites: Query<&AlignmentRenderTarget, With<FigureExportImage>>,
 ) {
-    let Ok((front, back, tgt)) = sprites.get(fig_export.display_img) else {
+    let Ok(tgt) = sprites.get(fig_export.display_img) else {
         return;
     };
 
@@ -144,7 +111,7 @@ fn update_egui_textures(
     mut egui_textures: ResMut<EguiUserTextures>,
 
     mut fig_export: ResMut<FigureExportWindow>,
-    img_query: Query<(&AlignmentViewer, &Handle<Image>, &AlignmentDisplayBackImage)>,
+    img_query: Query<(&AlignmentViewer, &AlignmentViewerImages)>,
 ) {
     // the egui_textures field should be set to None when the images change (e.g. due to resize)
     // (and/or maybe this should be redesigned)
@@ -152,12 +119,12 @@ fn update_egui_textures(
         return;
     }
 
-    let Ok((_disp_image, image, back_img)) = img_query.get(fig_export.display_img) else {
+    let Ok((_disp_image, images)) = img_query.get(fig_export.display_img) else {
         return;
     };
 
-    let front = egui_textures.add_image(image.clone_weak());
-    let back = egui_textures.add_image(back_img.image.clone_weak());
+    let front = egui_textures.add_image(images.front.clone_weak());
+    let back = egui_textures.add_image(images.back.clone_weak());
 
     fig_export.egui_textures = Some([front, back]);
 }
@@ -171,14 +138,18 @@ fn show_figure_export_window(
     alignment_viewport: Res<AlignmentViewport>,
     alignment_grid: Res<crate::AlignmentGrid>,
 
-    img_query: Query<(Entity, &AlignmentViewer, &AlignmentDisplayBackImage)>,
+    mut img_query: Query<
+        (Entity, &mut AlignmentViewer, &AlignmentViewerImages),
+        With<FigureExportImage>,
+    >,
     mut fig_export: ResMut<FigureExportWindow>,
 ) {
-    let Ok((_disp_ent, _disp_image, back_image)) = img_query.get(fig_export.display_img) else {
+    let Ok((_disp_ent, mut viewer, viewer_images)) = img_query.get_mut(fig_export.display_img)
+    else {
         return;
     };
 
-    let image = &back_image.image;
+    // let image = &back_image.image;
 
     // let is_rendering = rendering_query.get(disp_ent).is_ok();
     let is_rendering = false;
@@ -199,14 +170,7 @@ fn show_figure_export_window(
             let mut button = |text: &str| ui.add_enabled(!is_rendering, egui::Button::new(text));
 
             if button("render current view").clicked() {
-                commands
-                    .entity(fig_export.display_img)
-                    .insert(AlignmentRenderTarget {
-                        alignment_view: alignment_viewport.view.clone(),
-                        canvas_size: [500, 500].into(),
-                        image: image.clone(),
-                        is_ready: Arc::new(false.into()),
-                    });
+                viewer.next_view = Some(alignment_viewport.view.clone());
             }
 
             if button("render initial view").clicked() {
@@ -216,14 +180,7 @@ fn show_figure_export_window(
                     .view
                     .fit_ranges_in_view_f64(Some(view.x_range()), Some(view.y_range()));
 
-                commands
-                    .entity(fig_export.display_img)
-                    .insert(AlignmentRenderTarget {
-                        alignment_view: new_view,
-                        canvas_size: [500, 500].into(),
-                        image: image.clone(),
-                        is_ready: Arc::new(false.into()),
-                    });
+                viewer.next_view = Some(new_view);
             }
 
             ui.vertical(|ui| {
@@ -289,6 +246,7 @@ fn update_exported_tiles(
     let Some(new_region) = export_region_events.read().last() else {
         return;
     };
+    println!("updating region to export: {new_region:?}");
 
     let [p0, p1] = new_region.world_region;
     let min = p0.min(p1);
