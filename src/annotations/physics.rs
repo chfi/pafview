@@ -106,12 +106,16 @@ impl LabelPhysics {
             let galley = annotation_painter.cache_label_fonts(fonts, &record.label);
             let size = galley.size().as_uv();
 
-            let axis_range = AxisRange::Seq {
-                seq_id: record.seq_id,
-                range: record.seq_range.clone(),
+            let qry_range = AxisRange::Seq {
+                seq_id: record.qry_id,
+                range: record.qry_range.clone(),
             };
-            let world_x_range = grid.x_axis.axis_range_into_global(&axis_range);
-            let world_y_range = grid.y_axis.axis_range_into_global(&axis_range);
+            let tgt_range = AxisRange::Seq {
+                seq_id: record.tgt_id,
+                range: record.tgt_range.clone(),
+            };
+            let world_x_range = grid.x_axis.axis_range_into_global(&tgt_range);
+            let world_y_range = grid.y_axis.axis_range_into_global(&qry_range);
 
             let Some(world_range) = AnnotationRange::new(world_x_range, world_y_range) else {
                 continue;
@@ -1644,7 +1648,6 @@ impl Physics {
         );
     }
 }
-
 
 /*
 fn label_collider(annot_id: super::AnnotationId, size: impl Into<[f32; 2]>) -> ColliderBuilder {

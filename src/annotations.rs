@@ -70,6 +70,12 @@ impl AnnotationStore {
         self.annotation_lists.get(*id)
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.annotation_lists.is_empty()
+    }
+}
+
+impl AnnotationStore {
     pub fn load_bed_file(
         &mut self,
         sequence_names: &bimap::BiMap<String, SeqId>,
@@ -140,8 +146,10 @@ impl AnnotationStore {
             color = color.linear_multiply(0.5);
 
             record_list.push(Record {
-                seq_id,
-                seq_range,
+                qry_id: seq_id,
+                qry_range: seq_range.clone(),
+                tgt_id: seq_id,
+                tgt_range: seq_range.clone(),
                 color,
                 label,
             });
@@ -168,8 +176,91 @@ impl AnnotationStore {
         Ok(list_id)
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.annotation_lists.is_empty()
+    pub fn load_bedpe_file(
+        &mut self,
+        sequence_names: &bimap::BiMap<String, SeqId>,
+        bedpe_path: impl AsRef<std::path::Path>,
+    ) -> Result<RecordListId> {
+        use std::io::prelude::*;
+        use std::io::BufReader;
+
+        let bed_reader = std::fs::File::open(bedpe_path.as_ref()).map(BufReader::new)?;
+
+        let mut record_list: Vec<Record> = Vec::new();
+
+        for line in bed_reader.lines() {
+            let line = line?;
+            let fields = line.trim().split('\t').collect::<Vec<_>>();
+
+            if fields.len() < 6 {
+                continue;
+            }
+
+            let get_id = |ix: usize| {
+                fields
+                    .get(ix)
+                    .and_then(|&seq_name| sequence_names.get_by_left(seq_name).copied())
+            };
+
+            let Some((qry_id, tgt_id)) = get_id(0).zip(get_id(3)) else {
+                continue;
+            };
+
+            let parse_range = |from: usize, to: usize| -> Option<std::ops::Range<u64>> {
+                let start = fields.get(from);
+                let end = fields.get(to);
+                start.zip(end).and_then(|(s, e)| {
+                    let s = s.trim().parse().ok()?;
+                    let e = e.trim().parse().ok()?;
+                    Some(s..e)
+                })
+            };
+
+            let qry_range = parse_range(1, 2);
+            let tgt_range = parse_range(4, 5);
+
+            let Some((qry_range, tgt_range)) = qry_range.zip(tgt_range) else {
+                continue;
+            };
+
+            let label = fields.get(6).map(|&s| s).unwrap_or_default().to_string();
+
+            let mut color: egui::Color32 = {
+                let [r, g, b] = string_hash_color(&label);
+                egui::Rgba::from_rgb(r, g, b).into()
+            };
+
+            color = color.linear_multiply(0.5);
+
+            record_list.push(Record {
+                qry_id,
+                qry_range,
+                tgt_id,
+                tgt_range,
+                color,
+                label,
+            });
+        }
+        let source = bedpe_path.as_ref().to_owned();
+
+        let source_str = source
+            .as_os_str()
+            .to_str()
+            .map(String::from)
+            .unwrap_or_else(|| "<Error>".to_string());
+
+        self.annotation_sources
+            .insert(source_str, self.annotation_lists.len());
+
+        let record_list = RecordList {
+            records: record_list,
+        };
+        // let shapes = record_list.prepare_annotation_shapes(alignment_grid, painter);
+        let list_id = self.annotation_lists.len();
+        self.annotation_lists.push(record_list);
+        // self.shapes.push(shapes);
+
+        Ok(list_id)
     }
 }
 
@@ -178,8 +269,11 @@ pub struct RecordList {
 }
 
 pub struct Record {
-    pub seq_id: SeqId,
-    pub seq_range: std::ops::Range<u64>,
+    pub qry_id: SeqId,
+    pub qry_range: std::ops::Range<u64>,
+
+    pub tgt_id: SeqId,
+    pub tgt_range: std::ops::Range<u64>,
 
     pub color: egui::Color32,
     pub label: String,
@@ -198,12 +292,16 @@ impl RecordList {
         let y_axis = &alignment_grid.y_axis;
 
         for (record_id, record) in self.records.iter().enumerate() {
-            let axis_range = AxisRange::Seq {
-                seq_id: record.seq_id,
-                range: record.seq_range.clone(),
+            let tgt_range = AxisRange::Seq {
+                seq_id: record.tgt_id,
+                range: record.tgt_range.clone(),
             };
-            let world_x_range = x_axis.axis_range_into_global(&axis_range);
-            let world_y_range = y_axis.axis_range_into_global(&axis_range);
+            let qry_range = AxisRange::Seq {
+                seq_id: record.qry_id,
+                range: record.qry_range.clone(),
+            };
+            let world_x_range = x_axis.axis_range_into_global(&tgt_range);
+            let world_y_range = y_axis.axis_range_into_global(&qry_range);
 
             let color = record.color;
 

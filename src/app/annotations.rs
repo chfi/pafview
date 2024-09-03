@@ -244,12 +244,16 @@ fn update_annotation_regions(
         let list = annotations.list_by_id(annot_id.record_list).unwrap();
         let record = &list.records[annot_id.list_index];
 
-        let axis_range = AxisRange::Seq {
-            seq_id: record.seq_id,
-            range: record.seq_range.clone(),
+        let qry_range = AxisRange::Seq {
+            seq_id: record.qry_id,
+            range:  record.qry_range.clone(),
         };
-        let world_x_range = x_axis.axis_range_into_global(&axis_range);
-        let world_y_range = y_axis.axis_range_into_global(&axis_range);
+        let tgt_range = AxisRange::Seq {
+            seq_id: record.tgt_id,
+            range:  record.tgt_range.clone(),
+        };
+        let world_x_range = x_axis.axis_range_into_global(&tgt_range);
+        let world_y_range = y_axis.axis_range_into_global(&qry_range);
 
         if world_x_range.is_none() && world_y_range.is_none() {
             continue;

@@ -377,8 +377,8 @@ impl RegionsOfInterestGui {
             // zoom to region based on which (target and/or query) are being rendered
 
             let axis_range = AxisRange::Seq {
-                seq_id: record.seq_id,
-                range: record.seq_range.clone(),
+                seq_id: record.tgt_id,
+                range: record.tgt_range.clone(),
             };
             let x_range = target_enabled
                 .then(|| x_axis.axis_range_into_global(&axis_range))
