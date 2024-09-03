@@ -114,6 +114,10 @@ fn setup(
     if let Some(path) = args.bed {
         load_events.send(LoadAnnotationFile { path });
     }
+
+    if let Some(path) = args.bedpe {
+        load_events.send(LoadAnnotationFile { path });
+    }
 }
 
 fn load_annotation_file(
@@ -130,7 +134,19 @@ fn load_annotation_file(
     }
 
     for LoadAnnotationFile { path } in load_events.read() {
-        match annotations.load_bed_file(&sequences.sequence_names, &path) {
+        let Some(ext) = path.extension() else {
+            continue;
+        };
+
+        let result = if ext.eq_ignore_ascii_case("bed") {
+            annotations.load_bed_file(&sequences.sequence_names, &path)
+        } else if ext.eq_ignore_ascii_case("bedpe") {
+            annotations.load_bedpe_file(&sequences.sequence_names, &path)
+        } else {
+            continue;
+        };
+
+        match result {
             Ok(list_id) => {
                 let annot_ids = annotations
                     .list_by_id(list_id)
@@ -246,11 +262,11 @@ fn update_annotation_regions(
 
         let qry_range = AxisRange::Seq {
             seq_id: record.qry_id,
-            range:  record.qry_range.clone(),
+            range: record.qry_range.clone(),
         };
         let tgt_range = AxisRange::Seq {
             seq_id: record.tgt_id,
-            range:  record.tgt_range.clone(),
+            range: record.tgt_range.clone(),
         };
         let world_x_range = x_axis.axis_range_into_global(&tgt_range);
         let world_y_range = y_axis.axis_range_into_global(&qry_range);

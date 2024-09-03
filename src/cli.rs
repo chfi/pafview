@@ -15,6 +15,10 @@ pub struct Cli {
     #[arg(long)]
     pub bed: Option<PathBuf>,
 
+    /// Path to BEDPE annotation file
+    #[arg(long)]
+    pub bedpe: Option<PathBuf>,
+
     /// Path to impg index file
     #[arg(long)]
     pub impg: Option<PathBuf>,
