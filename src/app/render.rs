@@ -874,29 +874,34 @@ pub struct AlignmentVertices {
 }
 
 impl AlignmentVertices {
+    pub fn from_alignment_ignore_cigar(alignment: &crate::Alignment) -> Self {
+        let location = &alignment.location;
+
+        let tgt_range = &location.target_range;
+        let qry_range = &location.query_range;
+
+        let mut from = Vec2::new(tgt_range.start as f32, qry_range.start as f32);
+        let mut to = Vec2::new(tgt_range.end as f32, qry_range.end as f32);
+
+        if location.query_strand.is_rev() {
+            std::mem::swap(&mut from.y, &mut to.y);
+        }
+
+        let vertices = vec![(from, to, CigarOp::M)];
+
+        return Self { data: vertices };
+    }
+
     pub fn from_alignment(alignment: &crate::Alignment) -> Self {
+        if alignment.cigar.is_empty() {
+            return Self::from_alignment_ignore_cigar(alignment);
+        }
+
         use crate::cigar::CigarOp;
 
         let location = &alignment.location;
 
         let mut vertices = Vec::new();
-
-        if alignment.cigar.is_empty() {
-            let tgt_range = &location.target_range;
-            let qry_range = &location.query_range;
-
-            let mut from = Vec2::new(tgt_range.start as f32, qry_range.start as f32);
-            let mut to = Vec2::new(tgt_range.end as f32, qry_range.end as f32);
-
-            if location.query_strand.is_rev() {
-                std::mem::swap(&mut from.y, &mut to.y);
-            }
-
-            vertices.push((from, to, CigarOp::M));
-
-            return Self { data: vertices };
-        }
-
         let mut tgt_cg = 0;
         let mut qry_cg = 0;
 

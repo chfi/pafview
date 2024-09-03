@@ -292,7 +292,7 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
         PafColorSchemes::default()
     };
 
-    if let Some(path) = args.color_schemes {
+    if let Some(path) = args.color_schemes.as_ref() {
         paf_color_schemes
             .fill_from_paf_like(&app.sequences, &app.alignments, path)
             .unwrap_or_default()
@@ -334,6 +334,7 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
             ..default()
         }))
         .add_plugins(PolylinePlugin)
+        .insert_resource(args)
         .insert_resource(clear_color)
         .insert_resource(foreground_color)
         .insert_resource(app.app_config)
@@ -361,6 +362,7 @@ fn prepare_alignments(
     alignments: Res<crate::Alignments>,
     alignment_grid: Res<crate::AlignmentGrid>,
     color_schemes: Res<AlignmentColorSchemes>,
+    cli_args: Res<crate::cli::Cli>,
 
     mut seq_pair_entity_index: ResMut<alignments::SequencePairEntityIndex>,
     mut alignment_entity_index: ResMut<alignments::AlignmentEntityIndex>,
@@ -372,6 +374,8 @@ fn prepare_alignments(
     mut infobar_writer: EventWriter<infobar::InfobarAlignmentEvent>,
 ) {
     let grid = &alignment_grid;
+
+    let low_mem = cli_args.low_mem;
 
     use bevy_mod_picking::prelude::*;
 
@@ -417,7 +421,11 @@ fn prepare_alignments(
                         color_scheme.clone(),
                     );
 
-                    let vertices = render::AlignmentVertices::from_alignment(alignment);
+                    let vertices = if cli_args.low_mem {
+                        render::AlignmentVertices::from_alignment_ignore_cigar(alignment)
+                    } else {
+                        render::AlignmentVertices::from_alignment(alignment)
+                    };
 
                     let vx_handle = alignment_vertices.add(vertices);
 

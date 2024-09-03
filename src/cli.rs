@@ -1,7 +1,7 @@
 use clap::Parser;
 use std::path::PathBuf;
 
-#[derive(Parser, Debug)]
+#[derive(Parser, Debug, bevy::prelude::Resource)]
 #[command(version, about)]
 pub struct Cli {
     /// Path to input PAF
@@ -50,4 +50,8 @@ pub struct Cli {
     /// Start in dark mode
     #[arg(long)]
     pub dark_mode: bool,
+
+    /// Reduce memory usage by only showing mappings at high zoom level
+    #[arg(long)]
+    pub low_mem: bool,
 }
