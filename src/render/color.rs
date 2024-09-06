@@ -204,10 +204,10 @@ impl AlignmentColorScheme {
             x_bg: C::RED,
 
             i_fg: C::BLACK,
-            i_bg: C::WHITE,
+            i_bg: C::TRANSPARENT,
 
             d_fg: C::BLACK,
-            d_bg: C::WHITE,
+            d_bg: C::TRANSPARENT,
         }
     }
 
@@ -224,10 +224,10 @@ impl AlignmentColorScheme {
             x_fg: C::WHITE,
             x_bg: C::RED,
 
-            i_fg: C::WHITE,
+            i_fg: C::TRANSPARENT,
             i_bg: C::BLACK,
 
-            d_fg: C::WHITE,
+            d_fg: C::TRANSPARENT,
             d_bg: C::BLACK,
         }
     }
