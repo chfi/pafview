@@ -1,8 +1,4 @@
-use crate::{
-    render::{color::PafColorSchemes, exact::CpuViewRasterizerEgui},
-    sequences::SeqId,
-    PafViewerApp,
-};
+use crate::{sequences::SeqId, PafViewerApp};
 use bevy::{prelude::*, utils::HashMap};
 
 /*

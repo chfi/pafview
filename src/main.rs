@@ -1,29 +1,11 @@
-use bytemuck::{Pod, Zeroable};
 use clap::Parser;
 use grid::AlignmentGrid;
-use winit::{event::ElementState, keyboard::KeyCode};
 
-use pafview::cigar;
-use pafview::paf;
-use pafview::pixels;
 use pafview::PafViewerApp;
 
 use pafview::config;
 
-// use pafview::annotations;
-// use pafview::cli;
 use pafview::grid;
-// use pafview::gui;
-// use pafview::regions;
-use pafview::render;
-// use pafview::sequences;
-use pafview::view;
-
-// use cigar::*;
-// use paf::PafLine;
-// use pixels::*;
-// use render::*;
-// use view::View;
 
 use pafview::annotations::AnnotationStore;
 

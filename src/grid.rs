@@ -133,12 +133,9 @@ impl AlignmentGrid {
         &self,
         viewport: &crate::view::Viewport,
         global_target: f64,
-        alignments_only: bool,
+        _alignments_only: bool,
     ) -> Option<(SeqId, SeqId)> {
-        let (top, btm) = viewport.y_range().into_inner();
-
-        let (top_id, top_local) = self.y_axis.global_to_axis_local(top)?;
-        let (tgt_id, tgt_local) = self.x_axis.global_to_axis_local(global_target)?;
+        let (top, _btm) = viewport.y_range().into_inner();
 
         // let (top, btm) = viewport.y_range().into_inner();
 
@@ -151,8 +148,8 @@ impl AlignmentGrid {
         );
 
         loop {
-            if let Some((pair @ (tgt, qry), pos)) = top_vis_nonempty.take() {
-                if let Some((handle, aabb)) = self.tile_aabbs.tile_aabb(pair) {
+            if let Some((pair, _pos)) = top_vis_nonempty.take() {
+                if let Some((_handle, aabb)) = self.tile_aabbs.tile_aabb(pair) {
                     let center = aabb.center();
                     let tile_top = center.as_uv() - [0.0, aabb.half_extents().y].as_uv();
                     // let tile_btm_y = center.y + aabb.half_extents().y;
@@ -436,7 +433,6 @@ impl GridAxis {
             .checked_sub(1)
             .unwrap();
         let offset = self.seq_offsets[i];
-        let len = self.seq_lens[i];
 
         let seq_id = self.seq_order[i];
 

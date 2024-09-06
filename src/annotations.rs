@@ -1,16 +1,12 @@
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use bimap::BiMap;
 use egui::Galley;
-use rustc_hash::FxHashMap;
-use ultraviolet::DVec2;
 
 use crate::{
     grid::{AlignmentGrid, AxisRange},
-    gui::AppWindowStates,
     sequences::SeqId,
-    PafViewerApp,
 };
 
 use self::draw::AnnotShapeId;

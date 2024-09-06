@@ -100,7 +100,7 @@ pub struct AlignmentColorSchemes {
 }
 
 impl AlignmentColorSchemes {
-    pub fn get(
+    pub(crate) fn get(
         &self,
         alignment: &alignments::AlignmentIndex,
     ) -> &crate::render::color::AlignmentColorScheme {

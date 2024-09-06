@@ -1,11 +1,16 @@
-pub struct PixelBuffer {
-    pub width: u32,
-    pub height: u32,
-    pub pixels: Vec<egui::Color32>,
+pub(crate) struct PixelBuffer {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) pixels: Vec<egui::Color32>,
 }
 
 impl PixelBuffer {
-    pub fn sample_into(&self, dst: &mut PixelBuffer, dst_offset: [f32; 2], dst_scale: [f32; 2]) {
+    pub(crate) fn sample_into(
+        &self,
+        dst: &mut PixelBuffer,
+        dst_offset: [f32; 2],
+        dst_scale: [f32; 2],
+    ) {
         // Calculate the bounds in the dst buffer that correspond to the src bounds
         let start_x = ((0.0 - dst_offset[0]) * dst_scale[0].max(0.0).ceil()) as usize;
         let start_y = ((0.0 - dst_offset[1]) * dst_scale[1].max(0.0).ceil()) as usize;
@@ -36,7 +41,7 @@ impl PixelBuffer {
 impl PixelBuffer {
     // nearest neighbor
 
-    pub fn sample_subimage_nn_into_with(
+    pub(crate) fn sample_subimage_nn_into_with(
         &self,
         dst: &mut PixelBuffer,
         dst_offset: [f32; 2],
@@ -86,7 +91,7 @@ impl PixelBuffer {
         }
     }
 
-    pub fn sample_subimage_nn_into(
+    pub(crate) fn sample_subimage_nn_into(
         &self,
         dst: &mut PixelBuffer,
         dst_offset: [f32; 2],
@@ -97,7 +102,7 @@ impl PixelBuffer {
         self.sample_subimage_nn_into_with(dst, dst_offset, dst_size, src_offset, src_size, |_, c| c)
     }
 
-    pub fn sample_subimage_into_bilerp(
+    pub(crate) fn sample_subimage_into_bilerp(
         &self,
         dst: &mut PixelBuffer,
         dst_offset: [f32; 2],
@@ -159,7 +164,7 @@ impl PixelBuffer {
 }
 
 impl PixelBuffer {
-    pub fn new_color(width: u32, height: u32, color: egui::Color32) -> Self {
+    pub(crate) fn new_color(width: u32, height: u32, color: egui::Color32) -> Self {
         Self {
             width,
             height,
@@ -167,11 +172,13 @@ impl PixelBuffer {
         }
     }
 
-    pub fn new(width: u32, height: u32) -> Self {
+    #[allow(dead_code)]
+    pub(crate) fn new(width: u32, height: u32) -> Self {
         Self::new_color(width, height, egui::Color32::TRANSPARENT)
     }
 
-    pub fn get(&self, x: usize, y: usize) -> Option<egui::Color32> {
+    #[allow(dead_code)]
+    pub(crate) fn get(&self, x: usize, y: usize) -> Option<egui::Color32> {
         if x >= self.width as usize || y >= self.height as usize {
             None
         } else {
@@ -181,7 +188,8 @@ impl PixelBuffer {
 }
 
 impl PixelBuffer {
-    pub fn write_png_file(&self, path: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
+    #[allow(dead_code)]
+    pub(crate) fn write_png_file(&self, path: impl AsRef<std::path::Path>) -> anyhow::Result<()> {
         let pixels: &[u8] = bytemuck::cast_slice(&self.pixels);
 
         lodepng::encode32_file(path, pixels, self.width as usize, self.height as usize)?;
@@ -262,6 +270,7 @@ fn bilinear_interpolate_offset(
     )
 }
 
+#[allow(dead_code)]
 pub(crate) fn create_test_pattern_buffer(width: u32, height: u32) -> PixelBuffer {
     let mut pixels = Vec::with_capacity((width * height) as usize);
     for y in 0..height {
@@ -281,6 +290,7 @@ pub(crate) fn create_test_pattern_buffer(width: u32, height: u32) -> PixelBuffer
 }
 
 // Helper function to create a test image buffer with identifiable patterns
+#[allow(dead_code)]
 pub(crate) fn create_test_buffer(width: u32, height: u32) -> PixelBuffer {
     let mut pixels = Vec::with_capacity((width * height) as usize);
     for y in 0..height {

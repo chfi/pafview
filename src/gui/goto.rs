@@ -4,7 +4,7 @@ use crate::view::View;
 #[allow(unused_imports)]
 use crate::math_conv::*;
 
-pub fn goto_region_window(
+pub(crate) fn goto_region_window(
     ctx: &egui::Context,
     open: &mut bool,
     alignment_grid: &crate::grid::AlignmentGrid,
@@ -24,12 +24,11 @@ pub fn goto_region_window(
                 })
                 .unwrap_or_default();
 
-            let (pressed_enter, window_dims, aspect_ratio) = ui.input(|i| {
+            let (pressed_enter, aspect_ratio) = ui.input(|i| {
                 let pressed = i.key_pressed(egui::Key::Enter);
                 let rect = i.screen_rect();
-                let dims = [rect.width() as u32, rect.height() as u32];
                 let aspect = rect.width() as f64 / rect.height() as f64;
-                (pressed, dims, aspect)
+                (pressed, aspect)
             });
 
             // Target/X

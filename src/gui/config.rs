@@ -12,7 +12,7 @@ pub fn application_settings_window(
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 let mut line_width = config.alignment_line_width;
-                let alignment_line_width_range = 0.2..=10.0;
+                let alignment_line_width_range = 0.5..=80.0;
 
                 ui.label("Alignment line width");
 

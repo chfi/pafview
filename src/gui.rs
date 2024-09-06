@@ -4,10 +4,8 @@ use ultraviolet::Vec2;
 use crate::{annotations::AnnotationStore, sequences::SeqId};
 
 pub mod config;
-pub mod debug;
+// pub mod debug;
 pub mod goto;
-
-pub mod regions;
 
 /*
 pub fn view_controls(

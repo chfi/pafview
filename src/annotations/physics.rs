@@ -1,3 +1,4 @@
+#[allow(dead_code)]
 use rapier2d::parry::partitioning::IndexedData;
 use rapier2d::prelude::*;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -1405,10 +1406,8 @@ impl LabelHeightField {
         let mut bin_ix = 0;
         let mut current_bin_end = bin_size.floor() as usize;
 
-        let line_vertices = crate::render::batch::line_vertices_from_cigar(
-            &alignment.location,
-            alignment.cigar.whole_cigar(),
-        );
+        let line_vertices =
+            line_vertices_from_cigar(&alignment.location, alignment.cigar.whole_cigar());
 
         for &[p0, p1] in &line_vertices {
             // shouldn't happen, but
@@ -1677,4 +1676,56 @@ fn label_collider_body(
         .lock_rotations()
         .linear_damping(3.0);
     (collider, rigid_body)
+}
+
+pub(crate) fn line_vertices_from_cigar(
+    location: &crate::paf::AlignmentLocation,
+    cigar_ops: impl Iterator<Item = (crate::cigar::CigarOp, u32)>,
+) -> Vec<[ultraviolet::DVec2; 2]> {
+    use crate::cigar::CigarOp;
+    use ultraviolet::DVec2;
+
+    let mut vertices = Vec::new();
+
+    let mut tgt_cg = 0;
+    let mut qry_cg = 0;
+
+    for (op, count) in cigar_ops {
+        // tgt_cg and qry_cg are offsets from the start of the cigar
+        let tgt_start = tgt_cg;
+        let qry_start = qry_cg;
+
+        let (tgt_end, qry_end) = match op {
+            CigarOp::Eq | CigarOp::X | CigarOp::M => {
+                tgt_cg += count as u64;
+                qry_cg += count as u64;
+                //
+                (tgt_start + count as u64, qry_start + count as u64)
+            }
+            CigarOp::I => {
+                qry_cg += count as u64;
+                //
+                (tgt_start, qry_start + count as u64)
+            }
+            CigarOp::D => {
+                tgt_cg += count as u64;
+                //
+                (tgt_start + count as u64, qry_start)
+            }
+        };
+
+        let tgt_range = location.map_from_aligned_target_range(tgt_start..tgt_end);
+        let qry_range = location.map_from_aligned_query_range(qry_start..qry_end);
+
+        let mut from = DVec2::new(tgt_range.start as f64, qry_range.start as f64);
+        let mut to = DVec2::new(tgt_range.end as f64, qry_range.end as f64);
+
+        if location.query_strand.is_rev() {
+            std::mem::swap(&mut from.y, &mut to.y);
+        }
+
+        vertices.push([from, to]);
+    }
+
+    vertices
 }
