@@ -71,6 +71,7 @@ impl Plugin for AlignmentRendererPlugin {
             })
             .init_resource::<AlignmentVerticesIndex>()
             .add_plugins(ExtractComponentPlugin::<AlignmentViewer>::default())
+            .add_plugins(ExtractComponentPlugin::<AlignmentViewerImages>::default())
             .add_plugins(ExtractComponentPlugin::<AlignmentRenderTarget>::default())
             .add_plugins(ExtractResourcePlugin::<AlignmentShaderConfig>::default())
             .add_systems(
@@ -284,14 +285,40 @@ pub(crate) fn spawn_alignment_viewer_grid_layout<'a>(
     let front_image = image;
     let back_image = front_image.clone();
 
-    let front_h = images.add(front_image);
-    let back_h = images.add(back_image);
+    let front = images.add(front_image);
+    let back = images.add(back_image);
+
+    let mut depth_buffer = Image {
+        texture_descriptor: wgpu::TextureDescriptor {
+            label: None,
+            size,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth16Unorm,
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        },
+        ..default()
+    };
+
+    depth_buffer.resize(size);
+    let front_depth = depth_buffer;
+    let back_depth = front_depth.clone();
+
+    let front_depth = images.add(front_depth);
+    let back_depth = images.add(back_depth);
 
     let mut display_sprite = commands.spawn((
         AlignmentViewer::default(),
         AlignmentViewerImages {
-            front: front_h,
-            back: back_h,
+            front,
+            back,
+
+            front_depth,
+            back_depth,
         },
     ));
 
@@ -455,10 +482,13 @@ impl AlignmentViewer {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, ExtractComponent, Clone)]
 pub struct AlignmentViewerImages {
     pub front: Handle<Image>,
     pub back: Handle<Image>,
+
+    pub front_depth: Handle<Image>,
+    pub back_depth: Handle<Image>,
 }
 
 #[derive(Debug, Clone, Component, ExtractComponent)]
@@ -466,7 +496,8 @@ pub struct AlignmentRenderTarget {
     pub alignment_view: crate::view::View,
     pub canvas_size: UVec2,
 
-    pub image: Handle<Image>,
+    #[deprecated]
+    color_img: Handle<Image>,
     pub is_ready: Arc<crossbeam::atomic::AtomicCell<bool>>,
 }
 
@@ -554,17 +585,17 @@ fn resize_alignment_viewer_back_image(
     viewers: Query<(&AlignmentViewer, &AlignmentViewerImages), Changed<AlignmentViewer>>,
 ) {
     for (viewer, viewer_imgs) in viewers.iter() {
-        let Some(img) = images.get_mut(&viewer_imgs.back) else {
-            continue;
-        };
-
-        let set_size = viewer.image_size;
-        if img.size() != set_size {
-            img.resize(wgpu::Extent3d {
-                width: set_size.x,
-                height: set_size.y,
-                depth_or_array_layers: 1,
-            });
+        for img in [&viewer_imgs.back, &viewer_imgs.back_depth] {
+            if let Some(img) = images.get_mut(img) {
+                let set_size = viewer.image_size;
+                if img.size() != set_size {
+                    img.resize(wgpu::Extent3d {
+                        width: set_size.x,
+                        height: set_size.y,
+                        depth_or_array_layers: 1,
+                    });
+                }
+            }
         }
     }
 }
@@ -611,7 +642,7 @@ fn trigger_alignment_viewer_line_render(
                 commands.entity(viewer_ent).insert(AlignmentRenderTarget {
                     alignment_view: next_view,
                     canvas_size: viewer.image_size,
-                    image: viewer_imgs.back.clone(),
+                    color_img: viewer_imgs.back.clone(),
                     is_ready: Arc::new(false.into()),
                 });
             }
@@ -717,7 +748,13 @@ impl FromWorld for AlignmentPolylinePipeline {
                 })],
             }),
             primitive: render_resource::PrimitiveState::default(),
-            depth_stencil: None,
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth16Unorm,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Greater,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
             multisample: wgpu::MultisampleState {
                 count: 1,
                 ..default()
@@ -1086,6 +1123,7 @@ fn queue_draw_alignment_lines(
         (
             Entity,
             &AlignmentViewer,
+            &AlignmentViewerImages,
             &AlignmentRenderTarget,
             &VertexBindGroup,
             &ExtractedViewerChildren,
@@ -1099,7 +1137,8 @@ fn queue_draw_alignment_lines(
         return;
     };
 
-    for (tgt_entity, viewer, render_target, vx_bind_group, children) in targets.iter() {
+    for (tgt_entity, viewer, viewer_imgs, render_target, vx_bind_group, children) in targets.iter()
+    {
         //
         let Some(view) = viewer.next_view else {
             continue;
@@ -1109,8 +1148,11 @@ fn queue_draw_alignment_lines(
             label: Some("AlignmentRenderer".into()),
         });
 
-        let tgt_handle = &render_target.image;
+        let tgt_handle = &viewer_imgs.back;
         let tgt_img = gpu_images.get(tgt_handle).unwrap();
+
+        let depth_handle = &viewer_imgs.back_depth;
+        let depth_img = gpu_images.get(depth_handle).unwrap();
 
         // let bp_per_px = (view.width() / tgt_img.size.x as f64) as f32;
         let px_per_bp = tgt_img.size.x as f64 / view.width();
@@ -1122,19 +1164,26 @@ fn queue_draw_alignment_lines(
             b: bg.blue as f64,
             a: bg.alpha as f64,
         };
-        let attch = wgpu::RenderPassColorAttachment {
-            view: &tgt_img.texture_view,
-            resolve_target: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(clear_color),
-                store: wgpu::StoreOp::Store,
-            },
-        };
 
         {
             let mut pass = cmds.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("AlignmentRendererPass".into()),
-                color_attachments: &[Some(attch)],
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &tgt_img.texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &depth_img.texture_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.0),
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                    stencil_ops: None,
+                }),
                 ..default()
             });
 

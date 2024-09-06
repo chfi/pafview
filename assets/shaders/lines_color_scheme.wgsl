@@ -70,26 +70,33 @@ fn vs_main(
   let transform = projection * model;
 
   result.position = transform * vec4(pp, 0.0, 1.0);
-  result.position.z = 0.5;
 
-  switch color % 5 {
+  let color_ix = color % 5;
+
+  switch color_ix {
       case 0u: {
         result.color = color_scheme.m_bg;
+        result.position.z = 0.5;
       }
       case 1u: {
         result.color = color_scheme.eq_bg;
+        result.position.z = 0.6;
       }
       case 2u: {
         result.color = color_scheme.x_bg;
+        result.position.z = 0.7;
       }
       case 3u: {
         result.color = color_scheme.i_bg;
+        result.position.z = 0.1;
       }
       case 4u: {
         result.color = color_scheme.d_bg;
+        result.position.z = 0.1;
       }
       default: {
         result.color = color_scheme.m_bg;
+        result.position.z = 0.5;
       }
   }
 
