@@ -85,7 +85,7 @@ fn setup_figure_export_window(
     mut images: ResMut<Assets<Image>>,
 
     clear_color: Res<ClearColor>,
-    grid_layout: Res<super::render::AlignmentGridLayout>,
+    grid_layout: Res<super::render::AlignmentGridLayoutMaterials>,
 ) {
     let mut viewer =
         super::render::spawn_alignment_viewer_grid_layout(&mut commands, &mut images, &grid_layout);
@@ -600,7 +600,7 @@ fn update_figure_export_layout_children(
     mut viewer_query: Query<&mut AlignmentViewer, With<FigureExportImage>>,
 
     fig_export: Res<FigureExportWindow>,
-    grid_layout: Res<super::render::AlignmentGridLayout>,
+    grid_layout: Res<super::render::AlignmentGridLayoutMaterials>,
 ) {
     if update_events.is_empty() {
         return;

@@ -30,6 +30,7 @@ use crate::{
 use super::view::AlignmentViewport;
 
 mod base_level;
+pub(crate) mod cigar_sampling;
 
 /*
 
@@ -185,7 +186,7 @@ fn update_alignment_shader_config(
 pub struct MainAlignmentView;
 
 #[derive(Resource)]
-pub struct AlignmentGridLayout {
+pub struct AlignmentGridLayoutMaterials {
     pub line_only: Handle<AlignmentLayoutMaterials>,
     pub with_base_level: Handle<AlignmentLayoutMaterials>,
 }
@@ -245,7 +246,7 @@ pub(crate) fn prepare_alignment_grid_layout_materials(
         with_base_level_pos,
     ));
 
-    commands.insert_resource(AlignmentGridLayout {
+    commands.insert_resource(AlignmentGridLayoutMaterials {
         line_only,
         with_base_level,
     });
@@ -257,7 +258,7 @@ pub(crate) fn prepare_alignment_grid_layout_materials(
 pub(crate) fn spawn_alignment_viewer_grid_layout<'a>(
     commands: &'a mut Commands,
     images: &mut Assets<Image>,
-    grid_layout: &AlignmentGridLayout,
+    grid_layout: &AlignmentGridLayoutMaterials,
 ) -> EntityCommands<'a> {
     let size = wgpu::Extent3d {
         width: 512,
@@ -372,7 +373,7 @@ fn setup_main_alignment_viewer(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
 
-    grid_layout: Res<AlignmentGridLayout>,
+    grid_layout: Res<AlignmentGridLayoutMaterials>,
 ) {
     use bevy_mod_picking::prelude::*;
 
@@ -496,8 +497,6 @@ pub struct AlignmentRenderTarget {
     pub alignment_view: crate::view::View,
     pub canvas_size: UVec2,
 
-    #[deprecated]
-    color_img: Handle<Image>,
     pub is_ready: Arc<crossbeam::atomic::AtomicCell<bool>>,
 }
 
@@ -642,7 +641,6 @@ fn trigger_alignment_viewer_line_render(
                 commands.entity(viewer_ent).insert(AlignmentRenderTarget {
                     alignment_view: next_view,
                     canvas_size: viewer.image_size,
-                    color_img: viewer_imgs.back.clone(),
                     is_ready: Arc::new(false.into()),
                 });
             }
