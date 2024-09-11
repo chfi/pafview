@@ -14,7 +14,23 @@ pub struct CigarSamplingRenderPlugin;
 
 impl Plugin for CigarSamplingRenderPlugin {
     fn build(&self, app: &mut App) {
-        todo!()
+        app.add_systems(Startup, setup_render_tile_test);
+
+        /*
+            update_render_tile_transforms
+            spawn_render_tasks
+            finish_render_tasks
+        */
+
+        app.add_systems(
+            //
+            PreUpdate,
+            finish_render_tasks,
+        )
+        .add_systems(
+            PostUpdate,
+            spawn_render_tasks, // (spawn_render_tasks, ).chain(),
+        );
     }
 }
 
@@ -47,6 +63,70 @@ struct RenderParams {
     target_seq_bounds: std::ops::Range<u64>,
 
     canvas_size: UVec2,
+}
+
+fn setup_render_tile_test(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+
+    alignments: Res<crate::Alignments>,
+    grid: Res<crate::AlignmentGrid>,
+) {
+    let Some((&(tgt_id, qry_id), alignments)) = alignments.pairs.iter().next() else {
+        return;
+    };
+
+    let x_offset = grid.x_axis.sequence_offset(tgt_id).unwrap();
+    let y_offset = grid.y_axis.sequence_offset(qry_id).unwrap();
+
+    // let transform =
+    //     Transform::from_translation(Vec3::new(x_offset as f32, y_offset as f32, 0.0));
+
+    let seq_pair = SequencePairTile {
+        target: tgt_id,
+        query: qry_id,
+    };
+
+    let size = wgpu::Extent3d {
+        width: 32,
+        height: 32,
+        depth_or_array_layers: 1,
+    };
+
+    let mut image = Image {
+        texture_descriptor: wgpu::TextureDescriptor {
+            label: None,
+            size,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        },
+        ..default()
+    };
+
+    image.resize(size);
+
+    let img_handle = images.add(image);
+
+    //
+    let parent = commands
+        .spawn((
+            RenderTileTarget::default(),
+            seq_pair,
+            img_handle,
+            RenderLayers::layer(1),
+            SpatialBundle::default(),
+            Pickable {
+                should_block_lower: false,
+                is_hoverable: true,
+            },
+        ))
+        .insert(SpriteBundle::default());
 }
 
 fn setup_render_tile_targets(
@@ -144,8 +224,9 @@ fn spawn_render_tasks(
     mut commands: Commands,
 
     alignments: Res<crate::Alignments>,
-
+    grid: Res<crate::AlignmentGrid>,
     viewport: Res<crate::app::view::AlignmentViewport>,
+
     windows: Query<&Window>,
     tiles: Query<
         (
@@ -166,19 +247,52 @@ fn spawn_render_tasks(
 
     for (tile_ent, pair, transform, vis, render_tile) in tiles.iter() {
         if !vis.get() {
+            println!("not visible");
             continue;
         }
 
+        dbg!();
         // compute visible area of seq. pair tile in the view
-        let query_seq_bounds = todo!();
-        let target_seq_bounds = todo!();
+        let target_seq_world = grid.x_axis.sequence_axis_range(pair.target);
+        let query_seq_world = grid.y_axis.sequence_axis_range(pair.query);
+
+        let Some((target_seq_world, query_seq_world)) = target_seq_world.zip(query_seq_world)
+        else {
+            continue;
+        };
+
+        dbg!();
+        let t0 = target_seq_world.start.max(viewport.view.x_min as u64);
+        let t1 = target_seq_world.end.min(viewport.view.x_max as u64);
+
+        let q0 = query_seq_world.start.max(viewport.view.y_min as u64);
+        let q1 = query_seq_world.end.min(viewport.view.y_max as u64);
+
+        if t0 >= t1 || q0 >= q1 {
+            continue;
+        }
+        dbg!();
+
+        let target_seq_bounds = t0..t1;
+        let query_seq_bounds = q0..q1;
+
+        dbg!((&target_seq_bounds, &query_seq_bounds));
 
         // compute size in pixels of tile on screen
-        let canvas_size = todo!();
+        let width = win_size.x as f64 * (t1 - t0) as f64 / viewport.view.width();
+        let height = win_size.y as f64 * (q1 - q0) as f64 / viewport.view.height();
+
+        let canvas_size = UVec2::new(width as u32, height as u32);
+        println!("canvas_size: {canvas_size:?}");
+
+        if canvas_size.x == 0 || canvas_size.y == 0 {
+            continue;
+        }
+        dbg!();
 
         let params = RenderParams {
-            query_seq_bounds,
-            target_seq_bounds,
+            query_seq_bounds: q0..q1,
+            target_seq_bounds: t0..t1,
             canvas_size,
         };
 
@@ -189,15 +303,18 @@ fn spawn_render_tasks(
             .clone();
 
         let task = task_pool.spawn(async move {
+            println!("in task");
             let t0 = std::time::Instant::now();
 
-            let len = (canvas_size.x + canvas_size.y) as usize;
+            let len = (canvas_size.x * canvas_size.y) as usize;
             // let mut pixels = vec![[0u8; 4]; len];
+            // let mut buffer = vec![0u8; len * 4];
             let mut buffer = vec![0u8; len * 4];
 
             let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut buffer);
+            pixels.fill([255, 0, 0, 255]);
 
-            for (ix, alignment) in alignments.iter().enumerate() {
+            for (_ix, alignment) in alignments.iter().enumerate() {
                 rasterize_alignment(
                     //
                     pixels,
@@ -258,6 +375,8 @@ fn finish_render_tasks(
             depth_or_array_layers: 1,
         });
 
+        println!("image data size: {}", image.data.len());
+        println!("pixels size: {}", pixels.len());
         let img_size = task.params.canvas_size;
         image.texture_descriptor.size.width = img_size.x;
         image.texture_descriptor.size.height = img_size.y;
@@ -277,11 +396,39 @@ fn rasterize_alignment(
     use crate::cigar::IndexedCigar;
     use line_drawing::XiaolinWu;
 
-    for item in alignment.cigar.iter_target_range(target.clone()) {
-        // map `item`'s target & query ranges to line endpoints inside `pixels`
+    let q0 = query.start as f64;
+    let q1 = query.end as f64;
+
+    let t0 = target.start as f64;
+    let t1 = target.end as f64;
+
+    let map_pt = |x: f64, y: f64| {
+        let xn = (x - t0) / (t1 - t0);
+        let yn = (y - q0) / (q1 - q0);
+        (xn * px_dims.x as f64, yn * px_dims.y as f64)
+    };
+
+    for ((px, py), v) in XiaolinWu::<f64, i32>::new(map_pt(t0, q0), map_pt(t1, q1)) {
+        if px >= 0 && px < px_dims.x as i32 && py >= 0 && py < px_dims.y as i32 {
+            let ix = (px + py * px_dims.x as i32) as usize;
+            if ix < pixels.len() {
+                let alpha = (v * 255.0) as u8;
+                pixels[ix] = [0, 0, 0, alpha];
+            }
+        }
+        //
     }
 
-    todo!();
+    // TODO rasterize entire cigar
+    /*
+    for item in alignment.cigar.iter_target_range(target.clone()) {
+        // map `item`'s target & query ranges to line endpoints inside `pixels`
+        // rather, relative to `pixels` top left corner
+        // (or maybe bottom left)
+
+
+    }
+    */
 }
 
 /*
