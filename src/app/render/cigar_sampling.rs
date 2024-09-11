@@ -304,6 +304,7 @@ fn spawn_render_tasks(
             .map(|i| i.elapsed().as_millis() > 100)
             .unwrap_or(true);
         if !update_timer_lapsed {
+            println!("skipping due to timer");
             continue;
         }
 
@@ -467,40 +468,72 @@ fn rasterize_alignment(
     use crate::cigar::IndexedCigar;
     use line_drawing::XiaolinWu;
 
-    let q0 = query.start as f64;
-    let q1 = query.end as f64;
+    // let q0 = query.start as f64;
+    // let q1 = query.end as f64;
 
-    let t0 = target.start as f64;
-    let t1 = target.end as f64;
+    // let t0 = target.start as f64;
+    // let t1 = target.end as f64;
 
-    let map_pt = |x: f64, y: f64| {
-        let xn = (x - t0) / (t1 - t0);
-        let yn = (y - q0) / (q1 - q0);
-        (xn * px_dims.x as f64, yn * px_dims.y as f64)
-    };
+    // for ((px, py), v) in XiaolinWu::<f64, i32>::new(map_pt(t0, q0), map_pt(t1, q1)) {
+    //     if px >= 0 && px < px_dims.x as i32 && py >= 0 && py < px_dims.y as i32 {
+    //         let py = px_dims.y as i32 - py - 1;
+    //         let ix = (px + py * px_dims.x as i32) as usize;
+    //         if ix < pixels.len() {
+    //             let alpha = (v * 255.0) as u8;
+    //             pixels[ix] = [0, 0, 0, alpha];
+    //         }
+    //     }
+    //     //
+    // }
 
-    for ((px, py), v) in XiaolinWu::<f64, i32>::new(map_pt(t0, q0), map_pt(t1, q1)) {
-        if px >= 0 && px < px_dims.x as i32 && py >= 0 && py < px_dims.y as i32 {
-            let py = px_dims.y as i32 - py - 1;
-            let ix = (px + py * px_dims.x as i32) as usize;
-            if ix < pixels.len() {
-                let alpha = (v * 255.0) as u8;
-                pixels[ix] = [0, 0, 0, alpha];
-            }
-        }
-        //
-    }
+    // let map_pt = |tgt: &std::ops::Range<u64>, qry: &std::ops::Range<u64>, x: f64, y: f64| {
+    //     let t0 = tgt.start as f64;
+    //     let t1 = tgt.end as f64;
+    //     let q0 = qry.start as f64;
+    //     let q1 = qry.end as f64;
+    //     let xn = (x - t0) / (t1 - t0);
+    //     let yn = (y - q0) / (q1 - q0);
+    //     (xn * px_dims.x as f64, yn * px_dims.y as f64)
+    // };
 
     // TODO rasterize entire cigar
-    /*
     for item in alignment.cigar.iter_target_range(target.clone()) {
         // map `item`'s target & query ranges to line endpoints inside `pixels`
         // rather, relative to `pixels` top left corner
         // (or maybe bottom left)
 
+        let t0 = item.target_range.start as f64;
+        let t1 = item.target_range.end as f64;
+        let q0 = item.query_range.start as f64;
+        let q1 = item.query_range.end as f64;
 
+        if (t0 - t1).abs() < 1.0 || (q0 - q1).abs() < 1.0 {
+            continue;
+        }
+
+        let map_pt = |x: f64, y: f64| {
+            let xn = (x - t0) / (t1 - t0);
+            let yn = (y - q0) / (q1 - q0);
+            (xn * px_dims.x as f64, yn * px_dims.y as f64)
+        };
+
+        let start = map_pt(t0, q0);
+        let end = map_pt(t1, q1);
+
+        // println!(" >> LINE ENDS:\t{start:?}\t{end:?}");
+
+        for ((px, py), v) in XiaolinWu::<f64, i32>::new(map_pt(t0, q0), map_pt(t1, q1)) {
+            if px >= 0 && px < px_dims.x as i32 && py >= 0 && py < px_dims.y as i32 {
+                let py = px_dims.y as i32 - py - 1;
+                let ix = (px + py * px_dims.x as i32) as usize;
+                if ix < pixels.len() {
+                    let alpha = (v * 255.0) as u8;
+                    pixels[ix] = [0, 0, 0, alpha];
+                }
+            }
+            //
+        }
     }
-    */
 }
 
 /*
