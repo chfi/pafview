@@ -6,7 +6,7 @@ use bevy::{
 };
 use bevy_mod_picking::prelude::Pickable;
 
-use crate::app::SequencePairTile;
+use crate::app::{ForegroundColor, SequencePairTile};
 
 use super::{AlignmentRenderTarget, AlignmentViewer};
 
@@ -14,10 +14,13 @@ pub struct CigarSamplingRenderPlugin;
 
 impl Plugin for CigarSamplingRenderPlugin {
     fn build(&self, app: &mut App) {
-        // app.add_systems(Startup, setup_render_tile_test);
         app.add_systems(Startup, setup_render_tile_targets);
-        app.add_systems(Startup, check_tiles_dbg.after(setup_render_tile_targets));
+        app.add_systems(
+            Startup,
+            setup_tile_debug_time.after(setup_render_tile_targets),
+        );
 
+        app.add_systems(Update, update_tile_debug_time);
         /*
             update_render_tile_transforms
             spawn_render_tasks
@@ -36,9 +39,60 @@ impl Plugin for CigarSamplingRenderPlugin {
     }
 }
 
-fn check_tiles_dbg(tiles: Query<(Entity, &Handle<Image>), With<RenderTileTarget>>) {
-    for (tile, img) in tiles.iter() {
-        println!("tile {tile:?} => {img:?}");
+#[derive(Default, Component)]
+struct TileDebugTimeView {
+    last_params: Option<RenderParams>,
+}
+
+fn setup_tile_debug_time(
+    mut commands: Commands,
+    fg_color: Res<ForegroundColor>,
+    tiles: Query<Entity, With<RenderTileTarget>>,
+) {
+    for tile in tiles.iter() {
+        commands.entity(tile).with_children(|parent| {
+            parent
+                .spawn((
+                    TileDebugTimeView::default(),
+                    RenderLayers::layer(1),
+                    Text2dBundle {
+                        text: Text::from_section(
+                            "",
+                            TextStyle {
+                                color: fg_color.0,
+                                ..default()
+                            },
+                        ),
+                        text_anchor: bevy::sprite::Anchor::BottomLeft,
+                        ..default()
+                    },
+                    // TextBundle::from_section("", TextStyle::default()),
+                ))
+                .insert(Transform::from_xyz(0., 0., 1.0));
+        });
+    }
+}
+
+fn update_tile_debug_time(
+    // mut commands: Commands,
+    tiles: Query<(&Children, &RenderTileTarget)>,
+    mut dbg_text: Query<(&mut Text, &mut TileDebugTimeView)>,
+) {
+    for (children, tile) in tiles.iter() {
+        for child in children.iter() {
+            if let Ok((mut text, mut tile_dbg)) = dbg_text.get_mut(*child) {
+                if tile_dbg.last_params.as_ref() == tile.last_rendered.as_ref() {
+                    continue;
+                }
+                let value = if let Some(time) = tile.last_update.as_ref() {
+                    format!("{}ms", time.elapsed().as_millis())
+                } else {
+                    "".to_string()
+                };
+                text.sections[0].value = value;
+                tile_dbg.last_params = tile.last_rendered.clone();
+            }
+        }
     }
 }
 
@@ -85,8 +139,8 @@ fn setup_render_tile_targets(
     cli_args: Res<crate::cli::Cli>,
 ) {
     for (pair @ &(tgt_id, qry_id), alignments) in alignments.pairs.iter() {
-        let x_offset = grid.x_axis.sequence_offset(tgt_id).unwrap();
-        let y_offset = grid.y_axis.sequence_offset(qry_id).unwrap();
+        // let x_offset = grid.x_axis.sequence_offset(tgt_id).unwrap();
+        // let y_offset = grid.y_axis.sequence_offset(qry_id).unwrap();
 
         // let transform =
         //     Transform::from_translation(Vec3::new(x_offset as f32, y_offset as f32, 0.0));
@@ -184,7 +238,7 @@ fn update_render_tile_transforms(
         let q1 = query_seq_world.end.min(viewport.view.y_max as u64);
 
         if t0 >= t1 || q0 >= q1 {
-            println!("hiding tile\ttgt [{t0}, {t1}]\tqry [{q0}, {q1}]");
+            // println!("hiding tile\ttgt [{t0}, {t1}]\tqry [{q0}, {q1}]");
             *visibility = Visibility::Hidden;
             continue;
         }
@@ -240,7 +294,7 @@ fn spawn_render_tasks(
 
     for (ix, (tile_ent, pair, transform, vis, render_tile)) in tiles.iter().enumerate() {
         if vis == Visibility::Hidden {
-            println!("not visible");
+            // println!("not visible");
             continue;
         }
 
@@ -309,11 +363,11 @@ fn spawn_render_tasks(
             .clone();
 
         // let ang = (pair.target.0 * pair.query.0) % 50;
-        let ang = (30.0 / ix as f32) * std::f32::consts::PI;
-        let color = Color::hsv(ang as f32 * 400.0, 0.8, 0.8);
+        // let ang = (30.0 / ix as f32) * std::f32::consts::PI;
+        // let color = Color::hsv(ang as f32 * 400.0, 0.8, 0.8);
 
         let task = task_pool.spawn(async move {
-            println!("in task for tile {tile_ent:?}; color: {color:?}");
+            // println!("in task for tile {tile_ent:?}; color: {color:?}");
             let t0 = std::time::Instant::now();
 
             let len = (canvas_size.x * canvas_size.y) as usize;
@@ -322,14 +376,15 @@ fn spawn_render_tasks(
             let mut buffer = vec![0u8; len * 4];
 
             let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut buffer);
-            let rgb = color.to_srgba();
-            pixels.fill([
-                (rgb.red * 255.0) as u8,
-                (rgb.green * 255.0) as u8,
-                (rgb.blue * 255.0) as u8,
-                255,
-            ]);
+            // let rgb = color.to_srgba();
+            // pixels.fill([
+            //     (rgb.red * 255.0) as u8,
+            //     (rgb.green * 255.0) as u8,
+            //     (rgb.blue * 255.0) as u8,
+            //     255,
+            // ]);
             // pixels.fill([255, 0, 0, 255]);
+            pixels.fill([0, 0, 0, 0]);
 
             for (_ix, alignment) in alignments.iter().enumerate() {
                 rasterize_alignment(
@@ -343,10 +398,6 @@ fn spawn_render_tasks(
             }
 
             let time = t0.elapsed().as_secs_f64();
-            // println!(
-            //     "rendered tile w/ {} alignments in {time} s",
-            //     alignments.len()
-            // );
 
             buffer
         });
@@ -382,7 +433,7 @@ fn finish_render_tasks(
             continue;
         };
 
-        println!("updating image {image:?} for tile {tile:?}");
+        // println!("updating image {image:?} for tile {tile:?}");
         let Some(image) = images.get_mut(image) else {
             panic!("couldn't modify render tile image");
         };
@@ -393,8 +444,8 @@ fn finish_render_tasks(
             depth_or_array_layers: 1,
         });
 
-        println!("image data size: {}", image.data.len());
-        println!("pixels size: {}", pixels.len());
+        // println!("image data size: {}", image.data.len());
+        // println!("pixels size: {}", pixels.len());
         let img_size = task.params.canvas_size;
         image.texture_descriptor.size.width = img_size.x;
         image.texture_descriptor.size.height = img_size.y;
