@@ -14,7 +14,9 @@ pub struct CigarSamplingRenderPlugin;
 
 impl Plugin for CigarSamplingRenderPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, setup_render_tile_test);
+        // app.add_systems(Startup, setup_render_tile_test);
+        app.add_systems(Startup, setup_render_tile_targets);
+        app.add_systems(Startup, check_tiles_dbg.after(setup_render_tile_targets));
 
         /*
             update_render_tile_transforms
@@ -22,15 +24,21 @@ impl Plugin for CigarSamplingRenderPlugin {
             finish_render_tasks
         */
 
+        // app.add_systems(Update, update_r)
+
         app.add_systems(
             //
             PreUpdate,
             finish_render_tasks,
         )
-        .add_systems(
-            PostUpdate,
-            spawn_render_tasks, // (spawn_render_tasks, ).chain(),
-        );
+        .add_systems(PostUpdate, update_render_tile_transforms)
+        .add_systems(PostUpdate, spawn_render_tasks);
+    }
+}
+
+fn check_tiles_dbg(tiles: Query<(Entity, &Handle<Image>), With<RenderTileTarget>>) {
+    for (tile, img) in tiles.iter() {
+        println!("tile {tile:?} => {img:?}");
     }
 }
 
@@ -55,78 +63,15 @@ probably best to just have one image per tile? maybe? or at least end up that wa
 #[derive(Component, Default)]
 struct RenderTileTarget {
     last_rendered: Option<RenderParams>,
+    last_update: Option<std::time::Instant>,
 }
 
-#[derive(Debug, Clone, Reflect)]
+#[derive(Debug, Clone, Reflect, PartialEq, Eq)]
 struct RenderParams {
     query_seq_bounds: std::ops::Range<u64>,
     target_seq_bounds: std::ops::Range<u64>,
 
     canvas_size: UVec2,
-}
-
-fn setup_render_tile_test(
-    mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-
-    alignments: Res<crate::Alignments>,
-    grid: Res<crate::AlignmentGrid>,
-) {
-    let Some((&(tgt_id, qry_id), alignments)) = alignments.pairs.iter().next() else {
-        return;
-    };
-
-    let x_offset = grid.x_axis.sequence_offset(tgt_id).unwrap();
-    let y_offset = grid.y_axis.sequence_offset(qry_id).unwrap();
-
-    // let transform =
-    //     Transform::from_translation(Vec3::new(x_offset as f32, y_offset as f32, 0.0));
-
-    let seq_pair = SequencePairTile {
-        target: tgt_id,
-        query: qry_id,
-    };
-
-    let size = wgpu::Extent3d {
-        width: 32,
-        height: 32,
-        depth_or_array_layers: 1,
-    };
-
-    let mut image = Image {
-        texture_descriptor: wgpu::TextureDescriptor {
-            label: None,
-            size,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            mip_level_count: 1,
-            sample_count: 1,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                | wgpu::TextureUsages::COPY_DST
-                | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        },
-        ..default()
-    };
-
-    image.resize(size);
-
-    let img_handle = images.add(image);
-
-    //
-    let parent = commands
-        .spawn((
-            RenderTileTarget::default(),
-            seq_pair,
-            img_handle,
-            RenderLayers::layer(1),
-            SpatialBundle::default(),
-            Pickable {
-                should_block_lower: false,
-                is_hoverable: true,
-            },
-        ))
-        .insert(SpriteBundle::default());
 }
 
 fn setup_render_tile_targets(
@@ -178,17 +123,32 @@ fn setup_render_tile_targets(
         let img_handle = images.add(image);
 
         //
-        let parent = commands.spawn((
-            RenderTileTarget::default(),
-            seq_pair,
-            img_handle,
-            RenderLayers::layer(1),
-            SpatialBundle::default(),
-            Pickable {
-                should_block_lower: false,
-                is_hoverable: true,
-            },
-        ));
+        let parent = commands
+            .spawn((
+                RenderTileTarget::default(),
+                seq_pair,
+                RenderLayers::layer(1),
+                SpatialBundle::default(),
+                Pickable {
+                    should_block_lower: false,
+                    is_hoverable: true,
+                },
+            ))
+            .insert(SpriteBundle {
+                sprite: Sprite {
+                    anchor: bevy::sprite::Anchor::BottomLeft,
+                    ..default()
+                },
+                ..default()
+            })
+            .insert(img_handle.clone())
+            .id();
+
+        println!(
+            "Target {:?}/Query {:?}\t=>{parent:?}",
+            seq_pair.target, seq_pair.query
+        );
+        println!("img handle for tile {parent:?}: {:?}", img_handle);
         // .with_children(|parent| {
         //     //
         // });
@@ -203,12 +163,43 @@ fn update_render_tile_transforms(
     mut tiles: Query<(&SequencePairTile, &mut Visibility, &mut Transform), With<RenderTileTarget>>,
 ) {
     let window = windows.single();
+    let win_size = window.size();
 
     for (pair, mut visibility, mut transform) in tiles.iter_mut() {
         // get tile position in world
+        let target_seq_world = grid.x_axis.sequence_axis_range(pair.target);
+        let query_seq_world = grid.y_axis.sequence_axis_range(pair.query);
+
         // set visibility depending on whether tile overlaps view
+        // dbg!();
+        let Some((target_seq_world, query_seq_world)) = target_seq_world.zip(query_seq_world)
+        else {
+            continue;
+        };
+
+        let t0 = target_seq_world.start.max(viewport.view.x_min as u64);
+        let t1 = target_seq_world.end.min(viewport.view.x_max as u64);
+
+        let q0 = query_seq_world.start.max(viewport.view.y_min as u64);
+        let q1 = query_seq_world.end.min(viewport.view.y_max as u64);
+
+        if t0 >= t1 || q0 >= q1 {
+            println!("hiding tile\ttgt [{t0}, {t1}]\tqry [{q0}, {q1}]");
+            *visibility = Visibility::Hidden;
+            continue;
+        }
+        if *visibility != Visibility::Visible {
+            *visibility = Visibility::Visible;
+        }
+
         // update transforms (offsets)
-        todo!();
+        let tile_pos = viewport
+            .view
+            .map_world_to_screen(win_size, [t0 as f64, q0 as f64]);
+        transform.translation.x = tile_pos.x - win_size.x * 0.5;
+        transform.translation.y = win_size.y - tile_pos.y - win_size.y * 0.5;
+        // transform.translation.y = tile_pos.y - win_size.y * 0.5;
+        // dbg!(tile_pos);
     }
 }
 
@@ -223,6 +214,8 @@ fn spawn_render_tasks(
     //
     mut commands: Commands,
 
+    // time: Res<Time>,
+    // keys: Res<ButtonInput<KeyCode>>,
     alignments: Res<crate::Alignments>,
     grid: Res<crate::AlignmentGrid>,
     viewport: Res<crate::app::view::AlignmentViewport>,
@@ -233,7 +226,7 @@ fn spawn_render_tasks(
             Entity,
             &SequencePairTile,
             &Transform,
-            &ViewVisibility,
+            &Visibility,
             &RenderTileTarget,
         ),
         Without<RenderTask>,
@@ -245,13 +238,22 @@ fn spawn_render_tasks(
 
     let task_pool = AsyncComputeTaskPool::get();
 
-    for (tile_ent, pair, transform, vis, render_tile) in tiles.iter() {
-        if !vis.get() {
+    for (ix, (tile_ent, pair, transform, vis, render_tile)) in tiles.iter().enumerate() {
+        if vis == Visibility::Hidden {
             println!("not visible");
             continue;
         }
 
-        dbg!();
+        let update_timer_lapsed = render_tile
+            .last_update
+            .as_ref()
+            .map(|i| i.elapsed().as_millis() > 100)
+            .unwrap_or(true);
+        if !update_timer_lapsed {
+            continue;
+        }
+
+        // dbg!();
         // compute visible area of seq. pair tile in the view
         let target_seq_world = grid.x_axis.sequence_axis_range(pair.target);
         let query_seq_world = grid.y_axis.sequence_axis_range(pair.query);
@@ -261,7 +263,7 @@ fn spawn_render_tasks(
             continue;
         };
 
-        dbg!();
+        // dbg!();
         let t0 = target_seq_world.start.max(viewport.view.x_min as u64);
         let t1 = target_seq_world.end.min(viewport.view.x_max as u64);
 
@@ -271,24 +273,24 @@ fn spawn_render_tasks(
         if t0 >= t1 || q0 >= q1 {
             continue;
         }
-        dbg!();
+        // dbg!();
 
         let target_seq_bounds = t0..t1;
         let query_seq_bounds = q0..q1;
 
-        dbg!((&target_seq_bounds, &query_seq_bounds));
+        // dbg!((&target_seq_bounds, &query_seq_bounds));
 
         // compute size in pixels of tile on screen
         let width = win_size.x as f64 * (t1 - t0) as f64 / viewport.view.width();
         let height = win_size.y as f64 * (q1 - q0) as f64 / viewport.view.height();
 
         let canvas_size = UVec2::new(width as u32, height as u32);
-        println!("canvas_size: {canvas_size:?}");
+        // println!("canvas_size: {canvas_size:?}");
 
         if canvas_size.x == 0 || canvas_size.y == 0 {
             continue;
         }
-        dbg!();
+        // dbg!();
 
         let params = RenderParams {
             query_seq_bounds: q0..q1,
@@ -296,14 +298,22 @@ fn spawn_render_tasks(
             canvas_size,
         };
 
+        if Some(&params) == render_tile.last_rendered.as_ref() {
+            continue;
+        }
+
         let alignments = alignments
             .pairs
             .get(&(pair.target, pair.query))
             .unwrap()
             .clone();
 
+        // let ang = (pair.target.0 * pair.query.0) % 50;
+        let ang = (30.0 / ix as f32) * std::f32::consts::PI;
+        let color = Color::hsv(ang as f32 * 400.0, 0.8, 0.8);
+
         let task = task_pool.spawn(async move {
-            println!("in task");
+            println!("in task for tile {tile_ent:?}; color: {color:?}");
             let t0 = std::time::Instant::now();
 
             let len = (canvas_size.x * canvas_size.y) as usize;
@@ -312,7 +322,14 @@ fn spawn_render_tasks(
             let mut buffer = vec![0u8; len * 4];
 
             let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut buffer);
-            pixels.fill([255, 0, 0, 255]);
+            let rgb = color.to_srgba();
+            pixels.fill([
+                (rgb.red * 255.0) as u8,
+                (rgb.green * 255.0) as u8,
+                (rgb.blue * 255.0) as u8,
+                255,
+            ]);
+            // pixels.fill([255, 0, 0, 255]);
 
             for (_ix, alignment) in alignments.iter().enumerate() {
                 rasterize_alignment(
@@ -326,10 +343,10 @@ fn spawn_render_tasks(
             }
 
             let time = t0.elapsed().as_secs_f64();
-            println!(
-                "rendered tile w/ {} alignments in {time} s",
-                alignments.len()
-            );
+            // println!(
+            //     "rendered tile w/ {} alignments in {time} s",
+            //     alignments.len()
+            // );
 
             buffer
         });
@@ -365,6 +382,7 @@ fn finish_render_tasks(
             continue;
         };
 
+        println!("updating image {image:?} for tile {tile:?}");
         let Some(image) = images.get_mut(image) else {
             panic!("couldn't modify render tile image");
         };
@@ -382,6 +400,8 @@ fn finish_render_tasks(
         image.texture_descriptor.size.height = img_size.y;
         image.data = pixels;
 
+        render.last_rendered = Some(task.params.clone());
+        render.last_update = Some(std::time::Instant::now());
         commands.entity(tile).remove::<RenderTask>();
     }
 }
@@ -410,6 +430,7 @@ fn rasterize_alignment(
 
     for ((px, py), v) in XiaolinWu::<f64, i32>::new(map_pt(t0, q0), map_pt(t1, q1)) {
         if px >= 0 && px < px_dims.x as i32 && py >= 0 && py < px_dims.y as i32 {
+            let py = px_dims.y as i32 - py - 1;
             let ix = (px + py * px_dims.x as i32) as usize;
             if ix < pixels.len() {
                 let alpha = (v * 255.0) as u8;
