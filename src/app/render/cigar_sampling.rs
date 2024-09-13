@@ -21,7 +21,7 @@ impl Plugin for CigarSamplingRenderPlugin {
         //     setup_tile_debug_time.after(setup_render_tile_targets),
         // );
 
-        app.add_plugins(stress_test::StressTestPlugin);
+        // app.add_plugins(stress_test::StressTestPlugin);
 
         app.add_systems(Startup, setup_render_tiles_new);
         app.add_systems(Startup, setup_tile_debug_time.after(setup_render_tiles_new));
@@ -35,14 +35,18 @@ impl Plugin for CigarSamplingRenderPlugin {
 
         // app.add_systems(Update, update_r)
 
+        // app.add_systems(
+        //     //
+        //     PreUpdate,
+        //     finish_render_tasks,
+        // )
+        // .add_systems(PostUpdate, update_render_tile_transforms)
         app.add_systems(
-            //
-            PreUpdate,
-            finish_render_tasks,
-        )
-        .add_systems(PostUpdate, update_render_tile_transforms)
-        .add_systems(
             PostUpdate,
+            (update_render_tile_transforms, spawn_render_tasks).chain(),
+        )
+        .add_systems(
+            PreUpdate,
             (update_image_from_task, cleanup_render_task).chain(),
         );
     }
@@ -172,31 +176,42 @@ fn rasterize_world_lines<P: Into<[f64; 2]>>(
 
 fn rasterize_alignments_in_tile<'a, S, I>(
     tile_bounds: crate::view::View,
-    tile_pixels: UVec2,
+    tile_dims: UVec2,
     // tile_mat: ultraviolet::DMat3,
     // grid: &crate::AlignmentGrid,
     seq_pairs: S,
     // alignments: impl IntoIterator<Item = (SequencePairTile, [DVec2; 2], &'a crate::Alignment)>,
-) -> Vec<[u8; 4]>
+    // ) -> Vec<[u8; 4]>
+) -> Vec<u8>
 where
     S: IntoIterator<Item = (SequencePairTile, [DVec2; 2], I)>,
     I: IntoIterator<Item = &'a crate::Alignment>,
 {
-    let px_count = (tile_pixels.x + tile_pixels.y) as usize;
-    let mut pixels = vec![[0u8; 4]; px_count];
+    let px_count = (tile_dims.x * tile_dims.y) as usize;
+
+    let mut buffer = vec![0u8; px_count * 4];
+    let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut buffer);
 
     let vx_min = tile_bounds.x_min;
     let vx_max = tile_bounds.x_max;
 
-    for (seq_pair, [seq_min, seq_max], alignments) in seq_pairs {
+    // let mut line_buf = Vec::new();
+
+    for (seq_pair, [seq_min, seq_max], alignments) in seq_pairs.into_iter() {
         // seq_min, seq_max encode the position of the seq. pair tile in the world
 
         for alignment in alignments {
-            let al_min = seq_min.x + alignment.location.target_range.start as f64;
-            let al_max = al_min + alignment.location.target_range.end as f64;
+            let alignment: &crate::Alignment = alignment;
+            let loc = &alignment.location;
 
+            let al_min = seq_min.x + loc.target_range.start as f64;
+            let al_max = al_min + loc.target_range.end as f64;
+
+            println!("{al_min}, {al_max}");
             let al_min = al_min.clamp(vx_min, vx_max) as u64;
             let al_max = al_max.clamp(vx_min, vx_max) as u64;
+
+            println!("clamped: {al_min}, {al_max}");
 
             if al_min == al_max {
                 println!("no overlap; skipping");
@@ -210,11 +225,44 @@ where
                 println!("no overlap after offset; skipping");
                 continue;
             }
+
+            let start = DVec2::new(loc.target_range.start as f64, loc.query_range.start as f64);
+            let end = DVec2::new(loc.target_range.end as f64, loc.query_range.end as f64);
+            let w0 = seq_min + start;
+            let w1 = seq_min + end;
+            rasterize_world_lines(tile_bounds, tile_dims, pixels, [[w0, w1]]);
+
+            // println!(">> TODO sample with range {loc_min}..{loc_max}");
+            // line_buf.clear();
+
+            // let offset = DVec2::new(loc.target_range.start as f64, loc.query_range.start as f64);
+
+            // let range = (loc_min - alignment.location.target_range.start)
+            //     ..(loc_max - alignment.location.target_range.start);
+
+            // let lines = alignment.iter_target_range(loc_min..loc_max).map(|item| {
+            //     let tgt = item.target_seq_range();
+            //     let qry = item.query_seq_range();
+
+            //     let w0 = seq_min + DVec2::new(tgt.start as f64, qry.start as f64);
+            //     let w1 = seq_min + DVec2::new(tgt.end as f64, qry.end as f64);
+
+            //     [w0, w1]
+            // });
+            // rasterize_world_lines(tile_bounds, tile_dims, pixels, lines);
+
+            /*
+
+            for item in alignment.cigar.iter_target_range(range) {
+
+            }
+            */
+            // for item in alignment.
         }
         //
     }
 
-    pixels
+    buffer
 }
 
 #[derive(Default, Component)]
@@ -466,17 +514,20 @@ fn spawn_render_tasks(
     let window = windows.single();
     let win_size = window.physical_size();
 
-    let tile_size = UVec2::new(
+    let tile_dims = UVec2::new(
         win_size.x / render_grid.columns as u32,
         win_size.y / render_grid.rows as u32,
     );
 
     let world_tile = DVec2::new(
-        win_size.x as f64 / render_grid.columns as f64,
-        win_size.y as f64 / render_grid.rows as f64,
+        viewport.view.width() / render_grid.columns as f64,
+        viewport.view.height() / render_grid.rows as f64,
     );
 
     let task_pool = AsyncComputeTaskPool::get();
+
+    let vx0 = viewport.view.x_min;
+    let vy0 = viewport.view.y_min;
 
     for (tile_ent, tile) in tiles.iter() {
         // if vis == Visibility::Hidden {
@@ -496,15 +547,15 @@ fn spawn_render_tasks(
 
         // position of tile on screen
         let tile_pos = tile.tile_grid_pos;
-        let s_x0 = (tile_pos.x * tile_size.x) as f64;
-        let s_y0 = (tile_pos.y * tile_size.y) as f64;
+        let s_x0 = (tile_pos.x * tile_dims.x) as f64;
+        let s_y0 = (tile_pos.y * tile_dims.y) as f64;
 
-        let s_x1 = s_x0 + tile_size.x as f64;
-        let s_y1 = s_y0 + tile_size.y as f64;
+        let s_x1 = s_x0 + tile_dims.x as f64;
+        let s_y1 = s_y0 + tile_dims.y as f64;
 
         // compute world viewport corresponding to tile
-        let w_x0 = tile_pos.x as f64 * world_tile.x;
-        let w_y0 = tile_pos.y as f64 * world_tile.y;
+        let w_x0 = vx0 + tile_pos.x as f64 * world_tile.x;
+        let w_y0 = vy0 + tile_pos.y as f64 * world_tile.y;
 
         let w_x1 = w_x0 + world_tile.x;
         let w_y1 = w_y0 + world_tile.y;
@@ -515,6 +566,17 @@ fn spawn_render_tasks(
             y_min: w_y0,
             y_max: w_y1,
         };
+
+        let params = RenderParams {
+            view: tile_bounds,
+            canvas_size: tile_dims,
+        };
+
+        if Some(&params) == tile.last_rendered.as_ref() {
+            continue;
+        }
+
+        println!("tile bounds: {tile_bounds:?}");
 
         // find alignments overlapping tile
         // first find overlapping seq. pairs
@@ -527,59 +589,35 @@ fn spawn_render_tasks(
 
         let tile_pairs = tgts.flat_map(|tgt| qrys.iter().map(move |qry| (tgt, *qry)));
 
-        let params = RenderParams {
-            view: tile_bounds,
-            canvas_size: tile_size,
-        };
+        let tile_positions = tile_pairs
+            .filter_map(|(target, query)| {
+                let xs = grid.x_axis.sequence_axis_range(target)?;
+                let ys = grid.y_axis.sequence_axis_range(query)?;
+
+                let x0 = xs.start as f64;
+                let y0 = ys.start as f64;
+
+                let x1 = xs.end as f64;
+                let y1 = ys.end as f64;
+
+                Some((
+                    SequencePairTile { target, query },
+                    [DVec2::new(x0, y0), DVec2::new(x1, y1)],
+                ))
+            })
+            .collect::<Vec<_>>();
 
         let al_pairs = alignments.pairs.clone();
 
         // spawn task
         let task = task_pool.spawn(async move {
-            // let tiles = tile_pairs.into_iter().filter_map(|pair @ (target, query)| {
-            //     // position from alignment grid
-
-            //     // use all alignments & let rasterizer skip out of bounds alignments
-
-            //     todo!();
-            // });
-            /*
-            let tile_alignments = tile_pairs.into_iter().filter_map(|pair @ (target, query)| {
-                let als = al_pairs.get(&pair)?;
-
-                let filtered = als.iter().flat_map(|(pair, als)| {
-                    als.iter().filter(|&al| {
-                        let loc = &al.location;
-                        let tgt = &loc.target_range;
-                        let qry = &loc.query_range;
-                        tgt.start as f64 >= w_x0
-                            && tgt.end as f64 <= w_x1
-                            && qry.start as f64 >= w_y0
-                            && qry.end as f64 <= w_y1
-                    })
-                });
-
-                Some((
-                    SequencePairTile { target, query },
-                    // als
-                ))
+            let alignments = tile_positions.into_iter().filter_map(|(seq_pair, bounds)| {
+                let key = (seq_pair.target, seq_pair.query);
+                let als = al_pairs.get(&key)?;
+                Some((seq_pair, bounds, als))
             });
-            */
-            // .flat_map(|(pair, als)| {
-            //     als.iter().filter(|&al| {
-            //         let loc = &al.location;
-            //         let tgt = &loc.target_range;
-            //         let qry = &loc.query_range;
-            //         tgt.start as f64 >= w_x0
-            //             && tgt.end as f64 <= w_x1
-            //             && qry.start as f64 >= w_y0
-            //             && qry.end as f64 <= w_y1
-            //     })
-            // });
 
-            // let buffer = rasterize_alignments_in_tile(tile_bounds, tile_size, tile_alignments);
-
-            todo!();
+            rasterize_alignments_in_tile(tile_bounds, tile_dims, alignments)
         });
 
         commands
