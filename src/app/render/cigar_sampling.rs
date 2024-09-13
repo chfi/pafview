@@ -21,6 +21,8 @@ impl Plugin for CigarSamplingRenderPlugin {
         //     setup_tile_debug_time.after(setup_render_tile_targets),
         // );
 
+        app.add_plugins(stress_test::StressTestPlugin);
+
         app.add_systems(Startup, setup_render_tiles_new);
         app.add_systems(Startup, setup_tile_debug_time.after(setup_render_tiles_new));
 
@@ -39,12 +41,11 @@ impl Plugin for CigarSamplingRenderPlugin {
             finish_render_tasks,
         )
         .add_systems(PostUpdate, update_render_tile_transforms)
-        .add_systems(PostUpdate, spawn_render_tasks);
+        .add_systems(
+            PostUpdate,
+            (update_image_from_task, cleanup_render_task).chain(),
+        );
     }
-}
-
-fn line_rasterizer_test(mut commands: Commands, keys: Res<ButtonInput<KeyCode>>) {
-    //
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -776,6 +777,57 @@ fn spawn_render_tasks_old(
 }
 */
 
+fn update_image_from_task(
+    mut images: ResMut<Assets<Image>>,
+
+    mut tiles: Query<(
+        Entity,
+        // &SequencePairTile,
+        // &Transform,
+        // &ViewVisibility,
+        &Handle<Image>,
+        &mut RenderTile,
+        &mut RenderTask,
+    )>,
+) {
+    for (tile, image, mut render, mut task) in tiles.iter_mut() {
+        let Some(pixels) = bevy::tasks::block_on(bevy::tasks::poll_once(&mut task.task)) else {
+            continue;
+        };
+
+        // println!("updating image {image:?} for tile {tile:?}");
+        let Some(image) = images.get_mut(image) else {
+            panic!("couldn't modify render tile image");
+        };
+
+        image.resize(wgpu::Extent3d {
+            width: task.params.canvas_size.x,
+            height: task.params.canvas_size.y,
+            depth_or_array_layers: 1,
+        });
+
+        // println!("image data size: {}", image.data.len());
+        // println!("pixels size: {}", pixels.len());
+        let img_size = task.params.canvas_size;
+        image.texture_descriptor.size.width = img_size.x;
+        image.texture_descriptor.size.height = img_size.y;
+        image.data = pixels;
+    }
+}
+
+fn cleanup_render_task(
+    mut commands: Commands,
+    mut tiles: Query<(Entity, &mut RenderTile, &RenderTask), Changed<RenderTask>>,
+) {
+    for (ent, mut tile, task) in tiles.iter_mut() {
+        if task.task.is_finished() {
+            tile.last_rendered = Some(task.params.clone());
+            tile.last_update = Some(std::time::Instant::now());
+            commands.entity(ent).remove::<RenderTask>();
+        }
+    }
+}
+
 fn finish_render_tasks(
     mut commands: Commands,
 
@@ -1142,3 +1194,189 @@ fn start_render_task(
     }
 }
 */
+
+mod stress_test {
+    use super::*;
+    use bevy::prelude::*;
+
+    pub(super) struct StressTestPlugin;
+
+    impl Plugin for StressTestPlugin {
+        fn build(&self, app: &mut App) {
+            app.add_systems(Startup, setup_stress_test)
+                .add_systems(Update, (spawn_task, finish_task).chain());
+        }
+    }
+
+    #[derive(Component)]
+    struct StressTestTile;
+
+    #[derive(Component)]
+    struct StressTestTask {
+        task: Task<(Vec<u8>, UVec2)>,
+    }
+
+    fn setup_stress_test(
+        mut commands: Commands,
+        mut images: ResMut<Assets<Image>>,
+
+        windows: Query<&Window>,
+    ) {
+        let window = windows.single();
+        let win_size = window.physical_size();
+
+        let size = wgpu::Extent3d {
+            width: win_size.x,
+            height: win_size.y,
+            depth_or_array_layers: 1,
+        };
+
+        let mut image = Image {
+            texture_descriptor: wgpu::TextureDescriptor {
+                label: None,
+                size,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                mip_level_count: 1,
+                sample_count: 1,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                    | wgpu::TextureUsages::COPY_DST
+                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            },
+            ..default()
+        };
+        image.resize(size);
+
+        let img_handle = images.add(image);
+        let tile = commands
+            .spawn((
+                StressTestTile,
+                RenderLayers::layer(1),
+                // SpatialBundle::default(),
+                // SpatialBundle {
+                //     transform: Transform::from_xyz(0.0, 0.0, 1.0),
+                //     ..default()
+                // }
+                Pickable {
+                    should_block_lower: false,
+                    is_hoverable: false,
+                },
+            ))
+            .insert(SpriteBundle {
+                sprite: Sprite { ..default() },
+                ..default()
+            })
+            .insert(img_handle.clone())
+            .id();
+    }
+
+    fn spawn_task(
+        mut commands: Commands,
+        keys: Res<ButtonInput<KeyCode>>,
+
+        tiles: Query<Entity, (With<StressTestTile>, Without<StressTestTask>)>,
+
+        windows: Query<&Window>,
+
+        mut lines: Local<Vec<[DVec2; 2]>>,
+    ) {
+        let window = windows.single();
+
+        let create_lines = lines.is_empty() || keys.just_pressed(KeyCode::Enter);
+
+        let view = crate::view::View {
+            x_min: -1000.0,
+            y_min: -1000.0,
+
+            x_max: 1_001_000.0,
+            y_max: 1_001_000.0,
+        };
+
+        if create_lines {
+            lines.clear();
+
+            use rand::prelude::*;
+            let mut rng = rand::thread_rng();
+
+            for i in 0..1_000 {
+                // generate lines
+                let x0 = rng.gen_range(0f64..=998_000.0);
+                let x1 = rng.gen_range((x0 + 100.0)..=999_000.0);
+
+                let y0 = rng.gen_range(0f64..=998_000.0);
+                let y1 = rng.gen_range((y0 + 100.0)..=999_000.0);
+
+                lines.push([DVec2::new(x0, y0), DVec2::new(x1, y1)]);
+            }
+        }
+
+        let should_render = create_lines || keys.just_pressed(KeyCode::Space);
+
+        if !should_render {
+            return;
+        }
+
+        let task_pool = AsyncComputeTaskPool::get();
+        for tile in tiles.iter() {
+            let lines = lines.clone();
+            let win_size = window.physical_size();
+            let task = task_pool.spawn(async move {
+                // let tile_size = UVec2::new(todo!(), todo!());
+                let tile_size = win_size;
+                let mut pixel_buffer = vec![0u8; (tile_size.x * tile_size.y) as usize * 4];
+
+                let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut pixel_buffer);
+
+                rasterize_world_lines(view, tile_size, pixels, lines);
+
+                (pixel_buffer, tile_size)
+            });
+
+            commands.entity(tile).insert(StressTestTask { task });
+        }
+    }
+
+    fn finish_task(
+        mut commands: Commands,
+        mut images: ResMut<Assets<Image>>,
+
+        mut tiles: Query<
+            (
+                Entity,
+                // &SequencePairTile,
+                // &Transform,
+                // &ViewVisibility,
+                &Handle<Image>,
+                // &mut StressTestTile,
+                &mut StressTestTask,
+            ),
+            With<StressTestTile>,
+        >,
+    ) {
+        for (tile, img_h, mut task) in tiles.iter_mut() {
+            //
+            let Some((data, img_size)) =
+                bevy::tasks::block_on(bevy::tasks::poll_once(&mut task.task))
+            else {
+                continue;
+            };
+
+            let Some(image) = images.get_mut(img_h) else {
+                continue;
+            };
+
+            image.resize(wgpu::Extent3d {
+                width: img_size.x,
+                height: img_size.y,
+                depth_or_array_layers: 1,
+            });
+
+            image.texture_descriptor.size.width = img_size.x;
+            image.texture_descriptor.size.height = img_size.y;
+            image.data = data;
+
+            commands.entity(tile).remove::<StressTestTask>();
+        }
+    }
+}
