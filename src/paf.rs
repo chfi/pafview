@@ -289,7 +289,7 @@ impl Alignment {
 
 #[derive(bevy::prelude::Resource)]
 pub struct Alignments {
-    pub pairs: FxHashMap<(SeqId, SeqId), Arc<Vec<Alignment>>>,
+    pub pairs: Arc<FxHashMap<(SeqId, SeqId), Vec<Alignment>>>,
 
     // byte ranges for the cigars in the PAF file
     cigar_range_index_map: bimap::BiHashMap<AlignmentIndex, std::ops::Range<u64>>,
@@ -536,13 +536,10 @@ impl Alignments {
             }
         }
 
-        let pairs = pairs
-            .into_iter()
-            .map(|(sp, als)| (sp, Arc::new(als)))
-            .collect();
+        let pairs = pairs.into_iter().map(|(sp, als)| (sp, als)).collect();
 
         Self {
-            pairs,
+            pairs: Arc::new(pairs),
             cigar_range_index_map,
         }
     }
@@ -591,14 +588,11 @@ impl Alignments {
             }
         }
 
-        let pairs = pairs
-            .into_iter()
-            .map(|(sp, als)| (sp, Arc::new(als)))
-            .collect();
+        let pairs = pairs.into_iter().map(|(sp, als)| (sp, als)).collect();
 
         Ok((
             Self {
-                pairs,
+                pairs: Arc::new(pairs),
                 cigar_range_index_map,
             },
             sequences,
