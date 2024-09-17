@@ -7,8 +7,53 @@ use bevy::utils::HashMap;
 use bgzip::index::BGZFIndex;
 
 pub struct IndexedPaf {
-    data: PafSource,
+    data: PafData,
     byte_index: PafByteIndex,
+
+    bgzi: Option<BGZFIndex>,
+}
+
+impl IndexedPaf {
+    pub fn cigar_reader(&self, line_index: usize) -> Option<Box<dyn BufRead>> {}
+}
+
+enum PafData {
+    Memory(Arc<[u8]>),
+    Mmap(SharedMmap),
+}
+
+impl PafData {
+    fn paf_line_slice(&self, index: &PafByteIndex, line_index: usize) -> Option<&[u8]> {
+        let line_offset = index.record_offsets.get(line_index)?;
+        let next_line_offset = index.record_offsets.get(line_index + 1)?;
+        let start = *line_offset as usize;
+        let end = *next_line_offset as usize;
+
+        let data = match self {
+            PafData::Memory(arc) => arc.as_ref(),
+            PafData::Mmap(shared_mmap) => shared_mmap.as_ref(),
+        };
+
+        Some(&data[start..end])
+    }
+
+    fn paf_cigar_slice(&self, index: &PafByteIndex, line_index: usize) -> Option<&[u8]> {
+        let line_offset = index.record_offsets.get(line_index)?;
+        let offsets = index.record_inner_offsets.get(line_index)?;
+        let cg_range = &offsets.cigar_range;
+        let start = (line_offset + cg_range.start) as usize;
+        let end = (line_offset + cg_range.end) as usize;
+        match self {
+            PafData::Memory(arc) => {
+                //
+                Some(&arc[start..end])
+            }
+            PafData::Mmap(shared_mmap) => {
+                //
+                Some(&shared_mmap.as_ref()[start..end])
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -21,14 +66,27 @@ enum PafSource {
 #[derive(Clone)]
 struct SharedMmap(Arc<memmap2::Mmap>);
 
+enum PafLineData {
+    Owned(Vec<u8>),
+    Shared {
+        buffer: Arc<dyn AsRef<[u8]>>,
+        // full_buffer: Arc<[u8]>,
+        line_range: std::ops::Range<usize>,
+    },
+}
+
 impl AsRef<[u8]> for SharedMmap {
     fn as_ref(&self) -> &[u8] {
         self.0.as_ref()
     }
 }
 
+/*
+trait SeekBufRead: Seek + BufRead {}
+impl<S: Seek + BufRead> SeekBufRead for S {}
+
 impl PafSource {
-    fn reader(&self) -> std::io::Result<Box<dyn BufRead>> {
+    fn reader(&self) -> std::io::Result<Box<dyn SeekBufRead>> {
         match self {
             PafSource::File(path_buf) => {
                 let file = std::fs::File::open(path_buf)?;
@@ -52,10 +110,67 @@ struct PafData {
     source: PafSource,
     bgzi: Option<BGZFIndex>,
 }
+*/
 
 // impl IndexedPaf {
 //     pub fn iter_lines(&self) -> IndexedPafLineIter
 // }
+
+/*
+pub struct IndexedPafCigarIter {
+    reader: Box<dyn SeekBufRead>,
+
+    buffer: Vec<u8>,
+    buffer_offset: usize,
+
+    read: usize,
+    cigar_bytes_len: usize,
+}
+
+impl IndexedPafCigarIter {
+    fn new(paf: &IndexedPaf, paf_line_ix: usize) -> std::io::Result<Self> {
+        let index = &paf.byte_index;
+        let line_offset = index.record_offsets[paf_line_ix];
+        let cigar_range = &index.record_inner_offsets[paf_line_ix].cigar_range;
+        let cigar_bytes_len = cigar_range.end - cigar_range.start;
+        let buffer = Vec::with_capacity(4096);
+
+        let mut reader = paf.data.reader()?;
+        reader.seek(std::io::SeekFrom::Start(line_offset + cigar_range.start))?;
+        Ok(Self {
+            reader,
+            buffer,
+            buffer_offset: 0,
+            read: 0,
+            cigar_bytes_len: cigar_bytes_len as usize,
+        })
+    }
+}
+
+impl Iterator for IndexedPafCigarIter {
+    type Item = super::CigarIterItem;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.read >= self.cigar_bytes_len {
+            return None;
+        }
+
+        if self.buffer_offset == self.buffer.len() {
+            self.buffer_offset = 0;
+            self.buffer.clear();
+            let read = self.reader.read(&mut self.buffer).unwrap();
+        }
+
+        todo!()
+    }
+}
+
+impl IndexedPaf {
+    pub fn iter_cigar(&self, paf_line_ix: usize) -> std::io::Result<IndexedPafCigarIter> {
+        IndexedPafCigarIter::new(self, paf_line_ix)
+    }
+}
+*/
 
 impl IndexedPaf {
     pub fn memmap_file(path: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
@@ -237,6 +352,137 @@ impl PafRecordIndex {
     }
 }
 
+pub struct CigarReaderIter<S: BufRead> {
+    done: bool,
+
+    buffer: Vec<u8>,
+    offset_in_buffer: usize,
+    cigar_bytes_len: usize,
+
+    bytes_processed: usize,
+    bytes_read: usize,
+
+    reader: S,
+    // reader: BufReader
+}
+
+impl<S: BufRead> CigarReaderIter<S> {
+    fn read_op(&mut self) -> Option<std::io::Result<(super::CigarOp, u32)>> {
+        use bstr::ByteSlice;
+
+        if self.done {
+            return None;
+        }
+
+        if self.offset_in_buffer >= self.buffer.len() {
+            self.buffer.resize(4096, 0);
+            self.offset_in_buffer = 0;
+            match self.reader.read(&mut self.buffer) {
+                Ok(bytes_read) => {
+                    self.bytes_read += bytes_read;
+                }
+                Err(err) => {
+                    return Some(Err(err));
+                }
+            }
+        }
+
+        let buf_slice = &self.buffer[self.offset_in_buffer..];
+
+        let Some(op_ix) = buf_slice.find_byteset(b"M=XIDN") else {
+            self.done = true;
+            return None;
+        };
+
+        let Some(count) = buf_slice[..op_ix]
+            .to_str()
+            .ok()
+            .and_then(|s| s.parse::<u32>().ok())
+        else {
+            self.done = true;
+            return None;
+        };
+
+        let op_char = buf_slice[op_ix] as char;
+        let op = super::CigarOp::try_from(op_char).unwrap();
+
+        Some(Ok((op, count)))
+    }
+}
+
+/*
+impl<S: BufRead> Iterator for CigarReaderIter<S> {
+    type Item = std::io::Result<super::CigarIterItem>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.bytes_processed >= self.cigar_bytes_len {
+            return None;
+        }
+
+        let mut error = None;
+
+        if self.offset_in_buffer >= self.buffer.len() {
+            self.buffer.resize(4096, 0);
+            self.offset_in_buffer = 0;
+            match self.reader.read(&mut self.buffer) {
+                Ok(bytes_read) => {
+                    self.bytes_read += bytes_read;
+                }
+                Err(err) => {
+                    return Some(Err(err));
+                }
+            }
+        }
+
+        todo!()
+    }
+}
+*/
+
+impl<S: BufRead> CigarReaderIter<S> {
+    fn new(cigar_reader: S, cigar_bytes_len: usize) -> Self {
+        Self {
+            done: false,
+
+            buffer: Vec::new(),
+            offset_in_buffer: 0,
+            cigar_bytes_len,
+
+            bytes_processed: 0,
+            bytes_read: 0,
+
+            reader: cigar_reader,
+        }
+    }
+
+    /*
+    fn new(paf: &IndexedPaf, line_index: usize) -> Option<Self> {
+        let line_offset = index.record_offsets.get(line_index)?;
+        let offsets = index.record_inner_offsets.get(line_index)?;
+        let cg_range = &offsets.cigar_range;
+        let start = (line_offset + cg_range.start) as usize;
+        let end = (line_offset + cg_range.end) as usize;
+        let cg_range = start..end;
+
+        let cigar_bytes_len = end - start;
+
+        let reader =
+
+        Some(Self {
+            buffer: Vec::new(),
+            offset_in_buffer: 0,
+            cigar_bytes_len,
+            bytes_processed: 0,
+            bytes_read: 0,
+            reader: reader
+        })
+
+
+        todo!();
+    }
+    */
+}
+
 // struct PafIndex {
 //     file: memmap2::Mmap,
 //     is_bgzip: bool,
@@ -267,6 +513,31 @@ impl<B: Deref<Target = [u8]>> PafIndex<B> {
     fn new(source: B) -> Self {
         Self {
             file_contents: source,
+        }
+    }
+}
+*/
+
+/*
+enum PafSourceAlt {
+    Reader(Box<dyn SeekBufRead>),
+    Memory(Box<dyn AsRef<[u8]>>),
+}
+
+impl PafSourceAlt {
+    fn from_paf_source(source: &PafSource) -> Self {
+        match source {
+            PafSource::File(path_buf) => {
+                Self::File(path_buf.clone())
+            },
+            PafSource::Memory(arc) => {
+                let data = Box::new(arc.clone()) as Box<dyn AsRef<[u8]>>;
+                Self::Memory(data)
+            }
+            PafSource::Mmap(shared_mmap) => {
+                let data = Box::new(shared_mmap.clone()) as Box<dyn AsRef<[u8]>>;
+                Self::Memory(data)
+            }
         }
     }
 }
