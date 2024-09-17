@@ -6,6 +6,7 @@ use anyhow::anyhow;
 use crate::sequences::SeqId;
 
 pub mod implicit;
+pub mod memmap;
 
 pub type BoxedCigarIter<'a> = Box<dyn Iterator<Item = CigarIterItem> + 'a>;
 

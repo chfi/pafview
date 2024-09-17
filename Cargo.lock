@@ -1528,6 +1528,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "bgzip"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b64fd8980fb64af5951bc05de7772b598150a6f7eac42ec17f73e8489915f99b"
+dependencies = [
+ "flate2",
+ "log",
+ "rayon",
+ "thiserror",
+]
+
+[[package]]
 name = "bimap"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1650,6 +1662,17 @@ dependencies = [
  "futures-io",
  "futures-lite",
  "piper",
+]
+
+[[package]]
+name = "bstr"
+version = "1.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40723b8fb387abc38f4f4a37c09073622e41dd12327033091ef8950659e6dc0c"
+dependencies = [
+ "memchr",
+ "regex-automata 0.4.6",
+ "serde",
 ]
 
 [[package]]
@@ -3378,9 +3401,9 @@ checksum = "6c8640c5d730cb13ebd907d8d04b52f55ac9a2eec55b440c8892f40d56c76c1d"
 
 [[package]]
 name = "memmap2"
-version = "0.9.4"
+version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe751422e4a8caa417e13c3ea66452215d7d63e19e604f4980461212f3ae1322"
+checksum = "fd3f7eed9d3848f8b98834af67102b720745c4ec028fcd0aa0239277e7de374f"
 dependencies = [
  "libc",
 ]
@@ -4102,8 +4125,10 @@ dependencies = [
  "bevy_egui",
  "bevy_mod_picking",
  "bevy_polyline",
+ "bgzip",
  "bimap",
  "bincode",
+ "bstr",
  "bytemuck",
  "clap",
  "coitrees",
@@ -4122,6 +4147,7 @@ dependencies = [
  "line_drawing",
  "lodepng",
  "log",
+ "memmap2",
  "nalgebra",
  "noodles 0.69.0",
  "ordered-float",
