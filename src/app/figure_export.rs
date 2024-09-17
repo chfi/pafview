@@ -438,8 +438,8 @@ fn update_exported_tiles(
             for &query in &y_tiles {
                 let key = (target, query);
 
-                if let Some(als) = alignments.pairs.get(&key) {
-                    for (ix, _al) in als.iter().enumerate() {
+                if let Some(mut als) = alignments.pair_alignments(key) {
+                    for (ix, _al) in als.enumerate() {
                         alignment_set.insert(super::alignments::AlignmentIndex {
                             query,
                             target,
@@ -513,7 +513,7 @@ fn update_figure_export_alignment_layout(
     for pair @ &(target, query) in seq_tiles_to_place.iter() {
         //
 
-        if !alignment_store.pairs.contains_key(pair) {
+        if !alignment_store.indices.contains_key(pair) {
             continue;
         }
 

@@ -97,11 +97,11 @@ impl PafColorSchemes {
 
             let pair_id = (target_id, query_id);
 
-            let Some(pair) = alignments.pairs.get(&pair_id) else {
+            let Some(mut pair) = alignments.pair_alignments(pair_id) else {
                 continue;
             };
 
-            let Some(index) = pair.iter().position(|al| al.location == location) else {
+            let Some(index) = pair.position(|al| al.location == location) else {
                 continue;
             };
 

@@ -1278,9 +1278,11 @@ impl AlignmentHeightFields {
 
         let mut heightfields = FxHashMap::default();
 
-        for (&tile, pair_alignments) in alignments.pairs.iter() {
+        for (tile, mut pair_alignments) in alignments.pairs() {
             // TODO fix this
-            let alignment = &pair_alignments[0];
+            let Some(alignment) = pair_alignments.next() else {
+                continue;
+            };
             let hfield = LabelHeightField::from_alignment(alignment, bin_count);
             heightfields.insert(tile, hfield);
         }

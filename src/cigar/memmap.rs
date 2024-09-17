@@ -1,20 +1,130 @@
+use std::sync::Arc;
 use std::{collections::BTreeMap, ops::Deref};
 
-use std::io::prelude::*;
+use std::io::{prelude::*, BufReader};
 
 use bevy::utils::HashMap;
+use bgzip::index::BGZFIndex;
 
-pub struct IndexedPaf<S: Seek + BufRead> {
+pub struct IndexedPaf {
+    data: PafSource,
+    byte_index: PafByteIndex,
+}
+
+#[derive(Clone)]
+enum PafSource {
+    File(std::path::PathBuf),
+    Memory(Arc<[u8]>),
+    Mmap(SharedMmap),
+}
+
+#[derive(Clone)]
+struct SharedMmap(Arc<memmap2::Mmap>);
+
+impl AsRef<[u8]> for SharedMmap {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_ref()
+    }
+}
+
+impl PafSource {
+    fn reader(&self) -> std::io::Result<Box<dyn BufRead>> {
+        match self {
+            PafSource::File(path_buf) => {
+                let file = std::fs::File::open(path_buf)?;
+                let reader = BufReader::new(file);
+                Ok(Box::new(reader))
+            }
+            PafSource::Memory(vec) => {
+                let cursor = std::io::Cursor::new(vec.clone());
+                Ok(Box::new(cursor))
+            }
+            PafSource::Mmap(mmap) => {
+                let mmap = mmap.clone();
+                let cursor = std::io::Cursor::new(mmap);
+                Ok(Box::new(cursor))
+            }
+        }
+    }
+}
+
+struct PafData {
+    source: PafSource,
+    bgzi: Option<BGZFIndex>,
+}
+
+// impl IndexedPaf {
+//     pub fn iter_lines(&self) -> IndexedPafLineIter
+// }
+
+impl IndexedPaf {
+    pub fn memmap_file(path: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
+        let path = path.as_ref();
+
+        let reader = std::fs::File::open(path).map(BufReader::new)?;
+        let byte_index = PafByteIndex::from_paf(reader)?;
+
+        let mmap = {
+            let file = std::fs::File::open(path)?;
+            let opts = memmap2::MmapOptions::new();
+            unsafe { opts.map(&file) }?
+        };
+
+        Ok(Self {
+            data: PafSource::Mmap(SharedMmap(Arc::new(mmap))),
+            byte_index,
+        })
+    }
+}
+
+impl IndexedPaf {
+    pub fn from_path(path: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
+        let path = path.as_ref().to_path_buf();
+
+        let reader = std::fs::File::open(&path).map(BufReader::new)?;
+
+        let byte_index = PafByteIndex::from_paf(reader)?;
+
+        Ok(Self {
+            data: PafSource::File(path),
+            byte_index,
+        })
+    }
+
+    pub fn from_bytes_vec(data: Vec<u8>) -> std::io::Result<Self> {
+        let reader = std::io::Cursor::new(data.as_slice());
+        let byte_index = PafByteIndex::from_paf(reader)?;
+
+        Ok(Self {
+            data: PafSource::Memory(data.into()),
+            byte_index,
+        })
+    }
+}
+
+// pub struct IndexedPafSlice<S: Deref<Target = [u8]>> {
+//     byte_index: PafByteIndex,
+//     data: S,
+// }
+
+// impl<S: Deref<Target = [u8]>> IndexedPafSlice<S> {
+// }
+
+pub struct IndexedPafReader<S: Seek + BufRead> {
     byte_index: PafByteIndex,
     data: S,
 }
 
-impl<S: Seek + BufRead> IndexedPaf<S> {
+impl<S: Seek + BufRead> IndexedPafReader<S> {
     pub fn new(mut data: S) -> std::io::Result<Self> {
         data.rewind()?;
         let byte_index = PafByteIndex::from_paf(&mut data)?;
         Ok(Self { byte_index, data })
     }
+
+    // pub fn iter_paf_lines(&mut self) -> impl Iterator<Item = crate::PafLine<'_>> {
+    //     self.data.rewind();
+    // }
 }
 
 // struct IndexedPafMmap {

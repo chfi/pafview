@@ -380,7 +380,7 @@ fn prepare_alignments(
 
     use bevy_mod_picking::prelude::*;
 
-    for (&(tgt_id, qry_id), alignments) in alignments.pairs.iter() {
+    for ((tgt_id, qry_id), alignments) in alignments.pairs() {
         let x_offset = grid.x_axis.sequence_offset(tgt_id).unwrap();
         let y_offset = grid.y_axis.sequence_offset(qry_id).unwrap();
 
@@ -408,7 +408,7 @@ fn prepare_alignments(
                 // }),
             ))
             .with_children(|parent| {
-                for (ix, alignment) in alignments.iter().enumerate() {
+                for (ix, alignment) in alignments.enumerate() {
                     let al_comp = alignments::AlignmentIndex {
                         target: alignment.target_id,
                         query: alignment.query_id,

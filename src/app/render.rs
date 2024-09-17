@@ -205,7 +205,7 @@ pub(crate) fn prepare_alignment_grid_layout_materials(
     let mut line_only_pos = Vec::new();
     let mut with_base_level_pos = Vec::new();
 
-    for (&(target_id, query_id), aligns) in alignments.pairs.iter() {
+    for ((target_id, query_id), aligns) in alignments.pairs() {
         let x_range = grid.x_axis.sequence_axis_range(target_id);
         let y_range = grid.y_axis.sequence_axis_range(query_id);
 
@@ -217,7 +217,7 @@ pub(crate) fn prepare_alignment_grid_layout_materials(
         let y0 = y_range.start as f64;
         let pos = Vec2::new(x0 as f32, y0 as f32);
 
-        for (ix, alignment) in aligns.iter().enumerate() {
+        for (ix, alignment) in aligns.enumerate() {
             let index = super::alignments::AlignmentIndex {
                 target: target_id,
                 query: query_id,

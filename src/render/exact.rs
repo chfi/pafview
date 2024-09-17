@@ -318,7 +318,8 @@ pub(crate) fn draw_alignments_with_color_schemes(
     for &target_id in &x_tiles {
         for &query_id in &y_tiles {
             let pair_id = (target_id, query_id);
-            let Some(pair_alignments) = alignments.pairs.get(&(target_id, query_id)) else {
+            let Some(mut pair_alignments) = alignments.pair_alignments((target_id, query_id))
+            else {
                 continue;
             };
 
@@ -326,7 +327,7 @@ pub(crate) fn draw_alignments_with_color_schemes(
             let clamped_target = clamped_range(&grid.x_axis, target_id, view.x_range()).unwrap();
             let clamped_query = clamped_range(&grid.y_axis, query_id, view.y_range()).unwrap();
 
-            let visible_alignments = pair_alignments.iter().enumerate().filter(|(_ix, al)| {
+            let visible_alignments = pair_alignments.enumerate().filter(|(_ix, al)| {
                 let loc = &al.location.target_range;
                 let screen = &clamped_target;
                 loc.end > screen.start && loc.start < screen.end

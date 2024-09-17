@@ -289,10 +289,36 @@ impl Alignment {
 
 #[derive(bevy::prelude::Resource)]
 pub struct Alignments {
-    pub pairs: Arc<FxHashMap<(SeqId, SeqId), Vec<Alignment>>>,
+    // alignments in line-order with the input PAF file
+    pub alignments: Arc<Vec<Alignment>>,
+
+    // values are indices into `alignments` vec
+    pub indices: Arc<FxHashMap<(SeqId, SeqId), Vec<usize>>>,
+
+    // pub pairs: Arc<FxHashMap<(SeqId, SeqId), Vec<Alignment>>>,
 
     // byte ranges for the cigars in the PAF file
     cigar_range_index_map: bimap::BiHashMap<AlignmentIndex, std::ops::Range<u64>>,
+}
+
+impl Alignments {
+    pub fn pair_alignments(
+        &self,
+        key: (SeqId, SeqId),
+    ) -> Option<impl Iterator<Item = &'_ Alignment>> {
+        let indices = self.indices.get(&key)?;
+        let iter = indices.iter().filter_map(|&i| self.alignments.get(i));
+        Some(iter)
+    }
+
+    pub fn pairs<'a>(
+        &'a self,
+    ) -> impl Iterator<Item = ((SeqId, SeqId), impl Iterator<Item = &'a Alignment>)> + 'a {
+        self.indices.iter().map(|(pair, indices)| {
+            let alignments = indices.iter().filter_map(|i| self.alignments.get(*i));
+            (*pair, alignments)
+        })
+    }
 }
 
 pub struct AlignmentMetadata {
@@ -497,8 +523,9 @@ pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Se
 
 impl Alignments {
     pub fn get(&self, index: AlignmentIndex) -> Option<&Alignment> {
-        let als = self.pairs.get(&(index.target, index.query))?;
-        als.get(index.pair_index)
+        let al_indices = self.indices.get(&(index.target, index.query))?;
+        let ix = al_indices.get(index.pair_index)?;
+        self.alignments.get(*ix)
     }
 
     pub fn from_paf_lines<'l>(
@@ -506,23 +533,36 @@ impl Alignments {
         sequences: &Sequences,
         lines: impl IntoIterator<Item = PafLine<&'l str>>,
     ) -> Self {
-        let mut pairs: FxHashMap<_, Vec<_>> = FxHashMap::default();
+        let mut alignments = Vec::new();
+        let mut indices: FxHashMap<_, Vec<_>> = FxHashMap::default();
+
+        // let mut pairs: FxHashMap<_, Vec<_>> = FxHashMap::default();
 
         for paf_line in lines {
             let target_id = sequences.names().get_by_left(paf_line.tgt_name).unwrap();
             let query_id = sequences.names().get_by_left(paf_line.query_name).unwrap();
             let alignment = Alignment::new(&sequences.names(), &paf_line);
+            let al_ix = alignments.len();
 
             let pair_id = (*target_id, *query_id);
 
-            pairs.entry(pair_id).or_default().push(alignment);
+            indices.entry(pair_id).or_default().push(al_ix);
+            alignments.push(alignment);
+            // pairs.entry(pair_id).or_default().push(alignment);
         }
 
         let mut cigar_range_index_map: bimap::BiHashMap<AlignmentIndex, std::ops::Range<u64>> =
             Default::default();
 
-        for (&(target, query), alignments) in pairs.iter_mut() {
-            alignments.sort_by_key(|al| al.location.target_range.start);
+        for (&(target, query), al_indices) in indices.iter_mut() {
+            al_indices.sort_by_key(|al_ix| {
+                let loc = &alignments[*al_ix].location;
+                let tgt = &loc.target_range;
+                let qry = &loc.query_range;
+                (tgt.start, tgt.end, qry.start, qry.end)
+            });
+
+            // for (pair_index, al_ix) in al_indices.iter_mut().enumerate()
 
             for (index, al) in alignments.iter_mut().enumerate() {
                 let al_ix = AlignmentIndex {
@@ -536,10 +576,12 @@ impl Alignments {
             }
         }
 
-        let pairs = pairs.into_iter().map(|(sp, als)| (sp, als)).collect();
+        let indices = indices.into_iter().map(|(sp, als)| (sp, als)).collect();
 
         Self {
-            pairs: Arc::new(pairs),
+            alignments: Arc::new(alignments),
+            indices: Arc::new(indices),
+            // pairs: Arc::new(pairs),
             cigar_range_index_map,
         }
     }
@@ -558,7 +600,10 @@ impl Alignments {
 
         let impg_cigars = ImpgIndex::impg_cigars(&impg_index, &sequences);
 
-        let mut pairs: FxHashMap<_, Vec<_>> = FxHashMap::default();
+        let mut alignments = Vec::new();
+        let mut indices: FxHashMap<_, Vec<_>> = FxHashMap::default();
+
+        // let mut pairs: FxHashMap<_, Vec<_>> = FxHashMap::default();
 
         for (pair @ (target_id, query_id), impg_cigars) in impg_cigars.into_iter() {
             for impg_cg in impg_cigars {
@@ -584,15 +629,16 @@ impl Alignments {
                     cigar: Arc::new(impg_cg),
                 };
 
-                pairs.entry(pair).or_default().push(alignment);
+                let al_ix = alignments.len();
+                alignments.push(alignment);
+                indices.entry(pair).or_default().push(al_ix);
             }
         }
 
-        let pairs = pairs.into_iter().map(|(sp, als)| (sp, als)).collect();
-
         Ok((
             Self {
-                pairs: Arc::new(pairs),
+                alignments: alignments.into(),
+                indices: indices.into(),
                 cigar_range_index_map,
             },
             sequences,

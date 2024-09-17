@@ -101,7 +101,7 @@ pub fn alignment_picking_grid(
 
             // if there's a seq pair hit, search alignments associated
             // w/ that seq pair for alignment hits
-            let Some(pair_aligns) = alignments.pairs.get(&seq_pair) else {
+            let Some(mut pair_aligns) = alignments.pair_alignments(seq_pair) else {
                 continue;
             };
 
@@ -118,7 +118,6 @@ pub fn alignment_picking_grid(
 
             // output alignment hits
             let hits = pair_aligns
-                .iter()
                 .enumerate()
                 .filter_map(|(ix, al)| {
                     let loc = &al.location;

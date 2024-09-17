@@ -27,20 +27,31 @@ impl AlignmentGrid {
         alignments: &crate::paf::Alignments,
         sequence_names: Arc<BiMap<String, SeqId>>,
     ) -> Self {
+        // let mut targets = alignments
+        //     .pairs
+        //     .values()
+        //     .filter_map(|als| als.first())
+        //     .map(|al| (al.target_id, al.location.target_total_len))
+        //     .collect::<Vec<_>>();
         let mut targets = alignments
-            .pairs
-            .values()
-            .filter_map(|als| als.first())
+            .alignments
+            .iter()
             .map(|al| (al.target_id, al.location.target_total_len))
             .collect::<Vec<_>>();
         targets.sort_by_key(|(id, l)| (std::cmp::Reverse(*l), *id));
         targets.dedup_by_key(|(id, _)| *id);
 
         let x_axis = crate::grid::GridAxis::from_index_and_lengths(targets);
+
+        // let mut queries = alignments
+        //     .pairs
+        //     .values()
+        //     .filter_map(|als| als.first())
+        //     .map(|al| (al.query_id, al.location.query_total_len))
+        //     .collect::<Vec<_>>();
         let mut queries = alignments
-            .pairs
-            .values()
-            .filter_map(|als| als.first())
+            .alignments
+            .iter()
             .map(|al| (al.query_id, al.location.query_total_len))
             .collect::<Vec<_>>();
         queries.sort_by_key(|(id, l)| (std::cmp::Reverse(*l), *id));
@@ -52,7 +63,7 @@ impl AlignmentGrid {
         let mut pairs_by_target: FxHashMap<_, Vec<_>> = FxHashMap::default();
         let mut pairs_by_query: FxHashMap<_, Vec<_>> = FxHashMap::default();
 
-        for &(tgt_id, qry_id) in alignments.pairs.keys() {
+        for &(tgt_id, qry_id) in alignments.indices.keys() {
             pairs_by_target.entry(tgt_id).or_default().push(qry_id);
             pairs_by_query.entry(qry_id).or_default().push(tgt_id);
         }
@@ -480,7 +491,7 @@ impl GridAABBs {
 
         let mut pair_collider_map = FxHashMap::default();
 
-        for (&(tgt_id, qry_id), pair_aligns) in alignments.pairs.iter() {
+        for ((tgt_id, qry_id), mut pair_aligns) in alignments.pairs() {
             /*
             let mut mins = Vec2::broadcast(std::f32::MAX);
             let mut maxs = Vec2::broadcast(std::f32::MIN);
@@ -496,7 +507,7 @@ impl GridAABBs {
                 maxs = maxs.max_by_component(max);
             });
             */
-            let Some(alignment) = pair_aligns.first() else {
+            let Some(alignment) = pair_aligns.next() else {
                 continue;
             };
 
