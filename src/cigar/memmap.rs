@@ -65,6 +65,34 @@ impl IndexedPaf {
     }
     */
 
+    pub fn cigar_reader_iter(
+        &self,
+        line_index: usize,
+    ) -> std::io::Result<CigarReaderIter<Box<dyn BufRead + '_>>> {
+        let reader = self.cigar_reader(line_index)?;
+
+        let cg_range = self
+            .byte_index
+            .record_offsets
+            .get(line_index)
+            .and_then(|offset| {
+                let inner = &self.byte_index.record_inner_offsets.get(line_index)?;
+                Some((offset + inner.cigar_range.start)..(offset + inner.cigar_range.end))
+            })
+            .ok_or(std::io::Error::other("PAF line not found in index"))?;
+        let cigar_bytes_len = (cg_range.end - cg_range.start) as usize;
+
+        Ok(CigarReaderIter {
+            done: false,
+            buffer: vec![0u8; 4096],
+            offset_in_buffer: 0,
+            cigar_bytes_len,
+            bytes_processed: 0,
+            bytes_read: 0,
+            reader,
+        })
+    }
+
     pub fn cigar_reader<'a>(&'a self, line_index: usize) -> std::io::Result<Box<dyn BufRead + 'a>> {
         let data = match &self.data {
             PafData::Memory(arc) => arc.as_ref(),
@@ -445,8 +473,10 @@ impl PafRecordIndex {
             }
 
             if opt_field_buf[0].eq_ignore_ascii_case(b"cg") {
-                let field_end = field_offset + field.len() as u64;
-                cigar_range = Some(field_offset..field_end);
+                // NB: adding 5 to the offset to skip the `cg:Z:`
+                let cg_start = field_offset + 5;
+                let cg_end = cg_start + field.len() as u64;
+                cigar_range = Some(cg_start..cg_end);
             } else if let &[a, b] = opt_field_buf[0] {
                 let key = [a, b];
                 optional_fields.insert(key, field_offset);
@@ -474,19 +504,38 @@ pub struct CigarReaderIter<S: BufRead> {
     // reader: BufReader
 }
 
+// impl CigarReaderIter<Box<dyn BufRead>> {
+//     pub fn new(reader: Box<dyn BufRead>) -> Self {
+//         Self {
+//             done: false,
+//             buffer: vec![0u8; 4096]
+//             offset_in_buffer: 0,
+//             cigar_bytes_len: todo!(),
+//             bytes_processed: todo!(),
+//             bytes_read: todo!(),
+//             reader,
+//         }
+
+//     }
+
+// }
+
 impl<S: BufRead> CigarReaderIter<S> {
-    fn read_op(&mut self) -> Option<std::io::Result<(super::CigarOp, u32)>> {
+    pub fn read_op(&mut self) -> Option<std::io::Result<(super::CigarOp, u32)>> {
         use bstr::ByteSlice;
+        // dbg!();
 
         if self.done {
             return None;
         }
+        // dbg!();
 
-        if self.offset_in_buffer >= self.buffer.len() {
+        if self.offset_in_buffer >= self.buffer.len() || self.bytes_processed == self.bytes_read {
             self.buffer.resize(4096, 0);
             self.offset_in_buffer = 0;
             match self.reader.read(&mut self.buffer) {
                 Ok(bytes_read) => {
+                    // println!("read {bytes_read} bytes");
                     self.bytes_read += bytes_read;
                 }
                 Err(err) => {
@@ -496,12 +545,15 @@ impl<S: BufRead> CigarReaderIter<S> {
         }
 
         let buf_slice = &self.buffer[self.offset_in_buffer..];
+        // let bs = bstr::BStr::new(&buf_slice[..(100.min(buf_slice.len()))]);
 
+        // dbg!();
         let Some(op_ix) = buf_slice.find_byteset(b"M=XIDN") else {
             self.done = true;
             return None;
         };
 
+        // dbg!();
         let Some(count) = buf_slice[..op_ix]
             .to_str()
             .ok()
@@ -513,6 +565,11 @@ impl<S: BufRead> CigarReaderIter<S> {
 
         let op_char = buf_slice[op_ix] as char;
         let op = super::CigarOp::try_from(op_char).unwrap();
+
+        self.bytes_processed += op_ix;
+        if self.bytes_processed >= self.cigar_bytes_len {
+            self.done = true;
+        }
 
         Some(Ok((op, count)))
     }
