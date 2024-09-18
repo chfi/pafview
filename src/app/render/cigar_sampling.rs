@@ -85,8 +85,10 @@ fn setup_render_tiles_new(
     let win_size = window.physical_size();
 
     let tile_grid = RenderTileGrid {
-        rows: 4,
-        columns: 4,
+        rows: 1,
+        columns: 1,
+        // rows: 4,
+        // columns: 4,
     };
 
     commands.insert_resource(tile_grid);
@@ -195,12 +197,12 @@ where
     let vx_min = tile_bounds.x_min;
     let vx_max = tile_bounds.x_max;
 
-    // let mut line_buf = Vec::new();
-
     let mut total_time = 0;
     let mut total_lines = 0;
 
     let mut ix = 0;
+
+    let mut line_buf = Vec::new();
 
     for (seq_pair, [seq_min, seq_max], alignments) in seq_pairs.into_iter() {
         // seq_min, seq_max encode the position of the seq. pair tile in the world
@@ -208,26 +210,29 @@ where
         for alignment in alignments {
             let alignment: &crate::Alignment = alignment;
             let loc = &alignment.location;
+            let tgt_len = loc.target_range.end - loc.target_range.start;
 
             let al_min = seq_min.x + loc.target_range.start as f64;
-            let al_max = al_min + loc.target_range.end as f64;
+            let al_max = al_min + tgt_len as f64;
 
             // println!("{al_min}, {al_max}");
-            let al_min = al_min.clamp(vx_min, vx_max) as u64;
-            let al_max = al_max.clamp(vx_min, vx_max) as u64;
+            let cal_min = vx_min.clamp(al_min, al_max) as u64;
+            let cal_max = vx_max.clamp(al_min, al_max) as u64;
+            // let al_min = al_min.clamp(vx_min, vx_max) as u64;
+            // let al_max = al_max.clamp(vx_min, vx_max) as u64;
 
             // println!("clamped: {al_min}, {al_max}");
 
-            if al_min == al_max {
-                println!("no overlap; skipping");
+            if cal_min == cal_max {
+                // println!("no overlap; skipping");
                 continue;
             }
 
-            let loc_min = al_min.checked_sub(seq_min.x as u64).unwrap_or_default();
-            let loc_max = al_max.checked_sub(seq_min.x as u64).unwrap_or_default();
+            let loc_min = cal_min.checked_sub(seq_min.x as u64).unwrap_or_default();
+            let loc_max = cal_max.checked_sub(seq_min.x as u64).unwrap_or_default();
 
             if loc_min == loc_max {
-                println!("no overlap after offset; skipping");
+                // println!("no overlap after offset; skipping");
                 continue;
             }
 
@@ -235,30 +240,58 @@ where
             let end = DVec2::new(loc.target_range.end as f64, loc.query_range.end as f64);
             let w0 = seq_min + start;
             let w1 = seq_min + end;
-            rasterize_world_lines(tile_bounds, tile_dims, pixels, [[w0, w1]]);
+            // rasterize_world_lines(tile_bounds, tile_dims, pixels, [[w0, w1]]);
 
-            /*
+            line_buf.clear();
+
             let t0 = std::time::Instant::now();
-            let lines = alignment
-                .iter_target_range(loc_min..loc_max)
-                .map(|item| {
-                    let tgt = item.target_seq_range();
-                    let qry = item.query_seq_range();
+            let test_iter = alignment.cigar.whole_cigar();
+            // println!(
+            //     " >> [{ix}] built whole cigar iterator in {}us",
+            //     t0.elapsed().as_micros()
+            // );
 
-                    let w0 = seq_min + DVec2::new(tgt.start as f64, qry.start as f64);
-                    let w1 = seq_min + DVec2::new(tgt.end as f64, qry.end as f64);
+            let t0 = std::time::Instant::now();
+            // let lines = alignment
+            let iter = alignment.iter_target_range(loc_min..loc_max);
+            // println!(
+            //     " >> [{ix}] built alignment iterator in {}us\trange {:?}\tloc. tgt {:?}",
+            //     t0.elapsed().as_micros(),
+            //     loc_min..loc_max,
+            //     &loc.target_range,
+            // );
 
-                    [w0, w1]
-                })
-                .collect::<Vec<_>>();
-            println!(
-                " >> [{ix}] collected {} lines in {}ms",
-                lines.len(),
-                t0.elapsed().as_millis()
-            );
-            total_lines += lines.len();
+            let t0 = std::time::Instant::now();
+            let mut count = 0;
+            line_buf.extend(iter.filter_map(|item| {
+                let tgt = item.target_seq_range();
+                let qry = item.query_seq_range();
+
+                let w0 = seq_min + DVec2::new(tgt.start as f64, qry.start as f64);
+                let w1 = seq_min + DVec2::new(tgt.end as f64, qry.end as f64);
+
+                let emit = count % 1000 == 0;
+                count += 1;
+
+                if emit {
+                    Some([w0, w1])
+                } else {
+                    None
+                }
+            }));
+
+            if ix % 1000 == 0 {
+                println!("{ix} processed");
+            }
+            // .collect::<Vec<_>>();
+            // println!(
+            //     " >> [{ix}] collected {} lines out of {} ops in {}ms",
+            //     line_buf.len(),
+            //     count,
+            //     t0.elapsed().as_millis()
+            // );
+            total_lines += line_buf.len();
             total_time += t0.elapsed().as_nanos();
-            */
             ix += 1;
 
             // println!(">> TODO sample with range {loc_min}..{loc_max}");
@@ -269,7 +302,7 @@ where
             // let range = (loc_min - alignment.location.target_range.start)
             //     ..(loc_max - alignment.location.target_range.start);
 
-            // rasterize_world_lines(tile_bounds, tile_dims, pixels, lines);
+            rasterize_world_lines(tile_bounds, tile_dims, pixels, line_buf.iter().copied());
 
             /*
 
@@ -561,7 +594,7 @@ fn spawn_render_tasks(
                 // println!("skipping due to timer");
                 continue;
             } else {
-                println!("timer lapsed; updating");
+                // println!("timer lapsed; updating");
             }
         }
 
@@ -891,6 +924,7 @@ fn cleanup_render_task(
 ) {
     for (ent, mut tile, task) in tiles.iter_mut() {
         if task.task.is_finished() {
+            println!("render task finished");
             tile.last_rendered = Some(task.params.clone());
             tile.last_update = Some(std::time::Instant::now());
             commands.entity(ent).remove::<RenderTask>();
