@@ -663,6 +663,50 @@ pub struct PafLine<S> {
     pub cigar_file_range: Option<std::ops::Range<u64>>,
 }
 
+pub fn parse_paf_line_bytes<'a>(line: &'a [u8], line_offset: u64) -> Option<PafLine<&'a [u8]>> {
+    use bstr::ByteSlice;
+
+    let mut ranged_fields = line.split_str(b"\t").scan(line_offset, |offset, field| {
+        let len = field.len() as u64;
+        let range = *offset..len;
+        *offset += len;
+        Some((field, range))
+    });
+
+    let (query_name, query_seq_len, query_seq_start, query_seq_end) =
+        parse_ranged_paf_name_range_bs(&mut ranged_fields)?;
+    let strand = ranged_fields.next()?.0;
+    let (tgt_name, tgt_seq_len, tgt_seq_start, tgt_seq_end) =
+        parse_ranged_paf_name_range_bs(&mut ranged_fields)?;
+
+    // let (cigar, cigar_file_range) = ranged_fields
+    let cigar = ranged_fields
+        .skip(3)
+        .find_map(|(s, r)| Some((s.strip_prefix(b"cg:Z:")?, r)));
+
+    let (cigar, cigar_file_range) = if let Some((cg, r)) = cigar {
+        (Some(cg), Some(r))
+    } else {
+        (None, None)
+    };
+
+    Some(PafLine {
+        query_name,
+        query_seq_len,
+        query_seq_start,
+        query_seq_end,
+
+        tgt_name,
+        tgt_seq_len,
+        tgt_seq_start,
+        tgt_seq_end,
+
+        strand_rev: strand == b"-",
+        cigar,
+        cigar_file_range,
+    })
+}
+
 pub fn parse_paf_line<'a>(line: &'a str, line_offset: u64) -> Option<PafLine<&'a str>> {
     let mut ranged_fields = line.split('\t').scan(line_offset, |offset, field| {
         let len = field.len() as u64;
@@ -722,6 +766,18 @@ fn parse_ranged_paf_name_range<'a>(
     let len = fields.next()?.0.parse().ok()?;
     let start = fields.next()?.0.parse().ok()?;
     let end = fields.next()?.0.parse().ok()?;
+    Some((name, len, start, end))
+}
+
+fn parse_ranged_paf_name_range_bs<'a>(
+    mut fields: impl Iterator<Item = (&'a [u8], std::ops::Range<u64>)>,
+) -> Option<(&'a [u8], u64, u64, u64)> {
+    use bstr::ByteSlice;
+    let name = fields.next()?.0;
+    let parse = |fd: &[u8]| fd.to_str().ok().and_then(|s| s.parse::<u64>().ok());
+    let len = parse(fields.next()?.0)?;
+    let start = parse(fields.next()?.0)?;
+    let end = parse(fields.next()?.0)?;
     Some((name, len, start, end))
 }
 

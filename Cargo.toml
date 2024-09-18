@@ -5,6 +5,10 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[[bin]]
+name = "paf-stress-test"
+path = "src/bin/paf_stress_test.rs"
+
 [dependencies]
 anyhow = "1.0.80"
 bimap = "0.6.3"

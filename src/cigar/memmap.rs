@@ -14,7 +14,89 @@ pub struct IndexedPaf {
 }
 
 impl IndexedPaf {
-    pub fn cigar_reader(&self, line_index: usize) -> Option<Box<dyn BufRead>> {}
+    pub fn for_each_paf_line<F>(&self, mut f: F)
+    where
+        F: FnMut(crate::PafLine<&[u8]>),
+    {
+        if let Some(bgzi) = self.bgzi.as_ref() {
+            use bstr::io::BufReadExt;
+
+            let data_slice = self.data.bytes();
+
+            let reader = bgzip::BGZFReader::new(std::io::Cursor::new(data_slice)).unwrap();
+            let mut reader = bgzip::read::IndexedBGZFReader::new(reader, bgzi.clone()).unwrap();
+
+            let mut line_ix = 0;
+
+            reader
+                .for_byte_line(|line_slice| {
+                    let line_offset = self.byte_index.record_offsets[line_ix];
+                    if let Some(paf_line) =
+                        crate::paf::parse_paf_line_bytes(line_slice, line_offset)
+                    {
+                        f(paf_line);
+                    }
+                    line_ix += 1;
+                    Ok(true)
+                })
+                .unwrap();
+        } else {
+            for (line_ix, &line_offset) in self.byte_index.record_offsets.iter().enumerate() {
+                let Some(line_slice) = self.data.paf_line_slice(&self.byte_index, line_ix) else {
+                    continue;
+                };
+
+                let Some(paf_line) = crate::paf::parse_paf_line_bytes(line_slice, line_offset)
+                else {
+                    continue;
+                };
+
+                f(paf_line);
+            }
+        }
+    }
+
+    /*
+    pub fn lines_iter<'a>(&'a self) -> impl Iterator<Item = crate::PafLine<&'a [u8]>> {
+        let offsets_iter = std::iter::zip(&self.byte_index.record_offsets, &self.byte_index.record_inner_offsets);
+
+        offsets_iter.filter_map(|(line_offset, inner)| {
+        })
+    }
+    */
+
+    pub fn cigar_reader<'a>(&'a self, line_index: usize) -> std::io::Result<Box<dyn BufRead + 'a>> {
+        let data = match &self.data {
+            PafData::Memory(arc) => arc.as_ref(),
+            PafData::Mmap(shared_mmap) => shared_mmap.as_ref(),
+        };
+
+        let cg_range = self
+            .byte_index
+            .record_offsets
+            .get(line_index)
+            .and_then(|offset| {
+                let inner = &self.byte_index.record_inner_offsets.get(line_index)?;
+                Some((offset + inner.cigar_range.start)..(offset + inner.cigar_range.end))
+            })
+            .ok_or(std::io::Error::other("PAF line not found in index"))?;
+
+        let reader = std::io::Cursor::new(data);
+
+        if let Some(bgzi) = self.bgzi.as_ref() {
+            let mut reader =
+                bgzip::BGZFReader::new(reader).map_err(|e| std::io::Error::other(e))?;
+            let pos = bgzi
+                .uncompressed_pos_to_bgzf_pos(cg_range.start)
+                .map_err(|e| std::io::Error::other(e))?;
+            reader.bgzf_seek(pos);
+            Ok(Box::new(reader))
+        } else {
+            let mut reader = reader;
+            reader.seek(std::io::SeekFrom::Start(cg_range.start));
+            Ok(Box::new(reader))
+        }
+    }
 }
 
 enum PafData {
@@ -23,11 +105,30 @@ enum PafData {
 }
 
 impl PafData {
+    fn bytes(&self) -> &[u8] {
+        match self {
+            PafData::Memory(arc) => arc.as_ref(),
+            PafData::Mmap(shared_mmap) => shared_mmap.as_ref(),
+        }
+    }
+
+    fn bytes_len(&self) -> usize {
+        match self {
+            PafData::Memory(arc) => arc.len(),
+            PafData::Mmap(mmap) => mmap.0.len(),
+        }
+    }
+
     fn paf_line_slice(&self, index: &PafByteIndex, line_index: usize) -> Option<&[u8]> {
-        let line_offset = index.record_offsets.get(line_index)?;
-        let next_line_offset = index.record_offsets.get(line_index + 1)?;
-        let start = *line_offset as usize;
-        let end = *next_line_offset as usize;
+        let line_offset = *index.record_offsets.get(line_index)? as usize;
+        let next_line_offset = if line_index < index.line_count() - 1 {
+            *index.record_offsets.get(line_index + 1)? as usize
+        } else {
+            self.bytes_len()
+        };
+
+        let start = line_offset;
+        let end = next_line_offset;
 
         let data = match self {
             PafData::Memory(arc) => arc.as_ref(),
@@ -173,36 +274,31 @@ impl IndexedPaf {
 */
 
 impl IndexedPaf {
-    pub fn memmap_file(path: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
-        let path = path.as_ref();
+    pub fn memmap_paf(
+        path: impl AsRef<std::path::Path>,
+        bgzi: Option<BGZFIndex>,
+    ) -> std::io::Result<Self> {
+        let path = path.as_ref().to_path_buf();
 
-        let reader = std::fs::File::open(path).map(BufReader::new)?;
-        let byte_index = PafByteIndex::from_paf(reader)?;
+        // let reader = std::fs::File::open(&path).map(BufReader::new)?;
+        let file = std::fs::File::open(&path)?;
 
-        let mmap = {
-            let file = std::fs::File::open(path)?;
-            let opts = memmap2::MmapOptions::new();
-            unsafe { opts.map(&file) }?
+        let mmap = unsafe { memmap2::MmapOptions::new().map(&file)? };
+
+        let byte_index = if let Some(bgzi) = bgzi.as_ref() {
+            let reader = bgzip::BGZFReader::new(std::io::Cursor::new(&mmap))
+                .and_then(|r| bgzip::read::IndexedBGZFReader::new(r, bgzi.clone()))
+                .map_err(|e| std::io::Error::other(e))?;
+            PafByteIndex::from_paf(reader)?
+        } else {
+            let reader = std::io::Cursor::new(&mmap);
+            PafByteIndex::from_paf(reader)?
         };
 
         Ok(Self {
-            data: PafSource::Mmap(SharedMmap(Arc::new(mmap))),
+            data: PafData::Mmap(SharedMmap(Arc::new(mmap))),
             byte_index,
-        })
-    }
-}
-
-impl IndexedPaf {
-    pub fn from_path(path: impl AsRef<std::path::Path>) -> std::io::Result<Self> {
-        let path = path.as_ref().to_path_buf();
-
-        let reader = std::fs::File::open(&path).map(BufReader::new)?;
-
-        let byte_index = PafByteIndex::from_paf(reader)?;
-
-        Ok(Self {
-            data: PafSource::File(path),
-            byte_index,
+            bgzi,
         })
     }
 
@@ -211,8 +307,9 @@ impl IndexedPaf {
         let byte_index = PafByteIndex::from_paf(reader)?;
 
         Ok(Self {
-            data: PafSource::Memory(data.into()),
+            data: PafData::Memory(data.into()),
             byte_index,
+            bgzi: None,
         })
     }
 }
@@ -279,6 +376,12 @@ impl PafPositionIndex {
 */
 
 impl PafByteIndex {
+    fn line_count(&self) -> usize {
+        self.record_offsets.len()
+    }
+}
+
+impl PafByteIndex {
     fn from_paf<R: BufRead>(mut paf_reader: R) -> std::io::Result<Self> {
         use bstr::{io::BufReadExt, ByteSlice};
 
@@ -287,6 +390,8 @@ impl PafByteIndex {
 
         let mut buffer = Vec::new();
         let mut offset = 0u64;
+
+        let mut count = 0;
 
         loop {
             buffer.clear();
@@ -299,12 +404,15 @@ impl PafByteIndex {
             offset += bytes_read as u64;
 
             let line = buffer[..bytes_read].trim_ascii();
+            count += 1;
 
             if let Some(index) = PafRecordIndex::from_line(line) {
                 record_indices.push(index);
                 record_offsets.push(line_offset);
             }
         }
+
+        println!("recorded offsets for {} lines", record_offsets.len());
 
         Ok(Self {
             record_offsets,
