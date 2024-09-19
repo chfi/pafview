@@ -396,9 +396,13 @@ impl<S: BufRead> CigarReaderIter<S> {
 
         // dbg!();
         let Some(op_ix) = buf_slice.find_byteset(b"M=XIDN") else {
+            // dbg!();
             self.done = true;
             return None;
         };
+
+        // let text = bstr::BStr::new(&buf_slice[..op_ix]);
+        // println!("buf_slice: {text:?}");
 
         // dbg!();
         let Some(count) = buf_slice[..op_ix]
@@ -406,6 +410,7 @@ impl<S: BufRead> CigarReaderIter<S> {
             .ok()
             .and_then(|s| s.parse::<u32>().ok())
         else {
+            // dbg!();
             self.done = true;
             return None;
         };
@@ -413,8 +418,12 @@ impl<S: BufRead> CigarReaderIter<S> {
         let op_char = buf_slice[op_ix] as char;
         let op = super::CigarOp::try_from(op_char).unwrap();
 
-        self.bytes_processed += op_ix;
+        self.bytes_processed += op_ix + 1;
+        self.offset_in_buffer += op_ix + 1;
+        // dbg!(self.bytes_processed);
+        // dbg!(self.offset_in_buffer);
         if self.bytes_processed >= self.cigar_bytes_len {
+            // dbg!();
             self.done = true;
         }
 
@@ -505,4 +514,30 @@ impl CigarPositionIndex {
 
     //     todo!();
     // }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cigar_reader_iter() {
+        use std::io::prelude::*;
+
+        let cigar = b"150=10I50=5X5=12D50=";
+        let reader = std::io::Cursor::new(&cigar);
+        let mut iter = CigarReaderIter {
+            done: false,
+            buffer: vec![0u8; 4096],
+            offset_in_buffer: 0,
+            cigar_bytes_len: cigar.len(),
+            bytes_processed: 0,
+            bytes_read: 0,
+            reader,
+        };
+
+        while let Some(val) = iter.read_op() {
+            println!("{val:?}");
+        }
+    }
 }

@@ -240,7 +240,7 @@ where
             let end = DVec2::new(loc.target_range.end as f64, loc.query_range.end as f64);
             let w0 = seq_min + start;
             let w1 = seq_min + end;
-            // rasterize_world_lines(tile_bounds, tile_dims, pixels, [[w0, w1]]);
+            rasterize_world_lines(tile_bounds, tile_dims, pixels, [[w0, w1]]);
 
             line_buf.clear();
 
@@ -264,16 +264,15 @@ where
             let t0 = std::time::Instant::now();
             let mut count = 0;
             line_buf.extend(iter.filter_map(|item| {
-                let tgt = item.target_seq_range();
-                let qry = item.query_seq_range();
-
-                let w0 = seq_min + DVec2::new(tgt.start as f64, qry.start as f64);
-                let w1 = seq_min + DVec2::new(tgt.end as f64, qry.end as f64);
-
                 let emit = count % 1000 == 0;
                 count += 1;
 
                 if emit {
+                    let tgt = item.target_seq_range();
+                    let qry = item.query_seq_range();
+
+                    let w0 = seq_min + DVec2::new(tgt.start as f64, qry.start as f64);
+                    let w1 = seq_min + DVec2::new(tgt.end as f64, qry.end as f64);
                     Some([w0, w1])
                 } else {
                     None
@@ -302,7 +301,7 @@ where
             // let range = (loc_min - alignment.location.target_range.start)
             //     ..(loc_max - alignment.location.target_range.start);
 
-            rasterize_world_lines(tile_bounds, tile_dims, pixels, line_buf.iter().copied());
+            // rasterize_world_lines(tile_bounds, tile_dims, pixels, line_buf.iter().copied());
 
             /*
 

@@ -42,24 +42,28 @@ fn test_impg(impg: &PathBuf, paf: &PathBuf) -> anyhow::Result<()> {
 
     let mut als = als.iter().collect::<Vec<_>>();
     let mut rng = rand::thread_rng();
-    als.shuffle(&mut rng);
+    // als.shuffle(&mut rng);
 
     let mut op_count = 0;
     let mut total_tgt = 0u64;
     let mut total_qry = 0u64;
     let t1 = std::time::Instant::now();
+
+    let mut op_counts_log10 = [0usize; 10];
+    let mut ts_op_counts_lg10 = [0u128; 10];
+
     for (i, al) in als.iter().enumerate() {
+        let t0 = std::time::Instant::now();
         // for (i, cg) in cigars.iter().enumerate() {
-        if i % 500 == 0 {
-            println!("{i} / {}", als.len());
-        }
+        // if i % 500 == 0 {
+        //     println!("{i} / {}", als.len());
+        // }
 
         let mut tgt = 0;
         let mut qry = 0;
 
         let tgt_len = al.location.aligned_target_len();
 
-        let t0 = std::time::Instant::now();
         // let start = 0;
         let start = tgt_len / 4;
         let end = (3 * start).min(tgt_len);
@@ -70,17 +74,26 @@ fn test_impg(impg: &PathBuf, paf: &PathBuf) -> anyhow::Result<()> {
         let al_iter = al.iter_target_range(start..end);
         // let cg_iter = al.cigar.iter_target_range(start..end);
         // let cg_iter = al.cigar.whole_cigar();
-        println!("built alignment iter in {}us", t0.elapsed().as_micros());
+        // println!("built alignment iter in {}us", t0.elapsed().as_micros());
+
+        let mut inner_ops = 0;
 
         for item in al_iter {
             let op = item.op;
             op_count += 1;
+            inner_ops += 1;
             let len = item.op_count as u64;
             tgt += op.consumes_target().then_some(len).unwrap_or(0);
             qry += op.consumes_query().then_some(len).unwrap_or(0);
         }
+
+        let i = (inner_ops as f64).log10().clamp(0.0, 10.0) as usize;
+
         total_tgt += tgt;
         total_qry += qry;
+
+        op_counts_log10[i] += 1;
+        ts_op_counts_lg10[i] += t0.elapsed().as_nanos();
     }
 
     // for (i, &line_ix) in order.iter().enumerate() {
@@ -91,6 +104,18 @@ fn test_impg(impg: &PathBuf, paf: &PathBuf) -> anyhow::Result<()> {
         als.len(),
         t1.elapsed().as_millis()
     );
+
+    println!(
+        "{:10} - {:6} - {:10} - {}",
+        "mag of op count", "#", "time (us)", "avg time"
+    );
+    for (ix, (&count, &time)) in std::iter::zip(&op_counts_log10, &ts_op_counts_lg10).enumerate() {
+        let tsec = time as f64 / 1_000.0;
+        let tavg = (time as f64 / count as f64) / 1_000.0;
+        let num = 10usize.pow(ix as u32);
+        let text = format!("{num:10} - {count} - {tsec}\t{tavg}");
+        println!("{text}");
+    }
 
     Ok(())
 }
@@ -163,17 +188,24 @@ fn main() -> anyhow::Result<()> {
 
     let order = line_is;
 
+    let mut op_counts_log10 = [0usize; 10];
+    let mut ts_op_counts_lg10 = [0u128; 10];
+
     let mut op_count = 0;
     let mut al_count = 0;
     let mut total_tgt = 0u64;
     let mut total_qry = 0u64;
+
     let t0 = std::time::Instant::now();
     for (i, &line_ix) in order.iter().enumerate() {
+        let t0 = std::time::Instant::now();
         if i % 500 == 0 {
             println!("{i} / {}", order.len());
         }
         // for line_ix in [0] {
         // let (tgt, qry) = timed("iterated cigar", || {
+        let mut inner_ops = 0;
+
         let (tgt, qry) = {
             let mut cg_iter = indexed_paf.cigar_reader_iter(line_ix).unwrap();
             let mut tgt = 0;
@@ -181,6 +213,7 @@ fn main() -> anyhow::Result<()> {
             // let op = cg_iter.read_op();
             // println!("{op:?}");
             while let Some(Ok((op, count))) = cg_iter.read_op() {
+                inner_ops += 1;
                 op_count += 1;
                 let len = count as u64;
                 tgt += op.consumes_target().then_some(len).unwrap_or(0);
@@ -193,12 +226,28 @@ fn main() -> anyhow::Result<()> {
         // println!(" -- TGT {tgt}\t QRY {qry}");
         total_tgt += tgt;
         total_qry += qry;
+
+        let i = (inner_ops as f64).log10().clamp(0.0, 10.0) as usize;
+        op_counts_log10[i] += 1;
+        ts_op_counts_lg10[i] += t0.elapsed().as_nanos();
     }
     println!(
         "iterated {op_count} cigar ops across {} alignments in {}ms",
         al_count,
         t0.elapsed().as_millis()
     );
+
+    println!(
+        "{:10} - {:6} - {:10} - {}",
+        "mag of op count", "#", "time (us)", "avg time"
+    );
+    for (ix, (&count, &time)) in std::iter::zip(&op_counts_log10, &ts_op_counts_lg10).enumerate() {
+        let tsec = time as f64 / 1_000.0;
+        let tavg = (time as f64 / count as f64) / 1_000.0;
+        let num = 10usize.pow(ix as u32);
+        let text = format!("{num:10} - {count} - {tsec}\t{tavg}");
+        println!("{text}");
+    }
 
     Ok(())
 }
