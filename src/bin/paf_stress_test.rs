@@ -65,11 +65,13 @@ fn test_impg(impg: &PathBuf, paf: &PathBuf) -> anyhow::Result<()> {
         let tgt_len = al.location.aligned_target_len();
 
         // let start = 0;
-        let start = tgt_len / 4;
-        let end = (3 * start).min(tgt_len);
+        // let start = tgt_len / 4;
+        // let end = (3 * start).min(tgt_len);
 
-        let start = al.location.target_range.start + start;
-        let end = al.location.target_range.start + end;
+        // let start = al.location.target_range.start + start;
+        // let end = al.location.target_range.start + end;
+        let start = al.location.target_range.start;
+        let end = al.location.target_range.end;
 
         let al_iter = al.iter_target_range(start..end);
         // let cg_iter = al.cigar.iter_target_range(start..end);
@@ -198,13 +200,16 @@ fn main() -> anyhow::Result<()> {
 
     let t0 = std::time::Instant::now();
     for (i, &line_ix) in order.iter().enumerate() {
+        // println!("processing line {line_ix}")
         let t0 = std::time::Instant::now();
-        if i % 500 == 0 {
-            println!("{i} / {}", order.len());
-        }
+        // if i % 500 == 0 {
+        //     println!("{i} / {}", order.len());
+        // }
         // for line_ix in [0] {
         // let (tgt, qry) = timed("iterated cigar", || {
         let mut inner_ops = 0;
+
+        // println!("cigar bytes")
 
         let (tgt, qry) = {
             let mut cg_iter = indexed_paf.cigar_reader_iter(line_ix).unwrap();
@@ -212,7 +217,8 @@ fn main() -> anyhow::Result<()> {
             let mut qry = 0;
             // let op = cg_iter.read_op();
             // println!("{op:?}");
-            while let Some(Ok((op, count))) = cg_iter.read_op() {
+            while let Ok(Some((op, count))) = cg_iter.next_op() {
+                // while let Some(Ok((op, count))) = cg_iter.read_op() {
                 inner_ops += 1;
                 op_count += 1;
                 let len = count as u64;
@@ -222,6 +228,7 @@ fn main() -> anyhow::Result<()> {
             (tgt, qry)
             // });
         };
+
         al_count += 1;
         // println!(" -- TGT {tgt}\t QRY {qry}");
         total_tgt += tgt;
