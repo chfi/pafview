@@ -308,6 +308,14 @@ impl CigarOp {
         }
     }
 
+    pub fn target_delta(&self, len: u32) -> u32 {
+        self.consumes_target().then_some(len).unwrap_or(0)
+    }
+
+    pub fn query_delta(&self, len: u32) -> u32 {
+        self.consumes_query().then_some(len).unwrap_or(0)
+    }
+
     pub fn consumes_target(&self) -> bool {
         use CigarOp::*;
         match self {

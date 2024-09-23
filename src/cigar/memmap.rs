@@ -80,12 +80,18 @@ impl IndexedPaf {
         let start_ix = pos_index.index_for_target(target_range.start);
         let end_ix = pos_index.index_for_target(target_range.end);
 
-        let Some((start_ix, end_ix)) = start_ix.zip(end_ix) else {
+        let Some((start_ix, mut end_ix)) = start_ix.zip(end_ix) else {
             return Err(std::io::Error::other(format!(
                 "Range `{}..{}` out of bounds of cigar",
                 target_range.start, target_range.end
             )));
         };
+
+        let start_ix = start_ix.checked_sub(1).unwrap_or(0);
+
+        if start_ix == end_ix {
+            end_ix = (end_ix + 1).min(pos_index.byte_offsets.len());
+        }
 
         let byte_start = pos_index.byte_offsets[start_ix];
         let byte_end = pos_index.byte_offsets[end_ix];
@@ -110,18 +116,57 @@ impl IndexedPaf {
             Box::new(reader)
         };
 
-        let cigar_bytes_len = byte_end - byte_start;
-        let buffer_len = 4096.min(cigar_bytes_len);
+        let cigar_bytes_len = (byte_end - byte_start) as usize;
 
-        Ok(CigarReaderIter {
-            cigar_bytes_len,
-            reader,
-            done: false,
-            buffer: vec![0u8; buffer_len],
-            buffer_bytes_used: 0,
-            offset_in_buffer: 0,
-            bytes_processed: 0,
-        })
+        let mut cg_iter = CigarReaderIter::new(cg_reader, cigar_bytes_len);
+        cg_iter.fill_buffer()?;
+
+        let tgt_start = pos_index.target_offsets[start_ix];
+
+        cg_iter.target_pos = tgt_start;
+        cg_iter.query_pos = pos_index.query_offsets[start_ix];
+
+        let mut skip_count = 0;
+        // skip inside the block to the correct starting block
+        if tgt_start < target_range.start {
+            println!("skipping inside first block");
+            loop {
+                {
+                    let buf_hd = bstr::BStr::new(&cg_iter.buffer[..200]);
+                    println!("buffer: {buf_hd}");
+                    println!(
+                        "internal offset: {}\tprocessed: {}\tcigar byte len: {}",
+                        cg_iter.offset_in_buffer, cg_iter.bytes_processed, cg_iter.cigar_bytes_len
+                    )
+                }
+                let Some((op, count)) = cg_iter.get_current_op() else {
+                    dbg!();
+                    break;
+                };
+
+                let tgt_delta = op.target_delta(count) as u64;
+                let tgt_pos = cg_iter.target_pos;
+
+                println!("{tgt_pos} + {tgt_delta} cf. {}", target_range.start);
+
+                if tgt_pos < target_range.start && tgt_pos + tgt_delta > target_range.start
+                    || tgt_pos == target_range.start
+                {
+                    dbg!();
+                    break;
+                }
+
+                dbg!();
+                cg_iter.next_op()?;
+                // cg_iter.step();
+                skip_count += 1;
+            }
+        }
+        println!("skipped {skip_count} ops");
+
+        cg_iter.target_end = Some(target_range.end);
+
+        Ok(cg_iter)
     }
 
     pub fn cigar_reader_iter(
@@ -142,18 +187,7 @@ impl IndexedPaf {
         // println!("iterating cigar {line_index} from byte range {cg_range:?}");
         let cigar_bytes_len = (cg_range.end - cg_range.start) as usize;
 
-        let buffer_len = 4096.min(cigar_bytes_len);
-        // let buffer_len = 4096;
-
-        Ok(CigarReaderIter {
-            done: false,
-            buffer: vec![0u8; buffer_len],
-            buffer_bytes_used: 0,
-            offset_in_buffer: 0,
-            cigar_bytes_len,
-            bytes_processed: 0,
-            reader,
-        })
+        Ok(CigarReaderIter::new(reader, cigar_bytes_len))
     }
 
     fn cigar_reader<'a>(&'a self, line_index: usize) -> std::io::Result<Box<dyn BufRead + 'a>> {
@@ -413,6 +447,11 @@ pub struct CigarReaderIter<S: BufRead> {
     reader: S,
     done: bool,
 
+    target_pos: u64,
+    target_end: Option<u64>,
+    query_pos: u64,
+    query_end: Option<u64>,
+
     buffer: Vec<u8>,
     buffer_bytes_used: usize,
 
@@ -421,6 +460,28 @@ pub struct CigarReaderIter<S: BufRead> {
 }
 
 impl<S: BufRead> CigarReaderIter<S> {
+    const DEFAULT_BUFFER_SIZE: usize = 4096;
+
+    fn new(reader: S, cigar_bytes_len: usize) -> Self {
+        let buffer_len = Self::DEFAULT_BUFFER_SIZE.min(cigar_bytes_len);
+
+        Self {
+            cigar_bytes_len,
+            reader,
+
+            target_pos: 0,
+            target_end: None,
+            query_pos: 0,
+            query_end: None,
+
+            done: false,
+            buffer: vec![0u8; buffer_len],
+            buffer_bytes_used: 0,
+            offset_in_buffer: 0,
+            bytes_processed: 0,
+        }
+    }
+
     // fills the internal buffer, ensuring that the next op is at the start of the buffer
     // by copying the remainder if necessary
     fn fill_buffer(&mut self) -> std::io::Result<()> {
@@ -428,11 +489,7 @@ impl<S: BufRead> CigarReaderIter<S> {
 
         let mut tgt_offset = 0;
 
-        let mut extra = 0;
-
         if self.buffer_bytes_used > self.offset_in_buffer {
-            let bs = bstr::BStr::new(&self.buffer[remainder_range.clone()]);
-
             tgt_offset = remainder_range.end - remainder_range.start;
             self.buffer.copy_within(remainder_range.clone(), 0);
         }
@@ -442,6 +499,20 @@ impl<S: BufRead> CigarReaderIter<S> {
         self.offset_in_buffer = 0;
 
         Ok(())
+    }
+
+    fn get_current_op(&self) -> Option<(super::CigarOp, u32)> {
+        let op_ix = self.buffer[self.offset_in_buffer..].find_byteset(b"M=XIDN")?;
+        let buf_slice = &self.buffer[self.offset_in_buffer..];
+
+        let count = buf_slice[..op_ix]
+            .to_str()
+            .ok()
+            .and_then(|s| s.parse::<u32>().ok())?;
+
+        let op_char = buf_slice[op_ix] as char;
+        let op = super::CigarOp::try_from(op_char).ok()?;
+        Some((op, count))
     }
 
     // step through the internal buffer, parsing the next op and its length and emitting it.
@@ -460,11 +531,23 @@ impl<S: BufRead> CigarReaderIter<S> {
             .and_then(|s| s.parse::<u32>().ok())?;
 
         let op_char = buf_slice[op_ix] as char;
-        let op = super::CigarOp::try_from(op_char).unwrap();
+        let op = super::CigarOp::try_from(op_char).ok()?;
+
+        let target_done = self
+            .target_end
+            .map(|e| self.target_pos >= e)
+            .unwrap_or(false);
+        let query_done = self.query_end.map(|e| self.query_pos >= e).unwrap_or(false);
 
         self.offset_in_buffer += op_ix + 1;
         self.bytes_processed += op_ix + 1;
-        if self.bytes_processed >= self.cigar_bytes_len {
+        self.target_pos += op.target_delta(count) as u64;
+        self.query_pos += op.query_delta(count) as u64;
+        // if self.bytes_processed >= self.cigar_bytes_len {
+
+        if self.bytes_processed >= self.cigar_bytes_len || target_done || query_done {
+            println!("target_pos: {}", self.target_pos);
+            println!("target_done: {target_done}\tquery_done: {query_done}");
             self.done = true;
         }
 
@@ -488,8 +571,22 @@ impl<S: BufRead> CigarReaderIter<S> {
     }
 }
 
+impl<S: BufRead> Iterator for CigarReaderIter<S> {
+    type Item = (super::CigarOp, u32);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Ok(next) = self.next_op() {
+            return next;
+        } else {
+            self.done = true;
+            return None;
+        }
+    }
+}
+
 // provides a cigar position (target (and/or query?) offset) to byte offset map,
 // used to seek in the PAF line bytes to iterate only part of a cigar
+#[derive(Debug)]
 struct CigarPositionIndex {
     target_len: u64,
     query_len: u64,
@@ -512,12 +609,15 @@ impl CigarPositionIndex {
 impl CigarPositionIndex {
     fn index_cigar(
         //
-        min_byte_distance: u64,
+        min_byte_distance: u64, // prob. want to use # of ops instead
         cigar: impl Iterator<Item = (super::CigarOp, u32)>,
     ) -> Self {
-        let mut target_offsets: Vec<u64> = Vec::new();
-        let mut query_offsets: Vec<u64> = Vec::new();
-        let mut byte_offsets: Vec<u64> = Vec::new();
+        // let mut target_offsets: Vec<u64> = Vec::new();
+        // let mut query_offsets: Vec<u64> = Vec::new();
+        // let mut byte_offsets: Vec<u64> = Vec::new();
+        let mut target_offsets = vec![0u64];
+        let mut query_offsets = vec![0u64];
+        let mut byte_offsets = vec![0u64];
 
         let mut tgt_offset = 0u64;
         let mut qry_offset = 0u64;
@@ -531,8 +631,12 @@ impl CigarPositionIndex {
             let qry_delta = op.consumes_query().then_some(len as u64).unwrap_or(0);
 
             let last_byte_end = byte_offsets.last().copied().unwrap_or(0);
+            let next_byte_end = byte_offset + byte_delta;
 
-            if last_byte_end.abs_diff(byte_offset + byte_delta) > min_byte_distance {
+            let byte_dist = byte_offset + byte_delta - last_byte_end;
+            println!("byte dist {byte_dist}");
+
+            if byte_offset + byte_delta - last_byte_end > min_byte_distance {
                 target_offsets.push(tgt_offset);
                 query_offsets.push(qry_offset);
                 byte_offsets.push(byte_offset);
@@ -543,14 +647,20 @@ impl CigarPositionIndex {
             byte_offset += byte_delta;
         }
 
-        Self {
+        target_offsets.push(tgt_offset);
+        query_offsets.push(qry_offset);
+        byte_offsets.push(byte_offset);
+
+        let result = Self {
             target_len: tgt_offset,
             query_len: qry_offset,
 
             target_offsets,
             query_offsets,
             byte_offsets,
-        }
+        };
+
+        result
     }
 }
 
@@ -652,19 +762,9 @@ mod tests {
         let test_ops = crate::cigar::Cigar::parse_str(cg_str);
 
         let reader = std::io::Cursor::new(&cigar);
-        let mut iter = CigarReaderIter {
-            done: false,
-            buffer: vec![0u8; 4096],
-            buffer_bytes_used: 0,
-            offset_in_buffer: 0,
-            cigar_bytes_len: cigar.len(),
-            bytes_processed: 0,
-            // bytes_read: 0,
-            reader,
-        };
+        let mut iter = CigarReaderIter::new(reader, cigar.len());
 
         let mut ops_str = String::new();
-
         let mut count = 0;
 
         while let Ok(Some((op, len))) = iter.next_op() {
@@ -676,5 +776,66 @@ mod tests {
         println!("expected {} ops", test_ops.0.len());
 
         assert_eq!(ops_str.as_bytes(), cigar);
+    }
+
+    #[test]
+    fn test_cigar_reader_target_range_iter() {
+        // let cigar_str = CG1;
+        let cigar_str = CG2;
+
+        println!("cigar string len: {}", cigar_str.len());
+        let reader = std::io::Cursor::new(&cigar_str);
+        let mut iter = CigarReaderIter::new(reader, cigar_str.len());
+
+        // let pos_index = CigarPositionIndex::index_cigar(4096, iter);
+        let pos_index = CigarPositionIndex::index_cigar(512, iter);
+
+        println!("{pos_index:?}");
+
+        dbg!();
+
+        let cigar_range = 0..cigar_str.len() as u64;
+
+        let byte_index = PafByteIndex {
+            record_offsets: vec![0],
+            record_inner_offsets: vec![PafRecordIndex {
+                cigar_range,
+                optional_fields: BTreeMap::default(),
+            }],
+        };
+
+        let paf = IndexedPaf {
+            data: PafData::Memory(cigar_str.to_vec().into()),
+            byte_index,
+            bgzi: None,
+        };
+
+        dbg!();
+        let pos_index = [(0usize, pos_index)].into_iter().collect::<HashMap<_, _>>();
+
+        dbg!();
+        let mut cg_iter = paf
+            .cigar_reader_iter_indexed(&pos_index, 0, 10..100)
+            .unwrap();
+
+        let mut ops_str = String::new();
+        let mut count = 0;
+
+        let mut tgt = 0;
+        let mut qry = 0;
+
+        println!("-------");
+
+        while let Ok(Some((op, len))) = cg_iter.next_op() {
+            let text = format!("{len}{}", char::from(op));
+            println!("{text}");
+            tgt += op.target_delta(len) as u64;
+            qry += op.query_delta(len) as u64;
+            ops_str.push_str(&text);
+            count += 1;
+        }
+
+        println!("{ops_str}");
+        println!("iterated {count} ops\ttarget delta {tgt}, query delta {qry}");
     }
 }
