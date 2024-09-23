@@ -89,6 +89,8 @@ fn test_impg(impg: &PathBuf, paf: &PathBuf) -> anyhow::Result<()> {
             qry += op.consumes_query().then_some(len).unwrap_or(0);
         }
 
+        println!("alignment {i} op count {inner_ops}");
+
         let i = (inner_ops as f64).log10().clamp(0.0, 10.0) as usize;
 
         total_tgt += tgt;
@@ -225,6 +227,8 @@ fn main() -> anyhow::Result<()> {
                 tgt += op.consumes_target().then_some(len).unwrap_or(0);
                 qry += op.consumes_query().then_some(len).unwrap_or(0);
             }
+            println!("alignment {i} op count {inner_ops}");
+
             (tgt, qry)
             // });
         };
