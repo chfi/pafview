@@ -235,10 +235,10 @@ impl Iterator for AlignmentIterItem {
 
 impl Alignment {
     pub fn new(seq_names: &bimap::BiMap<String, SeqId>, paf_line: &PafLine<&'_ str>) -> Self {
-        let target_id = *seq_names.get_by_left(paf_line.tgt_name).unwrap();
+        let target_id = *seq_names.get_by_left(paf_line.target_name).unwrap();
         let query_id = *seq_names.get_by_left(paf_line.query_name).unwrap();
 
-        let target_range = paf_line.tgt_seq_start..paf_line.tgt_seq_end;
+        let target_range = paf_line.target_seq_start..paf_line.target_seq_end;
         let query_range = paf_line.query_seq_start..paf_line.query_seq_end;
 
         let query_strand = if paf_line.strand_rev {
@@ -251,7 +251,7 @@ impl Alignment {
             target_range,
             query_range,
             query_strand,
-            target_total_len: paf_line.tgt_seq_len,
+            target_total_len: paf_line.target_seq_len,
             query_total_len: paf_line.query_seq_len,
         };
 
@@ -353,6 +353,13 @@ impl PafMetadata {
         pair.get(alignment.pair_index)
     }
 
+    pub fn from_memmap_paf(
+        sequences: &Sequences,
+        paf: &crate::cigar::memmap::IndexedPaf,
+    ) -> anyhow::Result<Self> {
+        todo!();
+    }
+
     pub fn from_paf(
         sequences: &Sequences,
         paf_path: impl AsRef<std::path::Path>,
@@ -437,6 +444,49 @@ impl PafMetadata {
     }
 }
 
+pub fn load_input_files_mmap(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Sequences)> {
+    let paf_path = &cli.paf;
+
+    let bgzi_path = cli
+        .paf
+        .extension()
+        .filter(|ext| ext.eq_ignore_ascii_case("gz") || ext.eq_ignore_ascii_case("bgz"))
+        .map(|ext| {
+            let mut new_ext = ext.to_os_string();
+            new_ext.push(".gzi");
+            let mut bgzi_path = cli.paf.clone();
+            bgzi_path.set_extension(new_ext);
+            bgzi_path
+        });
+
+    let bgzi = bgzi_path.and_then(|path| {
+        std::fs::File::open(&path)
+            .and_then(bgzip::index::BGZFIndex::from_reader)
+            .ok()
+    });
+
+    let mmap_paf = super::cigar::memmap::IndexedPaf::memmap_paf(paf_path, bgzi)?;
+
+    let mut seq_name_len_pairs = Vec::new();
+
+    mmap_paf.for_each_paf_line(|line| {
+        use bstr::ByteSlice;
+        let tgt_name = line.target_name.to_str().unwrap();
+        let qry_name = line.query_name.to_str().unwrap();
+
+        seq_name_len_pairs.push((tgt_name.to_string(), line.target_seq_len));
+        seq_name_len_pairs.push((qry_name.to_string(), line.query_seq_len));
+    });
+
+    let sequences = Sequences::from_sequence_length_pairs(
+        seq_name_len_pairs.iter().map(|(n, l)| (n.as_str(), *l)),
+    );
+
+    let mmap_paf = Arc::new(mmap_paf);
+
+    todo!();
+}
+
 pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Sequences)> {
     use std::io::prelude::*;
 
@@ -483,7 +533,7 @@ pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Se
 
             move |paf_line: &PafLine<&str>| -> bool {
                 if let Some(targets) = &target_names {
-                    if !targets.contains(paf_line.tgt_name) {
+                    if !targets.contains(paf_line.target_name) {
                         return false;
                     }
                 }
@@ -528,6 +578,117 @@ impl Alignments {
         self.alignments.get(*ix)
     }
 
+    pub fn from_mmap_paf(
+        sequences: &Sequences,
+        paf: Arc<super::cigar::memmap::IndexedPaf>,
+    ) -> Self {
+        use crate::cigar::memmap::MmapCigar;
+        use bstr::ByteSlice;
+
+        let mut alignments: Vec<Alignment> = Vec::new();
+        let mut indices: FxHashMap<(SeqId, SeqId), Vec<usize>> = FxHashMap::default();
+
+        for (line_ix, &line_offset) in paf.byte_index.record_offsets.iter().enumerate() {
+            let record_offsets = &paf.byte_index.record_inner_offsets[line_ix];
+
+            let line_slice = paf.paf_line_slice(line_ix).unwrap();
+            let mut fields = line_slice.split_str("\t");
+
+            let Some((qry_name, _, qry_start, qry_end)) = parse_paf_name_range_bs(&mut fields)
+            else {
+                continue;
+            };
+            let strand = fields.next().unwrap();
+            let Some((tgt_name, _, tgt_start, tgt_end)) = parse_paf_name_range_bs(&mut fields)
+            else {
+                continue;
+            };
+
+            let strand = if strand == b"-" {
+                Strand::Reverse
+            } else {
+                Strand::Forward
+            };
+
+            let tgt_name = tgt_name.to_str().unwrap();
+            let qry_name = qry_name.to_str().unwrap();
+
+            let target_id = *sequences.names().get_by_left(tgt_name).unwrap();
+            let query_id = *sequences.names().get_by_left(qry_name).unwrap();
+
+            let tgt_seq = sequences.get(target_id).unwrap();
+            let qry_seq = sequences.get(query_id).unwrap();
+
+            let target_range = tgt_start..tgt_end;
+            let query_range = qry_start..qry_end;
+
+            let location = AlignmentLocation {
+                target_total_len: tgt_seq.len(),
+                target_range: target_range.clone(),
+                query_total_len: qry_seq.len(),
+                query_range: query_range.clone(),
+                query_strand: strand,
+            };
+
+            let cigar_file_byte_range = record_offsets
+                .cigar_range
+                .as_ref()
+                .map(|r| (r.start + line_offset)..(r.end + line_offset));
+
+            let cigar = Arc::new(MmapCigar::new(
+                paf.clone(),
+                line_ix,
+                target_range,
+                query_range,
+                strand,
+            ));
+
+            let alignment = Alignment {
+                target_id,
+                query_id,
+                location,
+                cigar_file_byte_range,
+                cigar,
+            };
+
+            let al_ix = alignments.len();
+            alignments.push(alignment);
+            indices
+                .entry((target_id, query_id))
+                .or_default()
+                .push(al_ix);
+        }
+        let mut cigar_range_index_map = bimap::BiHashMap::default();
+
+        for (&(target, query), al_indices) in indices.iter_mut() {
+            al_indices.sort_by_key(|al_ix| {
+                let loc = &alignments[*al_ix].location;
+                let tgt = &loc.target_range;
+                let qry = &loc.query_range;
+                (tgt.start, tgt.end, qry.start, qry.end)
+            });
+
+            for &ix in al_indices.iter() {
+                let al = &alignments[ix];
+                if let Some(range) = &al.cigar_file_byte_range {
+                    let al_ix = AlignmentIndex {
+                        query,
+                        target,
+                        pair_index: ix,
+                    };
+
+                    cigar_range_index_map.insert(al_ix, range.clone());
+                }
+            }
+        }
+
+        Self {
+            alignments: Arc::new(alignments),
+            indices: Arc::new(indices),
+            cigar_range_index_map,
+        }
+    }
+
     pub fn from_paf_lines<'l>(
         // NB: construct Sequences from iterator over PafLines (or FASTA) before
         sequences: &Sequences,
@@ -539,7 +700,7 @@ impl Alignments {
         // let mut pairs: FxHashMap<_, Vec<_>> = FxHashMap::default();
 
         for paf_line in lines {
-            let target_id = sequences.names().get_by_left(paf_line.tgt_name).unwrap();
+            let target_id = sequences.names().get_by_left(paf_line.target_name).unwrap();
             let query_id = sequences.names().get_by_left(paf_line.query_name).unwrap();
             let alignment = Alignment::new(&sequences.names(), &paf_line);
             let al_ix = alignments.len();
@@ -653,10 +814,10 @@ pub struct PafLine<S> {
     pub query_seq_start: u64,
     pub query_seq_end: u64,
 
-    pub tgt_name: S,
-    pub tgt_seq_len: u64,
-    pub tgt_seq_start: u64,
-    pub tgt_seq_end: u64,
+    pub target_name: S,
+    pub target_seq_len: u64,
+    pub target_seq_start: u64,
+    pub target_seq_end: u64,
 
     pub strand_rev: bool,
     pub cigar: Option<S>,
@@ -696,10 +857,10 @@ pub fn parse_paf_line_bytes<'a>(line: &'a [u8], line_offset: u64) -> Option<PafL
         query_seq_start,
         query_seq_end,
 
-        tgt_name,
-        tgt_seq_len,
-        tgt_seq_start,
-        tgt_seq_end,
+        target_name: tgt_name,
+        target_seq_len: tgt_seq_len,
+        target_seq_start: tgt_seq_start,
+        target_seq_end: tgt_seq_end,
 
         strand_rev: strand == b"-",
         cigar,
@@ -738,10 +899,10 @@ pub fn parse_paf_line<'a>(line: &'a str, line_offset: u64) -> Option<PafLine<&'a
         query_seq_start,
         query_seq_end,
 
-        tgt_name,
-        tgt_seq_len,
-        tgt_seq_start,
-        tgt_seq_end,
+        target_name: tgt_name,
+        target_seq_len: tgt_seq_len,
+        target_seq_start: tgt_seq_start,
+        target_seq_end: tgt_seq_end,
 
         strand_rev: strand == "-",
         cigar,
@@ -756,6 +917,17 @@ pub fn parse_paf_name_range<'a>(
     let len = fields.next()?.parse().ok()?;
     let start = fields.next()?.parse().ok()?;
     let end = fields.next()?.parse().ok()?;
+    Some((name, len, start, end))
+}
+pub fn parse_paf_name_range_bs<'a>(
+    mut fields: impl Iterator<Item = &'a [u8]>,
+) -> Option<(&'a [u8], u64, u64, u64)> {
+    use bstr::ByteSlice;
+
+    let name = fields.next()?;
+    let len = fields.next()?.to_str().ok()?.parse().ok()?;
+    let start = fields.next()?.to_str().ok()?.parse().ok()?;
+    let end = fields.next()?.to_str().ok()?.parse().ok()?;
     Some((name, len, start, end))
 }
 

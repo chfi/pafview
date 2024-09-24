@@ -7,72 +7,18 @@ use bevy::utils::HashMap;
 use bgzip::index::BGZFIndex;
 use bstr::ByteSlice;
 
-pub struct MmapCigar {
-    pub target_range: std::ops::Range<u64>,
-    pub query_range: std::ops::Range<u64>,
-    pub query_strand: super::Strand,
-
-    paf: Arc<IndexedPaf>,
-    paf_line: usize,
-}
-
-impl super::IndexedCigar for MmapCigar {
-    fn is_empty(&self) -> bool {
-        let inner = self.paf.byte_index.record_inner_offsets.get(self.paf_line);
-        inner
-            .and_then(|record| {
-                let r = record.cigar_range.as_ref()?;
-                Some(r.end == r.start)
-            })
-            .unwrap_or(true)
-    }
-
-    fn whole_cigar(&self) -> Box<dyn Iterator<Item = (super::CigarOp, u32)> + '_> {
-        Box::new(
-            self.paf
-                .cigar_reader_iter(self.paf_line)
-                .unwrap()
-                .map(|item| (item.op, item.op_count)),
-        )
-    }
-
-    fn iter_target_range(
-        &self,
-        target_range: std::ops::Range<u64>,
-    ) -> Box<dyn Iterator<Item = super::CigarIterItem> + '_> {
-        let mut iter = self.paf.cigar_reader_iter(self.paf_line).unwrap();
-        iter.target_end = Some(target_range.end);
-
-        iter.fill_buffer().unwrap();
-        loop {
-            if iter.target_pos >= target_range.start {
-                break;
-            }
-
-            let Some((op, count)) = iter.get_current_op() else {
-                break;
-            };
-
-            let tgt_delta = op.target_delta(count) as u64;
-
-            if iter.target_pos + tgt_delta > target_range.start {
-                break;
-            }
-            let _ = iter.next_op();
-        }
-
-        Box::new(iter)
-    }
-}
-
 pub struct IndexedPaf {
     data: PafData,
-    byte_index: PafByteIndex,
+    pub byte_index: PafByteIndex,
 
     bgzi: Option<BGZFIndex>,
 }
 
 impl IndexedPaf {
+    pub fn paf_line_slice(&self, line_index: usize) -> Option<&[u8]> {
+        self.data.paf_line_slice(&self.byte_index, line_index)
+    }
+
     pub fn for_each_paf_line<F>(&self, mut f: F)
     where
         F: FnMut(crate::PafLine<&[u8]>),
@@ -283,6 +229,82 @@ impl IndexedPaf {
     }
 }
 
+pub struct MmapCigar {
+    pub target_range: std::ops::Range<u64>,
+    pub query_range: std::ops::Range<u64>,
+    pub query_strand: super::Strand,
+
+    paf: Arc<IndexedPaf>,
+    paf_line: usize,
+}
+
+impl MmapCigar {
+    pub fn new(
+        paf: Arc<IndexedPaf>,
+        paf_line: usize,
+        target_range: std::ops::Range<u64>,
+        query_range: std::ops::Range<u64>,
+        query_strand: super::Strand,
+    ) -> Self {
+        Self {
+            target_range,
+            query_range,
+            query_strand,
+            paf,
+            paf_line,
+        }
+    }
+}
+
+impl super::IndexedCigar for MmapCigar {
+    fn is_empty(&self) -> bool {
+        let inner = self.paf.byte_index.record_inner_offsets.get(self.paf_line);
+        inner
+            .and_then(|record| {
+                let r = record.cigar_range.as_ref()?;
+                Some(r.end == r.start)
+            })
+            .unwrap_or(true)
+    }
+
+    fn whole_cigar(&self) -> Box<dyn Iterator<Item = (super::CigarOp, u32)> + '_> {
+        Box::new(
+            self.paf
+                .cigar_reader_iter(self.paf_line)
+                .unwrap()
+                .map(|item| (item.op, item.op_count)),
+        )
+    }
+
+    fn iter_target_range(
+        &self,
+        target_range: std::ops::Range<u64>,
+    ) -> Box<dyn Iterator<Item = super::CigarIterItem> + '_> {
+        let mut iter = self.paf.cigar_reader_iter(self.paf_line).unwrap();
+        iter.target_end = Some(target_range.end);
+
+        iter.fill_buffer().unwrap();
+        loop {
+            if iter.target_pos >= target_range.start {
+                break;
+            }
+
+            let Some((op, count)) = iter.get_current_op() else {
+                break;
+            };
+
+            let tgt_delta = op.target_delta(count) as u64;
+
+            if iter.target_pos + tgt_delta > target_range.start {
+                break;
+            }
+            let _ = iter.next_op();
+        }
+
+        Box::new(iter)
+    }
+}
+
 impl IndexedPaf {
     pub fn memmap_paf(
         path: impl AsRef<std::path::Path>,
@@ -337,16 +359,16 @@ impl<S: Seek + BufRead> IndexedPafReader<S> {
     }
 }
 
-struct PafByteIndex {
-    record_offsets: Vec<u64>,
-    record_inner_offsets: Vec<PafRecordIndex>,
+pub struct PafByteIndex {
+    pub record_offsets: Vec<u64>,
+    pub record_inner_offsets: Vec<PafRecordIndex>,
 }
 
 // offsets are relative to the start of the record in the file
 #[derive(Debug)]
-struct PafRecordIndex {
-    cigar_range: Option<std::ops::Range<u64>>,
-    optional_fields: BTreeMap<[u8; 2], u64>,
+pub struct PafRecordIndex {
+    pub cigar_range: Option<std::ops::Range<u64>>,
+    pub optional_fields: BTreeMap<[u8; 2], u64>,
 }
 
 impl PafByteIndex {
@@ -449,7 +471,7 @@ impl AsRef<[u8]> for SharedMmap {
 }
 
 impl PafData {
-    fn bytes(&self) -> &[u8] {
+    pub fn bytes(&self) -> &[u8] {
         match self {
             PafData::Memory(arc) => arc.as_ref(),
             PafData::Mmap(shared_mmap) => shared_mmap.as_ref(),
@@ -463,7 +485,7 @@ impl PafData {
         }
     }
 
-    fn paf_line_slice(&self, index: &PafByteIndex, line_index: usize) -> Option<&[u8]> {
+    pub fn paf_line_slice(&self, index: &PafByteIndex, line_index: usize) -> Option<&[u8]> {
         let line_offset = *index.record_offsets.get(line_index)? as usize;
         let next_line_offset = if line_index < index.line_count() - 1 {
             *index.record_offsets.get(line_index + 1)? as usize

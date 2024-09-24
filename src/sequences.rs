@@ -35,13 +35,11 @@ impl Sequences {
         Some(seq.as_slice())
     }
 
-    pub fn from_paf<'a>(
-        lines: impl IntoIterator<Item = &'a crate::PafLine<&'a str>>,
-    ) -> Option<Self> {
+    pub fn from_sequence_length_pairs<'a>(pairs: impl IntoIterator<Item = (&'a str, u64)>) -> Self {
         let mut seq_names = bimap::BiMap::new();
         let mut sequences = FxHashMap::default();
 
-        let mut add_sequence = |name: &str, len: u64| {
+        for (name, len) in pairs {
             if !seq_names.contains_left(name) {
                 let id = SeqId(sequences.len());
                 seq_names.insert(name.to_string(), id);
@@ -54,17 +52,24 @@ impl Sequences {
                     },
                 );
             }
-        };
-
-        for line in lines {
-            add_sequence(line.tgt_name, line.tgt_seq_len);
-            add_sequence(line.query_name, line.query_seq_len);
         }
 
-        Some(Sequences {
+        Sequences {
             sequence_names: Arc::new(seq_names),
             sequences,
-        })
+        }
+    }
+
+    pub fn from_paf<'a>(
+        lines: impl IntoIterator<Item = &'a crate::PafLine<&'a str>>,
+    ) -> Option<Self> {
+        let pairs = lines.into_iter().flat_map(|line| {
+            [
+                (line.target_name, line.target_seq_len),
+                (line.query_name, line.query_seq_len),
+            ]
+        });
+        Some(Self::from_sequence_length_pairs(pairs))
     }
 
     pub fn extract_sequences_from_fasta(

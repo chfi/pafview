@@ -524,7 +524,7 @@ impl CigarIndex {
             Strand::Forward
         };
 
-        let target_len = paf_line.tgt_seq_end - paf_line.tgt_seq_start;
+        let target_len = paf_line.target_seq_end - paf_line.target_seq_start;
         let query_len = paf_line.query_seq_end - paf_line.query_seq_start;
 
         Some(Self::from_cigar_string(
