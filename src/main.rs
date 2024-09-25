@@ -24,7 +24,7 @@ pub fn main() -> anyhow::Result<()> {
     let args = pafview::cli::Cli::parse();
 
     // Load PAF and optional FASTA
-    let (alignments, sequences) = pafview::paf::load_input_files(&args)?;
+    let (alignments, sequences) = pafview::paf::load_input_files_mmap(&args)?;
 
     // let align_count = alignments.pairs.values().map(|al| al.len()).sum::<usize>();
     // println!(

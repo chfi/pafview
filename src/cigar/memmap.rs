@@ -133,40 +133,24 @@ impl IndexedPaf {
         let mut skip_count = 0;
         // skip inside the block to the correct starting block
         if tgt_start < target_range.start {
-            println!("skipping inside first block");
             loop {
-                {
-                    let buf_hd = bstr::BStr::new(&cg_iter.buffer[..200]);
-                    println!("buffer: {buf_hd}");
-                    println!(
-                        "internal offset: {}\tprocessed: {}\tcigar byte len: {}",
-                        cg_iter.offset_in_buffer, cg_iter.bytes_processed, cg_iter.cigar_bytes_len
-                    )
-                }
                 let Some((op, count)) = cg_iter.get_current_op() else {
-                    dbg!();
                     break;
                 };
 
                 let tgt_delta = op.target_delta(count) as u64;
                 let tgt_pos = cg_iter.target_pos;
 
-                println!("{tgt_pos} + {tgt_delta} cf. {}", target_range.start);
-
                 if tgt_pos < target_range.start && tgt_pos + tgt_delta > target_range.start
                     || tgt_pos == target_range.start
                 {
-                    dbg!();
                     break;
                 }
 
-                dbg!();
                 cg_iter.next_op()?;
-                // cg_iter.step();
                 skip_count += 1;
             }
         }
-        println!("skipped {skip_count} ops");
 
         cg_iter.target_end = Some(target_range.end);
 
@@ -632,8 +616,6 @@ impl<S: BufRead> CigarReaderIter<S> {
         let query_done = self.query_end.map(|e| self.query_pos >= e).unwrap_or(false);
 
         if self.bytes_processed >= self.cigar_bytes_len || target_done || query_done {
-            println!("target_pos: {}", self.target_pos);
-            println!("target_done: {target_done}\tquery_done: {query_done}");
             self.done = true;
         }
 
@@ -763,7 +745,6 @@ impl CigarPositionIndex {
             let next_byte_end = byte_offset + byte_delta;
 
             let byte_dist = byte_offset + byte_delta - last_byte_end;
-            println!("byte dist {byte_dist}");
 
             if byte_offset + byte_delta - last_byte_end > min_byte_distance {
                 target_offsets.push(tgt_offset);

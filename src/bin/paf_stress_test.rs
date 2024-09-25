@@ -288,12 +288,21 @@ fn main() -> anyhow::Result<()> {
     let (expected, _) = pafview::paf::load_input_files(&mock_cli)?;
     println!("loaded in {}s", t0.elapsed().as_secs_f64());
 
+    let exp_pairs = expected.pairs().count();
+    let mmap_pairs = alignments.pairs().count();
+
+    println!("expected pairs: {exp_pairs}\tmmap pairs: {mmap_pairs}");
+
     let al_pairs = std::iter::zip(alignments.alignments.iter(), expected.alignments.iter());
 
     for (i, (mmap_al, exp_al)) in al_pairs.enumerate() {
         let range = cli.start.unwrap_or(10)..cli.end.unwrap_or(100);
 
+        let mmap_loc = &mmap_al.location;
         let exp_loc = &exp_al.location;
+
+        println!("expected location {exp_loc:?}");
+        println!("  mmap   location {mmap_loc:?}");
 
         let start = exp_loc.target_range.start + cli.start.unwrap_or(0);
         let end = exp_loc.target_range.start + cli.end.unwrap_or(100);

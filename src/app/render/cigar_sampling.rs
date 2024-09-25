@@ -155,6 +155,14 @@ fn rasterize_world_lines<P: Into<[f64; 2]>>(
 ) {
     use line_drawing::XiaolinWu;
 
+    // let mut first = true;
+
+    // for [r,g,b,a] in tile_data.iter_mut() {
+    // println!("tile dims: {tile_dims:?}");
+    // for val in tile_data.iter_mut() {
+    //     *val = [0, 0, 0, 255];
+    // }
+
     for [p0, p1] in lines {
         let p0 = p0.into();
         let p1 = p1.into();
@@ -170,6 +178,10 @@ fn rasterize_world_lines<P: Into<[f64; 2]>>(
                 if ix < tile_data.len() {
                     let alpha = (v * 255.0) as u8;
                     tile_data[ix] = [0, 0, 0, alpha];
+                    // if first {
+                    //     first = false;
+                    //     println!("plotting to pixel ({px},{py})");
+                    // }
                 }
             }
         }
@@ -208,6 +220,7 @@ where
         // seq_min, seq_max encode the position of the seq. pair tile in the world
 
         for alignment in alignments {
+            // dbg!();
             let alignment: &crate::Alignment = alignment;
             let loc = &alignment.location;
             let tgt_len = loc.target_range.end - loc.target_range.start;
@@ -241,6 +254,7 @@ where
             let w0 = seq_min + start;
             let w1 = seq_min + end;
             rasterize_world_lines(tile_bounds, tile_dims, pixels, [[w0, w1]]);
+            println!("rasterizing {w0:?}->{w1:?}");
 
             line_buf.clear();
 
@@ -279,9 +293,9 @@ where
                 }
             }));
 
-            if ix % 1000 == 0 {
-                println!("{ix} processed");
-            }
+            // if ix % 1000 == 0 {
+            //     println!("{ix} processed");
+            // }
             // .collect::<Vec<_>>();
             // println!(
             //     " >> [{ix}] collected {} lines out of {} ops in {}ms",
@@ -513,14 +527,21 @@ fn update_render_tile_transforms(
         win_size.y / render_grid.rows as f32,
     );
 
-    let top_left = win_size * -0.5;
+    // let top_left = win_size * -0.5;
+    let top_left = win_size * 0.0;
 
     for (mut transform, render_tile) in tiles.iter_mut() {
         let tpos = render_tile.tile_grid_pos;
-        let pos = top_left + tile_dims * tpos.as_vec2() - tile_dims * 0.5;
+        // let pos = top_left + tile_dims * tpos.as_vec2() - tile_dims * 0.5;
+        let pos = top_left + tile_dims * tpos.as_vec2();
 
         transform.translation.x = pos.x;
         transform.translation.y = pos.y;
+
+        // println!(
+        //     "transform -- T: {:?}\tS: {:?}",
+        //     transform.translation, transform.scale,
+        // );
     }
 }
 
@@ -582,11 +603,6 @@ fn spawn_render_tasks(
     let vy0 = viewport.view.y_min;
 
     for (tile_ent, tile) in tiles.iter() {
-        // if vis == Visibility::Hidden {
-        //     println!("not visible");
-        //     continue;
-        // }
-
         if let Some(last) = tile.last_update.as_ref() {
             let ms = last.elapsed().as_millis();
             if ms < 100 {
@@ -893,6 +909,7 @@ fn update_image_from_task(
     )>,
 ) {
     for (tile, image, mut render, mut task) in tiles.iter_mut() {
+        // dbg!();
         let Some(pixels) = bevy::tasks::block_on(bevy::tasks::poll_once(&mut task.task)) else {
             continue;
         };
