@@ -115,10 +115,10 @@ impl std::fmt::Debug for Alignment {
 pub struct AlignmentIter<'cg> {
     // cigar: &'cg CigarIndex,
     // cigar_iter: CigarIter<'cg>,
+    // target_range: std::ops::Range<u64>,
     cigar_iter: crate::cigar::BoxedCigarIter<'cg>,
     location: AlignmentLocation,
     // op_index_range: std::ops::Range<usize>,
-    // target_range: std::ops::Range<u64>,
     // query_range: std::ops::Range<u64>,
 }
 
@@ -148,6 +148,7 @@ impl<'cg> AlignmentIter<'cg> {
         Self {
             cigar_iter,
             location: alignment.location.clone(),
+            // target_range,
             // op_index_range: todo!(),
             // target_range,
             // query_range: todo!(),
@@ -189,16 +190,54 @@ impl<'cg> Iterator for AlignmentIter<'cg> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let cg_item = self.cigar_iter.next()?;
-        let target_range = self
+        let mut target_range = self
             .location
             .map_from_aligned_target_range(cg_item.target_range);
-        let query_range = self
+        let mut query_range = self
             .location
             .map_from_aligned_query_range(cg_item.query_range);
 
+        let op = cg_item.op;
+        let op_count = cg_item.op_count;
+        let mut len = op_count;
+        /*
+        println!("iter target range: {:?}", self.target_range);
+        println!();
+        println!("item: {}{op_count}", char::from(op));
+        println!("item target range: {:?}", target_range);
+        if target_range.start < self.target_range.start {
+            let clipped = self.target_range.start - target_range.start;
+            println!("clipping {clipped} from start");
+            len -= clipped as u32;
+
+            target_range.start = self.target_range.start;
+
+            if op.consumes_query() {
+                // ????
+                query_range.start += clipped;
+            }
+            println!("new target range: {:?}", target_range);
+        }
+
+        if target_range.end > self.target_range.end {
+
+            let clipped = target_range.end - self.target_range.end;
+            println!("clipping {clipped} from end");
+            len -= clipped as u32;
+
+            target_range.end = self.target_range.end;
+
+            if op.consumes_query() {
+                // ????
+                query_range.end -= clipped;
+            }
+            println!("new target range: {:?}", target_range);
+        }
+        */
+
         Some(AlignmentIterItem {
-            op: cg_item.op,
-            op_count: cg_item.op_count,
+            op,
+            op_count: len,
             target_range,
             query_range,
             query_rev: self.location.query_strand.is_rev(),
@@ -484,7 +523,9 @@ pub fn load_input_files_mmap(cli: &crate::cli::Cli) -> anyhow::Result<(Alignment
 
     let mmap_paf = Arc::new(mmap_paf);
 
-    todo!();
+    let alignments = Alignments::from_mmap_paf(&sequences, mmap_paf.clone());
+
+    Ok((alignments, sequences))
 }
 
 pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Sequences)> {
@@ -658,6 +699,7 @@ impl Alignments {
                 .or_default()
                 .push(al_ix);
         }
+
         let mut cigar_range_index_map = bimap::BiHashMap::default();
 
         for (&(target, query), al_indices) in indices.iter_mut() {

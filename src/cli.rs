@@ -1,7 +1,7 @@
 use clap::Parser;
 use std::path::PathBuf;
 
-#[derive(Parser, Debug, bevy::prelude::Resource)]
+#[derive(Parser, Debug, Default, bevy::prelude::Resource)]
 #[command(version, about)]
 pub struct Cli {
     /// Path to input PAF

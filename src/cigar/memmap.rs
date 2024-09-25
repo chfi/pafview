@@ -281,6 +281,7 @@ impl super::IndexedCigar for MmapCigar {
         target_range: std::ops::Range<u64>,
     ) -> Box<dyn Iterator<Item = super::CigarIterItem> + '_> {
         let mut iter = self.paf.cigar_reader_iter(self.paf_line).unwrap();
+        iter.target_start = Some(target_range.start);
         iter.target_end = Some(target_range.end);
 
         iter.fill_buffer().unwrap();
@@ -529,8 +530,11 @@ pub struct CigarReaderIter<S: BufRead> {
     done: bool,
 
     target_pos: u64,
-    target_end: Option<u64>,
     query_pos: u64,
+
+    target_start: Option<u64>,
+    target_end: Option<u64>,
+    // query_start: Option<u64>,
     query_end: Option<u64>,
 
     buffer: Vec<u8>,
@@ -551,8 +555,10 @@ impl<S: BufRead> CigarReaderIter<S> {
             reader,
 
             target_pos: 0,
-            target_end: None,
             query_pos: 0,
+            target_start: None,
+            target_end: None,
+            // query_start: None,
             query_end: None,
 
             done: false,
@@ -614,17 +620,16 @@ impl<S: BufRead> CigarReaderIter<S> {
         let op_char = buf_slice[op_ix] as char;
         let op = super::CigarOp::try_from(op_char).ok()?;
 
+        self.offset_in_buffer += op_ix + 1;
+        self.bytes_processed += op_ix + 1;
+        self.target_pos += op.target_delta(count) as u64;
+        self.query_pos += op.query_delta(count) as u64;
+
         let target_done = self
             .target_end
             .map(|e| self.target_pos >= e)
             .unwrap_or(false);
         let query_done = self.query_end.map(|e| self.query_pos >= e).unwrap_or(false);
-
-        self.offset_in_buffer += op_ix + 1;
-        self.bytes_processed += op_ix + 1;
-        self.target_pos += op.target_delta(count) as u64;
-        self.query_pos += op.query_delta(count) as u64;
-        // if self.bytes_processed >= self.cigar_bytes_len {
 
         if self.bytes_processed >= self.cigar_bytes_len || target_done || query_done {
             println!("target_pos: {}", self.target_pos);
@@ -653,30 +658,54 @@ impl<S: BufRead> CigarReaderIter<S> {
 }
 
 impl<S: BufRead> Iterator for CigarReaderIter<S> {
-    // type Item = (super::CigarOp, u32);
     type Item = super::CigarIterItem;
 
     fn next(&mut self) -> Option<Self::Item> {
+        let tgt_start = self.target_pos;
+        let qry_start = self.query_pos;
         if let Ok(next) = self.next_op() {
-            let tgt_start = self.target_pos;
-            let qry_start = self.query_pos;
-
             let item = next.map(|(op, len)| {
                 let tgt_end = tgt_start + op.target_delta(len) as u64;
                 let qry_end = qry_start + op.query_delta(len) as u64;
 
-                let target_range = tgt_start..tgt_end;
-                let query_range = qry_start..qry_end;
+                let mut target_range = tgt_start..tgt_end;
+                let mut query_range = qry_start..qry_end;
+
+                let mut op_count = len;
+
+                if let Some(start_bound) = self.target_start {
+                    if target_range.start < start_bound {
+                        let clipped = start_bound - target_range.start;
+                        target_range.start += clipped;
+                        op_count -= clipped as u32;
+
+                        if op.consumes_query() {
+                            query_range.start += clipped;
+                        }
+                    }
+                }
+
+                if let Some(end_bound) = self.target_end {
+                    if target_range.end > end_bound {
+                        let clipped = target_range.end - end_bound;
+                        target_range.end -= clipped;
+                        op_count -= clipped as u32;
+
+                        if op.consumes_query() {
+                            query_range.end -= clipped;
+                        }
+                    }
+                }
+
                 super::CigarIterItem {
                     target_range,
                     query_range,
                     op,
-                    op_count: len,
+                    op_count,
                 }
             });
 
             return item;
-            // return next;
         } else {
             self.done = true;
             return None;
