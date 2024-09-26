@@ -451,7 +451,7 @@ fn update_main_alignment_viewer_sprite_transform(
 
             *transform =
                 Transform::from_translation(Vec3::new(-screen_delta.x, -screen_delta.y, 0.0))
-                    .with_scale(Vec3::new(w_rat as f32, h_rat as f32, 0.0));
+                    .with_scale(Vec3::new(w_rat as f32, h_rat as f32, 1.0));
         }
     }
 }

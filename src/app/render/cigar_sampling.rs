@@ -7,7 +7,10 @@ use bevy::{
 };
 use bevy_mod_picking::prelude::Pickable;
 
-use crate::app::{ForegroundColor, SequencePairTile};
+use crate::{
+    app::{ForegroundColor, SequencePairTile},
+    math_conv::*,
+};
 
 use super::{AlignmentRenderTarget, AlignmentViewer};
 
@@ -85,10 +88,10 @@ fn setup_render_tiles_new(
     let win_size = window.physical_size();
 
     let tile_grid = RenderTileGrid {
-        rows: 1,
-        columns: 1,
-        // rows: 4,
-        // columns: 4,
+        // rows: 1,
+        // columns: 1,
+        rows: 4,
+        columns: 4,
     };
 
     commands.insert_resource(tile_grid);
@@ -189,6 +192,7 @@ fn rasterize_world_lines<P: Into<[f64; 2]>>(
 }
 
 fn rasterize_alignments_in_tile<'a, S, I>(
+    dbg_bg_color: [u8; 4],
     tile_bounds: crate::view::View,
     tile_dims: UVec2,
     // tile_mat: ultraviolet::DMat3,
@@ -205,14 +209,21 @@ where
 
     let mut buffer = vec![0u8; px_count * 4];
     let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut buffer);
+    pixels.fill(dbg_bg_color);
 
     let vx_min = tile_bounds.x_min;
     let vx_max = tile_bounds.x_max;
 
-    let mut total_time = 0;
-    let mut total_lines = 0;
+    // let mut total_time = 0;
+    // let mut total_lines = 0;
 
-    let mut ix = 0;
+    // let bg_color: [u8; 4] = if seq_pair.target.0 + seq_pair.query.0 % 2 == 0 {
+    //     [127, 64, 64, 255]
+    // } else {
+    //     [64, 64, 127, 255]
+    // };
+
+    // let mut ix = 0;
 
     let mut line_buf = Vec::new();
 
@@ -249,25 +260,24 @@ where
                 continue;
             }
 
-            let start = DVec2::new(loc.target_range.start as f64, loc.query_range.start as f64);
-            let end = DVec2::new(loc.target_range.end as f64, loc.query_range.end as f64);
-            let w0 = seq_min + start;
-            let w1 = seq_min + end;
-            rasterize_world_lines(tile_bounds, tile_dims, pixels, [[w0, w1]]);
-            println!("rasterizing {w0:?}->{w1:?}");
+            // let start = DVec2::new(loc.target_range.start as f64, loc.query_range.start as f64);
+            // let end = DVec2::new(loc.target_range.end as f64, loc.query_range.end as f64);
+            // let w0 = seq_min + start;
+            // let w1 = seq_min + end;
+            // rasterize_world_lines(tile_bounds, tile_dims, pixels, [[w0, w1]]);
+            // println!("rasterizing {w0:?}->{w1:?}");
 
             line_buf.clear();
 
-            let t0 = std::time::Instant::now();
-            let test_iter = alignment.cigar.whole_cigar();
+            // let t0 = std::time::Instant::now();
+            // let test_iter = alignment.cigar.whole_cigar();
             // println!(
             //     " >> [{ix}] built whole cigar iterator in {}us",
             //     t0.elapsed().as_micros()
             // );
 
-            let t0 = std::time::Instant::now();
+            // let t0 = std::time::Instant::now();
             // let lines = alignment
-            let iter = alignment.iter_target_range(loc_min..loc_max);
             // println!(
             //     " >> [{ix}] built alignment iterator in {}us\trange {:?}\tloc. tgt {:?}",
             //     t0.elapsed().as_micros(),
@@ -275,22 +285,24 @@ where
             //     &loc.target_range,
             // );
 
-            let t0 = std::time::Instant::now();
-            let mut count = 0;
+            // let t0 = std::time::Instant::now();
+            // let mut count = 0;
+            // line_buf.clear();
+            let iter = alignment.iter_target_range(loc_min..loc_max);
             line_buf.extend(iter.filter_map(|item| {
-                let emit = count % 1000 == 0;
-                count += 1;
+                // let emit = count % 1000 == 0;
+                // count += 1;
 
-                if emit {
-                    let tgt = item.target_seq_range();
-                    let qry = item.query_seq_range();
+                // if emit {
+                let tgt = item.target_seq_range();
+                let qry = item.query_seq_range();
 
-                    let w0 = seq_min + DVec2::new(tgt.start as f64, qry.start as f64);
-                    let w1 = seq_min + DVec2::new(tgt.end as f64, qry.end as f64);
-                    Some([w0, w1])
-                } else {
-                    None
-                }
+                let w0 = seq_min + DVec2::new(tgt.start as f64, qry.start as f64);
+                let w1 = seq_min + DVec2::new(tgt.end as f64, qry.end as f64);
+                Some([w0, w1])
+                // } else {
+                //     None
+                // }
             }));
 
             // if ix % 1000 == 0 {
@@ -303,9 +315,9 @@ where
             //     count,
             //     t0.elapsed().as_millis()
             // );
-            total_lines += line_buf.len();
-            total_time += t0.elapsed().as_nanos();
-            ix += 1;
+            // total_lines += line_buf.len();
+            // total_time += t0.elapsed().as_nanos();
+            // ix += 1;
 
             // println!(">> TODO sample with range {loc_min}..{loc_max}");
             // line_buf.clear();
@@ -315,7 +327,7 @@ where
             // let range = (loc_min - alignment.location.target_range.start)
             //     ..(loc_max - alignment.location.target_range.start);
 
-            // rasterize_world_lines(tile_bounds, tile_dims, pixels, line_buf.iter().copied());
+            rasterize_world_lines(tile_bounds, tile_dims, pixels, line_buf.iter().copied());
 
             /*
 
@@ -325,8 +337,8 @@ where
             */
             // for item in alignment.
         }
-        let ms = total_time / 1000;
-        println!("collected {total_lines} lines in {ms}ms",);
+        // let ms = total_time / 1000;
+        // println!("collected {total_lines} lines in {ms}ms",);
 
         //
     }
@@ -527,21 +539,48 @@ fn update_render_tile_transforms(
         win_size.y / render_grid.rows as f32,
     );
 
-    // let top_left = win_size * -0.5;
-    let top_left = win_size * 0.0;
+    let top_left = win_size * -0.25;
+    // let top_left = win_size * 0.0;
 
     for (mut transform, render_tile) in tiles.iter_mut() {
         let tpos = render_tile.tile_grid_pos;
-        // let pos = top_left + tile_dims * tpos.as_vec2() - tile_dims * 0.5;
-        let pos = top_left + tile_dims * tpos.as_vec2();
+        let pos = top_left + tile_dims * tpos.as_vec2() - tile_dims * 0.5;
+        // let pos = top_left + tile_dims * tpos.as_vec2();
 
-        transform.translation.x = pos.x;
-        transform.translation.y = pos.y;
+        // let mut tile_screen_center = pos;
 
-        // println!(
-        //     "transform -- T: {:?}\tS: {:?}",
-        //     transform.translation, transform.scale,
-        // );
+        let old_view = render_tile.last_rendered.as_ref().map(|params| params.view);
+        let new_view = render_tile.view;
+
+        if let Some((old_view, new_view)) = old_view.zip(new_view) {
+            // if let Some(params) = render_tile.last_rendered.as_ref() {
+            // let old_view = params.view;
+            let old_mid = old_view.center();
+            let new_mid = new_view.center();
+
+            let world_delta = new_mid - old_mid;
+            let norm_delta = world_delta / new_view.size();
+
+            let screen_delta = norm_delta.to_f32() * [win_size.x, win_size.y].as_uv() * 0.5;
+
+            let scale = Vec3::new(
+                (old_view.width() / new_view.width()) as f32,
+                (old_view.height() / new_view.height()) as f32,
+                1.0,
+            );
+            println!("scale: {scale:?}");
+
+            transform.translation.x = pos.x - screen_delta.x;
+            transform.translation.y = pos.y - screen_delta.y;
+            transform.scale = scale;
+
+            // *transform =
+            //     Transform::from_translation(Vec3::new(-screen_delta.x, -screen_delta.y, 0.0))
+            //         .with_scale(Vec3::new(w_rat as f32, h_rat as f32, 1.0));
+        } else {
+            transform.translation.x = pos.x;
+            transform.translation.y = pos.y;
+        }
     }
 }
 
@@ -563,14 +602,15 @@ fn spawn_render_tasks(
     render_grid: Res<RenderTileGrid>,
 
     windows: Query<&Window>,
-    tiles: Query<
+    mut tiles: Query<
         (
             Entity,
             // &SequencePairTile,
             // &Transform,
-            &RenderTile,
+            &mut RenderTile,
+            Has<RenderTask>,
         ),
-        Without<RenderTask>,
+        // Without<RenderTask>,
     >,
 
     keys: Res<ButtonInput<KeyCode>>,
@@ -602,17 +642,7 @@ fn spawn_render_tasks(
     let vx0 = viewport.view.x_min;
     let vy0 = viewport.view.y_min;
 
-    for (tile_ent, tile) in tiles.iter() {
-        if let Some(last) = tile.last_update.as_ref() {
-            let ms = last.elapsed().as_millis();
-            if ms < 100 {
-                // println!("skipping due to timer");
-                continue;
-            } else {
-                // println!("timer lapsed; updating");
-            }
-        }
-
+    for (tile_ent, mut tile, is_rendering) in tiles.iter_mut() {
         // position of tile on screen
         let tile_pos = tile.tile_grid_pos;
         let s_x0 = (tile_pos.x * tile_dims.x) as f64;
@@ -639,6 +669,22 @@ fn spawn_render_tasks(
             view: tile_bounds,
             canvas_size: tile_dims,
         };
+
+        tile.view = Some(tile_bounds);
+
+        if is_rendering {
+            continue;
+        }
+
+        if let Some(last) = tile.last_update.as_ref() {
+            let ms = last.elapsed().as_millis();
+            if ms < 100 {
+                // println!("skipping due to timer");
+                continue;
+            } else {
+                // println!("timer lapsed; updating");
+            }
+        }
 
         if Some(&params) == tile.last_rendered.as_ref() {
             continue;
@@ -678,6 +724,20 @@ fn spawn_render_tasks(
         let als = alignments.alignments.clone();
         let al_pairs = alignments.indices.clone();
 
+        let dbg_bg_color = {
+            let pos = tile.tile_grid_pos;
+            let cols = render_grid.columns;
+            let x = pos.x as f32 / cols as f32;
+            let y = pos.y as f32 / render_grid.rows as f32;
+            let hue = x * std::f32::consts::TAU / cols as f32;
+            let lgt = ((y * std::f32::consts::TAU).sin() * 0.25) + 0.5;
+
+            let color = Color::hsl(hue * 360.0, 0.8, lgt).to_srgba();
+            let map = |chn: f32| (chn * 255.0) as u8;
+            // [map(color.red), map(color.green), map(color.red), 255]
+            [map(color.red), map(color.green), map(color.red), 128]
+        };
+
         // spawn task
         let task = task_pool.spawn(async move {
             let mut count = 0;
@@ -697,7 +757,9 @@ fn spawn_render_tasks(
 
             println!(" >> {count} alignments to render");
 
-            rasterize_alignments_in_tile(tile_bounds, tile_dims, alignments)
+            async_io::Timer::after(std::time::Duration::from_millis(1_000)).await;
+
+            rasterize_alignments_in_tile(dbg_bg_color, tile_bounds, tile_dims, alignments)
         });
 
         commands

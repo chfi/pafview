@@ -504,6 +504,7 @@ pub fn load_input_files_mmap(cli: &crate::cli::Cli) -> anyhow::Result<(Alignment
             .ok()
     });
 
+    println!("Indexing PAF");
     let mmap_paf = super::cigar::memmap::IndexedPaf::memmap_paf(paf_path, bgzi)?;
 
     let mut seq_name_len_pairs = Vec::new();
@@ -517,9 +518,17 @@ pub fn load_input_files_mmap(cli: &crate::cli::Cli) -> anyhow::Result<(Alignment
         seq_name_len_pairs.push((qry_name.to_string(), line.query_seq_len));
     });
 
-    let sequences = Sequences::from_sequence_length_pairs(
+    println!("Preparing sequence data");
+    let mut sequences = Sequences::from_sequence_length_pairs(
         seq_name_len_pairs.iter().map(|(n, l)| (n.as_str(), *l)),
     );
+
+    if let Some(fasta_path) = cli.fasta.as_ref() {
+        println!("Loading sequence FASTA");
+        sequences
+            .extract_sequences_from_fasta(fasta_path)
+            .map_err(|e| anyhow!("Error loading sequences from FASTA: {e:?}"))?;
+    }
 
     let mmap_paf = Arc::new(mmap_paf);
 
