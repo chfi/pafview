@@ -88,10 +88,10 @@ fn setup_render_tiles_new(
     let win_size = window.physical_size();
 
     let tile_grid = RenderTileGrid {
-        // rows: 1,
-        // columns: 1,
-        rows: 4,
-        columns: 4,
+        rows: 1,
+        columns: 1,
+        // rows: 4,
+        // columns: 4,
     };
 
     commands.insert_resource(tile_grid);
@@ -140,7 +140,11 @@ fn setup_render_tiles_new(
                     },
                 ))
                 .insert(SpriteBundle {
-                    sprite: Sprite { ..default() },
+                    sprite: Sprite {
+                        // anchor: bevy::sprite::Anchor::TopLeft,
+                        anchor: bevy::sprite::Anchor::Center,
+                        ..default()
+                    },
                     ..default()
                 })
                 .insert(img_handle.clone())
@@ -158,14 +162,6 @@ fn rasterize_world_lines<P: Into<[f64; 2]>>(
 ) {
     use line_drawing::XiaolinWu;
 
-    // let mut first = true;
-
-    // for [r,g,b,a] in tile_data.iter_mut() {
-    // println!("tile dims: {tile_dims:?}");
-    // for val in tile_data.iter_mut() {
-    //     *val = [0, 0, 0, 255];
-    // }
-
     for [p0, p1] in lines {
         let p0 = p0.into();
         let p1 = p1.into();
@@ -176,15 +172,10 @@ fn rasterize_world_lines<P: Into<[f64; 2]>>(
 
         for ((px, py), v) in XiaolinWu::<f32, i32>::new((s0.x, s0.y), (s1.x, s1.y)) {
             if px >= 0 && px < tile_dims.x as i32 && py >= 0 && py < tile_dims.y as i32 {
-                let py = tile_dims.y as i32 - py - 1;
                 let ix = (px + py * tile_dims.x as i32) as usize;
                 if ix < tile_data.len() {
                     let alpha = (v * 255.0) as u8;
                     tile_data[ix] = [0, 0, 0, alpha];
-                    // if first {
-                    //     first = false;
-                    //     println!("plotting to pixel ({px},{py})");
-                    // }
                 }
             }
         }
@@ -209,7 +200,18 @@ where
 
     let mut buffer = vec![0u8; px_count * 4];
     let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut buffer);
-    pixels.fill(dbg_bg_color);
+    // pixels.fill(dbg_bg_color);
+
+    for (i, px) in pixels.iter_mut().enumerate() {
+        let x = i % tile_dims.x as usize;
+        // if x < 50 {
+        if x < 3 * (tile_dims.x as usize / 4) {
+            *px = [127, 64, 64, 127];
+        } else {
+            *px = dbg_bg_color;
+            // *px = [64, 64, 127, 64];
+        }
+    }
 
     let vx_min = tile_bounds.x_min;
     let vx_max = tile_bounds.x_max;
@@ -539,8 +541,8 @@ fn update_render_tile_transforms(
         win_size.y / render_grid.rows as f32,
     );
 
-    let top_left = win_size * -0.25;
-    // let top_left = win_size * 0.0;
+    // let top_left = win_size * -0.25;
+    let top_left = win_size * 0.5;
 
     for (mut transform, render_tile) in tiles.iter_mut() {
         let tpos = render_tile.tile_grid_pos;
@@ -561,18 +563,19 @@ fn update_render_tile_transforms(
             let world_delta = new_mid - old_mid;
             let norm_delta = world_delta / new_view.size();
 
-            let screen_delta = norm_delta.to_f32() * [win_size.x, win_size.y].as_uv() * 0.5;
+            let screen_delta = norm_delta.to_f32() * [win_size.x, win_size.y].as_uv();
 
             let scale = Vec3::new(
                 (old_view.width() / new_view.width()) as f32,
                 (old_view.height() / new_view.height()) as f32,
                 1.0,
             );
-            println!("scale: {scale:?}");
+            // println!("scale: {scale:?}");
 
             transform.translation.x = pos.x - screen_delta.x;
             transform.translation.y = pos.y - screen_delta.y;
             transform.scale = scale;
+            // transform.scale = scale * 2.0;
 
             // *transform =
             //     Transform::from_translation(Vec3::new(-screen_delta.x, -screen_delta.y, 0.0))
