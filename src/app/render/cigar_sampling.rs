@@ -88,8 +88,10 @@ fn setup_render_tiles_new(
     let win_size = window.physical_size();
 
     let tile_grid = RenderTileGrid {
-        rows: 1,
-        columns: 1,
+        // rows: 1,
+        // columns: 1,
+        rows: 2,
+        columns: 2,
         // rows: 4,
         // columns: 4,
     };
@@ -200,32 +202,10 @@ where
 
     let mut buffer = vec![0u8; px_count * 4];
     let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut buffer);
-    // pixels.fill(dbg_bg_color);
-
-    for (i, px) in pixels.iter_mut().enumerate() {
-        let x = i % tile_dims.x as usize;
-        // if x < 50 {
-        if x < 3 * (tile_dims.x as usize / 4) {
-            *px = [127, 64, 64, 127];
-        } else {
-            *px = dbg_bg_color;
-            // *px = [64, 64, 127, 64];
-        }
-    }
+    pixels.fill(dbg_bg_color);
 
     let vx_min = tile_bounds.x_min;
     let vx_max = tile_bounds.x_max;
-
-    // let mut total_time = 0;
-    // let mut total_lines = 0;
-
-    // let bg_color: [u8; 4] = if seq_pair.target.0 + seq_pair.query.0 % 2 == 0 {
-    //     [127, 64, 64, 255]
-    // } else {
-    //     [64, 64, 127, 255]
-    // };
-
-    // let mut ix = 0;
 
     let mut line_buf = Vec::new();
 
@@ -244,10 +224,6 @@ where
             // println!("{al_min}, {al_max}");
             let cal_min = vx_min.clamp(al_min, al_max) as u64;
             let cal_max = vx_max.clamp(al_min, al_max) as u64;
-            // let al_min = al_min.clamp(vx_min, vx_max) as u64;
-            // let al_max = al_max.clamp(vx_min, vx_max) as u64;
-
-            // println!("clamped: {al_min}, {al_max}");
 
             if cal_min == cal_max {
                 // println!("no overlap; skipping");
@@ -542,11 +518,27 @@ fn update_render_tile_transforms(
     );
 
     // let top_left = win_size * -0.25;
-    let top_left = win_size * 0.5;
+    // let top_left = win_size * 0.5;
+    // let top_left = win_size * 0.0;
+
+    let top_left = Vec2::new(
+        //
+        win_size.x * -0.25,
+        // win_size.x * -0.25,
+        win_size.y * -0.25,
+    );
+
+    // let tile_screen_center = |pos: UVec2| {
+    let tile_screen_top_left = |pos: UVec2| {
+        let offset = pos.as_vec2() * tile_dims;
+        top_left + offset
+    };
 
     for (mut transform, render_tile) in tiles.iter_mut() {
         let tpos = render_tile.tile_grid_pos;
-        let pos = top_left + tile_dims * tpos.as_vec2() - tile_dims * 0.5;
+        // let pos = top_left + tile_dims * tpos.as_vec2() - tile_dims * 0.5;
+        let pos = tile_screen_top_left(tpos);
+        // println!("tile pos {tpos:?} => \t{pos:?}");
         // let pos = top_left + tile_dims * tpos.as_vec2();
 
         // let mut tile_screen_center = pos;
@@ -563,23 +555,33 @@ fn update_render_tile_transforms(
             let world_delta = new_mid - old_mid;
             let norm_delta = world_delta / new_view.size();
 
-            let screen_delta = norm_delta.to_f32() * [win_size.x, win_size.y].as_uv();
+            let screen_delta = Vec2::new(
+                //
+                norm_delta.x as f32 * tile_dims.x,
+                norm_delta.y as f32 * tile_dims.y,
+            );
+            // let screen_delta = norm_delta.to_f32()
+            // let screen_delta = norm_delta.to_f32() * [win_size.x, win_size.y].as_uv();
+
+            let tile_w = render_tile.size.x as f64;
+            let tile_h = render_tile.size.y as f64;
+
+            let old_w_scale = old_view.width() / tile_w;
+            let old_h_scale = old_view.height() / tile_h;
+            let new_w_scale = new_view.width() / tile_w;
+            let new_h_scale = new_view.height() / tile_h;
 
             let scale = Vec3::new(
-                (old_view.width() / new_view.width()) as f32,
-                (old_view.height() / new_view.height()) as f32,
+                (old_w_scale / new_w_scale) as f32,
+                (old_h_scale / new_h_scale) as f32,
+                // (old_view.width() / new_view.width()) as f32,
+                // (old_view.height() / new_view.height()) as f32,
                 1.0,
             );
-            // println!("scale: {scale:?}");
 
             transform.translation.x = pos.x - screen_delta.x;
             transform.translation.y = pos.y - screen_delta.y;
             transform.scale = scale;
-            // transform.scale = scale * 2.0;
-
-            // *transform =
-            //     Transform::from_translation(Vec3::new(-screen_delta.x, -screen_delta.y, 0.0))
-            //         .with_scale(Vec3::new(w_rat as f32, h_rat as f32, 1.0));
         } else {
             transform.translation.x = pos.x;
             transform.translation.y = pos.y;
@@ -615,17 +617,16 @@ fn spawn_render_tasks(
         ),
         // Without<RenderTask>,
     >,
-
-    keys: Res<ButtonInput<KeyCode>>,
-    mut enabled: Local<bool>,
+    // keys: Res<ButtonInput<KeyCode>>,
+    // mut enabled: Local<bool>,
 ) {
-    if keys.just_pressed(KeyCode::Space) {
-        *enabled = true;
-    }
+    // if keys.just_pressed(KeyCode::Space) {
+    //     *enabled = true;
+    // }
 
-    if !*enabled {
-        return;
-    }
+    // if !*enabled {
+    //     return;
+    // }
 
     let window = windows.single();
     let win_size = window.physical_size();
@@ -732,12 +733,13 @@ fn spawn_render_tasks(
             let cols = render_grid.columns;
             let x = pos.x as f32 / cols as f32;
             let y = pos.y as f32 / render_grid.rows as f32;
-            let hue = x * std::f32::consts::TAU / cols as f32;
-            let lgt = ((y * std::f32::consts::TAU).sin() * 0.25) + 0.5;
+
+            let hue = x * std::f32::consts::PI;
+            let lgt = ((y * std::f32::consts::PI).sin() * 0.25) + 0.5;
 
             let color = Color::hsl(hue * 360.0, 0.8, lgt).to_srgba();
             let map = |chn: f32| (chn * 255.0) as u8;
-            // [map(color.red), map(color.green), map(color.red), 255]
+
             [map(color.red), map(color.green), map(color.red), 128]
         };
 
