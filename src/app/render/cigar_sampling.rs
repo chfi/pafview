@@ -204,7 +204,7 @@ where
 
     let mut buffer = vec![0u8; px_count * 4];
     let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut buffer);
-    pixels.fill(dbg_bg_color);
+    // pixels.fill(dbg_bg_color);
 
     let vx_min = tile_bounds.x_min;
     let vx_max = tile_bounds.x_max;
@@ -215,6 +215,41 @@ where
 
     let mut path_commands: Vec<zeno::Command> = Vec::new();
     // let mut line_buf = Vec::new();
+
+    let mut embiggened = 0;
+    let mut total = 0;
+
+    let mut total_dst = 0f64;
+
+    let mut draw_dot = |mask_buf: &mut [u8], x: f32, y: f32, rad: f32| {
+        let x_min = (x - rad).floor() as usize;
+        let x_max = (x + rad).ceil() as usize;
+        let y_min = (y - rad).floor() as usize;
+        let y_max = (y + rad).ceil() as usize;
+
+        let x0 = x + 0.5;
+        let y0 = y + 0.5;
+
+        let rad_sq = rad * rad;
+
+        for x in x_min..x_max {
+            for y in y_min..y_max {
+                //
+                let i = (x as usize) + (y as usize * tile_dims.x as usize);
+
+                let x1 = x as f32 + 0.5;
+                let y1 = y as f32 + 0.5;
+
+                let val = (x1 - x0).powi(2) + (y1 - y0).powi(2);
+                if val < rad_sq && i < mask_buf.len() {
+                    let px = mask_buf[i] as u32;
+                    let v = px + (val * 255.0) as u32;
+                    mask_buf[i] = v.max(255) as u8;
+                }
+                // let dist = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
+            }
+        }
+    };
 
     for (seq_pair, [seq_min, seq_max], alignments) in seq_pairs.into_iter() {
         // seq_min, seq_max encode the position of the seq. pair tile in the world
@@ -231,7 +266,6 @@ where
             // println!("{al_min}, {al_max}");
             let cal_min = vx_min.clamp(al_min, al_max) as u64;
             let cal_max = vx_max.clamp(al_min, al_max) as u64;
-
             if cal_min == cal_max {
                 // println!("no overlap; skipping");
                 continue;
@@ -244,31 +278,6 @@ where
                 // println!("no overlap after offset; skipping");
                 continue;
             }
-
-            // let start = DVec2::new(loc.target_range.start as f64, loc.query_range.start as f64);
-            // let end = DVec2::new(loc.target_range.end as f64, loc.query_range.end as f64);
-            // let w0 = seq_min + start;
-            // let w1 = seq_min + end;
-            // rasterize_world_lines(tile_bounds, tile_dims, pixels, [[w0, w1]]);
-            // println!("rasterizing {w0:?}->{w1:?}");
-
-            // line_buf.clear();
-
-            // let t0 = std::time::Instant::now();
-            // let test_iter = alignment.cigar.whole_cigar();
-            // println!(
-            //     " >> [{ix}] built whole cigar iterator in {}us",
-            //     t0.elapsed().as_micros()
-            // );
-
-            // let t0 = std::time::Instant::now();
-            // let lines = alignment
-            // println!(
-            //     " >> [{ix}] built alignment iterator in {}us\trange {:?}\tloc. tgt {:?}",
-            //     t0.elapsed().as_micros(),
-            //     loc_min..loc_max,
-            //     &loc.target_range,
-            // );
 
             // let t0 = std::time::Instant::now();
             // let mut count = 0;
@@ -283,123 +292,99 @@ where
                 path_commands.push(cmd);
             }
 
+            /*
+            if path_commands.len() == 1 {
+
+            } else if path_commands.len() == 2 {
+
+            } else {
+
+            }
+            */
+
+            use zeno::Command as Cmd;
+
+            if let [Cmd::MoveTo(start), Cmd::MoveTo(end) | Cmd::LineTo(end)] =
+                path_commands.as_slice()
+            {
+                let dist = end.distance_to(*start) as f64;
+                total_dst += dist;
+                if dist < bp_per_px {
+                    let d = dist as f32;
+                    let x = start.x + 0.5 * (end.x - start.x);
+                    let y = start.y + 0.5 * (end.y - start.y);
+                    draw_dot(&mut mask_buf, x, y, 2.0);
+                    // let i = end.x as usize + end.y as usize * tile_dims.x as usize;
+                    // if i < mask_buf.len() {
+                    //     mask_buf[i] = 255;
+                    // }
+
+                    embiggened += 1;
+                    total += 1;
+
+                    continue;
+                }
+            }
+
+            /*
             if let Some(
                 s @ (
                     zeno::Command::MoveTo(start),
-                    // zeno::Command::LineTo(end) | zeno::Command::MoveTo(end),
-                    zeno::Command::MoveTo(end),
+                    zeno::Command::LineTo(end) | zeno::Command::MoveTo(end),
+                    // zeno::Command::MoveTo(end),
                 ),
             ) = path_commands
                 .first()
                 .cloned()
                 .zip(path_commands.last().cloned())
             {
-                if (end.distance_to(start) as f64) < bp_per_px {
+                let dist = end.distance_to(start) as f64;
+                total_dst += dist;
+                if dist < bp_per_px {
+                    /*
                     let angle = (end.y - start.y).atan2(end.x - start.x);
 
                     path_commands.clear();
                     path_commands.push(s.0);
 
                     let end_point = zeno::Vector {
-                        x: start.x + angle.cos() * 3.0,
-                        y: start.y + angle.sin() * 3.0,
+                        x: start.x + angle.cos() * 2.0,
+                        y: start.y + angle.sin() * 2.0,
                     };
 
                     path_commands.push(zeno::Command::LineTo(end_point));
+                    */
+
+                    let i = end.x as usize + end.y as usize * tile_dims.x as usize;
+                    if i < mask_buf.len() {
+                        mask_buf[i] = 255;
+                    }
+
+                    embiggened += 1;
+                    total += 1;
+
+                    continue;
                 }
-
-                // path_commands.push(zeno::Command::LineT)
-
-                // path_commands.push(e)
-                // let len = ((start.x - end.x).powi(2) + (start.y - end.y).powi(2)).sqrt();
-
-                // println!(
-                //     "path endpoints ({} steps): {start:?}->{end:?}\tlength: {len}",
-                //     path_commands.len()
-                // );
             }
+            */
 
+            total += 1;
             zeno::Mask::new(&path_commands)
                 .size(tile_dims.x, tile_dims.y)
-                .style(zeno::Stroke::new(3.0))
+                .style(zeno::Stroke::new(2.0))
                 .origin(zeno::Origin::TopLeft)
                 .render_into(&mut mask_buf, None);
             // path_commands.extend();
-
-            /*
-            line_buf.extend(iter.filter_map(|item| {
-                // let emit = count % 1000 == 0;
-                // count += 1;
-
-                // if emit {
-                let tgt = item.target_seq_range();
-                let qry = item.query_seq_range();
-
-                let w0 = seq_min + DVec2::new(tgt.start as f64, qry.start as f64);
-                let w1 = seq_min + DVec2::new(tgt.end as f64, qry.end as f64);
-                Some([w0, w1])
-                // } else {
-                //     None
-                // }
-            }));
-            */
-
-            /*
-            let screen_lines = iter.scan(None, |st: &mut Option<(super::CigarOp, Vec2)>, item| {
-                if let Some((op, last_pos)) = st.map(|(o, p)| (&mut o, &mut p)) {
-                    //
-                } else {
-                    //
-                }
-
-                //
-                todo!();
-            });
-            */
-
-            // rasterize_screen_lines(tile_bounds, tile_dims, pixels, screen_lines);
-
-            // rasterize_world_lines(tile_bounds, tile_dims, pixels, lines);
-            // rasterize_world_lines(tile_bounds, tile_dims, pixels, line_buf.iter().copied());
-
-            // if ix % 1000 == 0 {
-            //     println!("{ix} processed");
-            // }
-            // .collect::<Vec<_>>();
-            // println!(
-            //     " >> [{ix}] collected {} lines out of {} ops in {}ms",
-            //     line_buf.len(),
-            //     count,
-            //     t0.elapsed().as_millis()
-            // );
-            // total_lines += line_buf.len();
-            // total_time += t0.elapsed().as_nanos();
-            // ix += 1;
-
-            // println!(">> TODO sample with range {loc_min}..{loc_max}");
-            // line_buf.clear();
-
-            // let offset = DVec2::new(loc.target_range.start as f64, loc.query_range.start as f64);
-
-            // let range = (loc_min - alignment.location.target_range.start)
-            //     ..(loc_max - alignment.location.target_range.start);
-
-            /*
-
-            for item in alignment.cigar.iter_target_range(range) {
-
-            }
-            */
-            // for item in alignment.
         }
-        // let ms = total_time / 1000;
-        // println!("collected {total_lines} lines in {ms}ms",);
-
-        //
     }
 
     for (val, px) in std::iter::zip(mask_buf, pixels) {
         if val > 0 {
+            // let val = val.max(32);
+            let val = val.max(128);
+            // let val = val.max(255);
+            // let val = (val as f32 * 10.0).max(255.0) as u8;
+
             let [rb, gb, bb, ab] = *px;
 
             let ab = ab as f32 / 255.0;
@@ -421,6 +406,11 @@ where
             // *px = [0, 0, 0, 64];
         }
     }
+
+    println!(
+        "grew {embiggened} out of {total} alignments\taverage length: {}",
+        total_dst / embiggened as f64
+    );
 
     buffer
 }
@@ -1734,7 +1724,7 @@ impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathStrokeIte
                     if let Some(end) = self.last_end {
                         let ultraviolet::Vec2 { x, y } =
                             self.view.map_world_to_screen(screen_dims, [end.x, end.y]);
-                        return Some(Command::MoveTo(Vector { x, y }));
+                        return Some(Command::LineTo(Vector { x, y }));
                     }
                 }
                 return None;
@@ -1768,19 +1758,19 @@ impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathStrokeIte
                 if dist_sq > scale_sq {
                     if matches!(op, M | Eq | X) {
                         self.path_open = Some(w_start);
-                        let s_start = self
-                            .view
-                            .map_world_to_screen(screen_dims, [w_start.x, w_start.y]);
-                        // println!("emitting LineTo({}, {})", s_start.x, s_start.y);
-                        // println!("looped {loop_count} before emitting");
-                        return Some(Command::LineTo(Vector {
-                            x: s_start.x,
-                            y: s_start.y,
-                        }));
                     } else {
                         // emit MoveTo(w_end)... maybe?
                         // or actually just keep going, i guess?
                     }
+                    let s_start = self
+                        .view
+                        .map_world_to_screen(screen_dims, [w_start.x, w_start.y]);
+                    // println!("emitting LineTo({}, {})", s_start.x, s_start.y);
+                    // println!("looped {loop_count} before emitting");
+                    return Some(Command::LineTo(Vector {
+                        x: s_start.x,
+                        y: s_start.y,
+                    }));
                 }
             } else {
                 if matches!(op, M | Eq | X) {
