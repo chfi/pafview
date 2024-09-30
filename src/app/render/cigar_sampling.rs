@@ -88,10 +88,10 @@ fn setup_render_tiles_new(
     let win_size = window.physical_size();
 
     let tile_grid = RenderTileGrid {
-        // rows: 1,
-        // columns: 1,
-        rows: 2,
-        columns: 2,
+        rows: 1,
+        columns: 1,
+        // rows: 2,
+        // columns: 2,
         // rows: 4,
         // columns: 4,
     };
@@ -164,6 +164,8 @@ fn rasterize_world_lines<P: Into<[f64; 2]>>(
 ) {
     use line_drawing::XiaolinWu;
 
+    let mut mask_buf = vec![0u8; tile_data.len()];
+
     for [p0, p1] in lines {
         let p0 = p0.into();
         let p1 = p1.into();
@@ -207,7 +209,12 @@ where
     let vx_min = tile_bounds.x_min;
     let vx_max = tile_bounds.x_max;
 
-    let mut line_buf = Vec::new();
+    let bp_per_px = tile_bounds.width() / tile_dims.x as f64;
+
+    let mut mask_buf = vec![0u8; pixels.len()];
+
+    let mut path_commands: Vec<zeno::Command> = Vec::new();
+    // let mut line_buf = Vec::new();
 
     for (seq_pair, [seq_min, seq_max], alignments) in seq_pairs.into_iter() {
         // seq_min, seq_max encode the position of the seq. pair tile in the world
@@ -245,7 +252,7 @@ where
             // rasterize_world_lines(tile_bounds, tile_dims, pixels, [[w0, w1]]);
             // println!("rasterizing {w0:?}->{w1:?}");
 
-            line_buf.clear();
+            // line_buf.clear();
 
             // let t0 = std::time::Instant::now();
             // let test_iter = alignment.cigar.whole_cigar();
@@ -267,6 +274,59 @@ where
             // let mut count = 0;
             // line_buf.clear();
             let iter = alignment.iter_target_range(loc_min..loc_max);
+            let mut cmd_iter =
+                CigarScreenPathStrokeIter::new(tile_bounds, tile_dims, seq_min, iter);
+
+            path_commands.clear();
+
+            while let Some(cmd) = cmd_iter.emit_next() {
+                path_commands.push(cmd);
+            }
+
+            if let Some(
+                s @ (
+                    zeno::Command::MoveTo(start),
+                    // zeno::Command::LineTo(end) | zeno::Command::MoveTo(end),
+                    zeno::Command::MoveTo(end),
+                ),
+            ) = path_commands
+                .first()
+                .cloned()
+                .zip(path_commands.last().cloned())
+            {
+                if (end.distance_to(start) as f64) < bp_per_px {
+                    let angle = (end.y - start.y).atan2(end.x - start.x);
+
+                    path_commands.clear();
+                    path_commands.push(s.0);
+
+                    let end_point = zeno::Vector {
+                        x: start.x + angle.cos() * 3.0,
+                        y: start.y + angle.sin() * 3.0,
+                    };
+
+                    path_commands.push(zeno::Command::LineTo(end_point));
+                }
+
+                // path_commands.push(zeno::Command::LineT)
+
+                // path_commands.push(e)
+                // let len = ((start.x - end.x).powi(2) + (start.y - end.y).powi(2)).sqrt();
+
+                // println!(
+                //     "path endpoints ({} steps): {start:?}->{end:?}\tlength: {len}",
+                //     path_commands.len()
+                // );
+            }
+
+            zeno::Mask::new(&path_commands)
+                .size(tile_dims.x, tile_dims.y)
+                .style(zeno::Stroke::new(3.0))
+                .origin(zeno::Origin::TopLeft)
+                .render_into(&mut mask_buf, None);
+            // path_commands.extend();
+
+            /*
             line_buf.extend(iter.filter_map(|item| {
                 // let emit = count % 1000 == 0;
                 // count += 1;
@@ -282,6 +342,25 @@ where
                 //     None
                 // }
             }));
+            */
+
+            /*
+            let screen_lines = iter.scan(None, |st: &mut Option<(super::CigarOp, Vec2)>, item| {
+                if let Some((op, last_pos)) = st.map(|(o, p)| (&mut o, &mut p)) {
+                    //
+                } else {
+                    //
+                }
+
+                //
+                todo!();
+            });
+            */
+
+            // rasterize_screen_lines(tile_bounds, tile_dims, pixels, screen_lines);
+
+            // rasterize_world_lines(tile_bounds, tile_dims, pixels, lines);
+            // rasterize_world_lines(tile_bounds, tile_dims, pixels, line_buf.iter().copied());
 
             // if ix % 1000 == 0 {
             //     println!("{ix} processed");
@@ -305,8 +384,6 @@ where
             // let range = (loc_min - alignment.location.target_range.start)
             //     ..(loc_max - alignment.location.target_range.start);
 
-            rasterize_world_lines(tile_bounds, tile_dims, pixels, line_buf.iter().copied());
-
             /*
 
             for item in alignment.cigar.iter_target_range(range) {
@@ -319,6 +396,30 @@ where
         // println!("collected {total_lines} lines in {ms}ms",);
 
         //
+    }
+
+    for (val, px) in std::iter::zip(mask_buf, pixels) {
+        if val > 0 {
+            let [rb, gb, bb, ab] = *px;
+
+            let ab = ab as f32 / 255.0;
+            let aa = val as f32 / 255.0;
+            let ca = 0.0;
+
+            let a = aa + ab * (1.0 - aa);
+
+            let color = |c: u8| {
+                let f = ca * aa + (c as f32 / 255.0) * ab;
+                (f * 255.0) as u8
+            };
+
+            let r = color(rb);
+            let g = color(gb);
+            let b = color(bb);
+
+            *px = [r, g, b, (a * 255.0) as u8];
+            // *px = [0, 0, 0, 64];
+        }
     }
 
     buffer
@@ -523,9 +624,12 @@ fn update_render_tile_transforms(
 
     let top_left = Vec2::new(
         //
-        win_size.x * -0.25,
+        win_size.x * 0.,
+        win_size.y * 0.,
         // win_size.x * -0.25,
-        win_size.y * -0.25,
+        // win_size.y * -0.25,
+        // win_size.x * -0.5,
+        // win_size.y * -0.5,
     );
 
     // let tile_screen_center = |pos: UVec2| {
@@ -738,7 +842,7 @@ fn spawn_render_tasks(
             let lgt = ((y * std::f32::consts::PI).sin() * 0.25) + 0.5;
 
             let color = Color::hsl(hue * 360.0, 0.8, lgt).to_srgba();
-            let map = |chn: f32| (chn * 255.0) as u8;
+            let map = |chn: f32| ((chn * 255.0) as u8).min(128);
 
             [map(color.red), map(color.green), map(color.red), 128]
         };
@@ -762,7 +866,7 @@ fn spawn_render_tasks(
 
             println!(" >> {count} alignments to render");
 
-            async_io::Timer::after(std::time::Duration::from_millis(1_000)).await;
+            // async_io::Timer::after(std::time::Duration::from_millis(1_000)).await;
 
             rasterize_alignments_in_tile(dbg_bg_color, tile_bounds, tile_dims, alignments)
         });
@@ -1565,5 +1669,371 @@ mod stress_test {
 
             commands.entity(tile).remove::<StressTestTask>();
         }
+    }
+}
+
+struct CigarScreenPathStrokeIter<I> {
+    iter: I,
+
+    view: crate::view::View,
+    dims: UVec2,
+    seq_pair_world_offset: DVec2,
+
+    bp_per_px: f64,
+
+    path_open: Option<DVec2>,
+    last_end: Option<DVec2>,
+}
+
+impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathStrokeIter<I> {
+    fn new(
+        view: crate::view::View,
+        dims: UVec2,
+        seq_pair_world_offset: impl Into<[f64; 2]>,
+        iter: I,
+    ) -> Self {
+        let bp_per_px = view.width() / dims.x as f64;
+
+        Self {
+            iter,
+
+            view,
+            dims,
+            seq_pair_world_offset: seq_pair_world_offset.into().into(),
+
+            bp_per_px,
+
+            // started: false,
+            path_open: None,
+            last_end: None,
+            // last_world_point: None,
+        }
+    }
+
+    fn emit_next(&mut self) -> Option<zeno::Command> {
+        /*
+        the iterator has to know whether the path is open or not; no way around it
+
+        */
+
+        use crate::CigarOp::{Eq, D, I, M, X};
+        use zeno::{Command, Vector};
+
+        let origin = self.seq_pair_world_offset;
+        let screen_dims = [self.dims.x as f32, self.dims.y as f32];
+        let scale_sq = self.bp_per_px.max(1.0).powi(2);
+
+        let mut loop_count = 0;
+
+        loop {
+            // let cg_item = self.iter.next()?;
+            let Some(cg_item) = self.iter.next() else {
+                // emit a final "LineTo" if the inner iterator is done & it's appropriate to do so
+                if self.path_open.is_some() {
+                    self.path_open = None;
+                    if let Some(end) = self.last_end {
+                        let ultraviolet::Vec2 { x, y } =
+                            self.view.map_world_to_screen(screen_dims, [end.x, end.y]);
+                        return Some(Command::MoveTo(Vector { x, y }));
+                    }
+                }
+                return None;
+            };
+
+            let op = cg_item.op;
+            let len = cg_item.op_count;
+            // let len = cg_item.op_count as f64;
+            let tgt_r = cg_item.target_seq_range();
+            let qry_r = cg_item.query_seq_range();
+
+            let dx = op.target_delta(len) as f64;
+            let dy = op.query_delta(len) as f64;
+
+            let w_start = {
+                let x = (tgt_r.start as f64) + origin.x;
+                let y = (qry_r.start as f64) + origin.y;
+                DVec2::new(x, y)
+            };
+            let w_end = {
+                let x = (tgt_r.end as f64) + origin.x;
+                let y = (qry_r.end as f64) + origin.y;
+                DVec2::new(x, y)
+            };
+            self.last_end = Some(w_end);
+
+            if let Some(path_0) = self.path_open {
+                let diff = path_0 - w_start;
+                let dist_sq = diff.length_squared();
+
+                if dist_sq > scale_sq {
+                    if matches!(op, M | Eq | X) {
+                        self.path_open = Some(w_start);
+                        let s_start = self
+                            .view
+                            .map_world_to_screen(screen_dims, [w_start.x, w_start.y]);
+                        // println!("emitting LineTo({}, {})", s_start.x, s_start.y);
+                        // println!("looped {loop_count} before emitting");
+                        return Some(Command::LineTo(Vector {
+                            x: s_start.x,
+                            y: s_start.y,
+                        }));
+                    } else {
+                        // emit MoveTo(w_end)... maybe?
+                        // or actually just keep going, i guess?
+                    }
+                }
+            } else {
+                if matches!(op, M | Eq | X) {
+                    self.path_open = Some(w_start);
+                    let s_start = self
+                        .view
+                        .map_world_to_screen(screen_dims, [w_start.x, w_start.y]);
+                    // println!("emitting MoveTo({}, {})", s_start.x, s_start.y);
+                    // println!("looped {loop_count} before emitting");
+                    return Some(Command::MoveTo(Vector {
+                        x: s_start.x,
+                        y: s_start.y,
+                    }));
+                } else {
+                    // there's no open path, and we're not going to emit a stroke,
+                    // so... don't do anything
+                }
+            }
+
+            loop_count += 1;
+        }
+    }
+}
+
+struct CigarScreenPathIter<I> {
+    iter: I,
+
+    view: crate::view::View,
+    dims: UVec2,
+    seq_pair_world_offset: DVec2,
+
+    bp_per_px: f64,
+
+    path_open: Option<[f64; 2]>,
+    // started: bool,
+    // path_open: bool,
+
+    // last_world_point: Option<[f64; 2]>,
+    // last_point: Option<Vec2>,
+}
+
+impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathIter<I> {
+    fn new(
+        view: crate::view::View,
+        dims: UVec2,
+        seq_pair_world_offset: impl Into<[f64; 2]>,
+        iter: I,
+    ) -> Self {
+        let bp_per_px = view.width() / dims.x as f64;
+
+        Self {
+            iter,
+
+            view,
+            dims,
+            seq_pair_world_offset: seq_pair_world_offset.into().into(),
+
+            bp_per_px,
+
+            // started: false,
+            path_open: None,
+            // last_world_point: None,
+        }
+    }
+
+    fn emit_next(&mut self) -> Option<zeno::Command> {
+        use crate::CigarOp::{Eq, D, I, M, X};
+        use zeno::{Command, Vector};
+
+        let origin = self.seq_pair_world_offset;
+        let screen_dims = [self.dims.x as f32, self.dims.y as f32];
+
+        loop {
+            let cg_item = self.iter.next()?;
+            let op = cg_item.op;
+            let len = cg_item.op_count;
+            // let len = cg_item.op_count as f64;
+            let tgt_r = cg_item.target_seq_range();
+            let qry_r = cg_item.query_seq_range();
+
+            let dx = op.target_delta(len) as f64;
+            let dy = op.query_delta(len) as f64;
+
+            let w_start = {
+                let x = (tgt_r.start as f64) + origin.x;
+                let y = (qry_r.start as f64) + origin.y;
+                ultraviolet::DVec2::new(x, y)
+            };
+            let w_end = {
+                let x = (tgt_r.end as f64) + origin.x;
+                let y = (qry_r.end as f64) + origin.y;
+                ultraviolet::DVec2::new(x, y)
+            };
+
+            if let Some([last_x, last_y]) = self.path_open {
+                // p0 - start of the open path segment
+                // p1 - start of current op
+                // p2 - end of the current op
+                let p0 = self.view.map_world_to_screen(screen_dims, [last_x, last_y]);
+                let p1 = self.view.map_world_to_screen(screen_dims, w_start);
+                let p2 = self.view.map_world_to_screen(screen_dims, w_end);
+
+                if matches!(op, Eq | X | M) {
+                    //
+                } else {
+                    //
+                }
+            } else {
+                if matches!(op, Eq | X | M) {
+                    //
+                } else {
+                    //
+                }
+            }
+
+            /*
+                emit "MoveTo" and "LineTo" commands to stroke a screen-space path
+                of the cigar being iterated
+
+                in some sense, all strokes are at a perfect 45 degrees -- but we're simplifying it
+
+                if the scale (in bp per pixel) is greater than the size of an I or D op,
+
+
+            */
+
+            /*
+            // first step... i think
+            if matches!(op, Eq | X | M) {
+                if self.last_world_point.is_none() && !self.path_open {
+                    let x = w_start.x;
+                    let y = w_start.y;
+
+                    self.last_world_point = Some([x, y]);
+                    let tile_pos = self.view.map_world_to_screen(screen_dims, [x, y]);
+
+                    return Some(Command::MoveTo(Vector {
+                        x: tile_pos.x,
+                        y: tile_pos.y,
+                    }));
+                }
+
+            //
+            } else {
+                if let Some([last_x, last_y]) = self.last_world_point {
+                    if self.path_open {
+                        // let tile_pos = w_
+
+                        return Some(Command::LineTo(Vector {
+                            x: tile_pos.x,
+                            y: tile_pos.y,
+                        }));
+                    }
+                    //
+                }
+
+                // if self.last_world_point.is_none() {
+                //     let x = (tgt_r.start as f64) + origin.x;
+                //     let y = (qry_r.start as f64) + origin.y;
+
+                //     // self.last_world_point = Some([x, y]);
+                //     let tile_pos = self.view.map_world_to_screen(screen_dims, [x, y]);
+
+                //     return Some(Command::MoveTo(Vector {
+                //         x: tile_pos.x,
+                //         y: tile_pos.y,
+                //     }));
+                // }
+
+                //
+            }
+            */
+
+            // let cmd = zeno::Command::MoveTo(());
+
+            /*
+            if let Some(emitted_point) = self.last_world_point {
+                let [em_x, em_y] = emitted_point;
+
+                match op {
+                    Eq | X | M => {
+                        //
+                        todo!()
+                    }
+                    I | D => {
+                        //
+                        todo!()
+                    }
+                }
+            } else {
+                match op {
+                    Eq | X | M => {
+                        // Some(zeno::Command)
+                        //
+                        todo!()
+                    }
+                    I | D => {
+                        //
+                        todo!()
+                    }
+                }
+            }
+            */
+
+            //
+
+            todo!();
+        }
+
+        todo!();
+    }
+}
+
+// maps (and compresses) an iterator over cigar ops into a sequence
+// of screen-space (pixel) lines, in some view
+struct CigarScreenLineIter<I>
+// where
+//     I: Iterator<Item = crate::CigarIterItem>,
+{
+    view: crate::view::View,
+    dims: UVec2,
+
+    bp_per_px: f64,
+
+    last_op: Option<crate::CigarOp>,
+
+    iter: I,
+}
+
+impl<I> CigarScreenLineIter<I>
+where
+    I: Iterator<Item = crate::CigarIterItem>,
+{
+    fn new(view: crate::view::View, dims: UVec2, iter: I) -> Self {
+        let bp_per_px = view.width() / dims.x as f64;
+
+        Self {
+            view,
+            dims,
+            last_op: None,
+            iter,
+            bp_per_px,
+        }
+    }
+}
+
+impl<I> Iterator for CigarScreenLineIter<I>
+where
+    I: Iterator<Item = crate::CigarIterItem>,
+{
+    type Item = [Vec2; 2];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!()
     }
 }

@@ -102,12 +102,12 @@ impl Plugin for AlignmentRendererPlugin {
                     update_main_alignment_image_view,
                     set_main_viewer_image_size.before(resize_alignment_viewer_back_image),
                 ),
+            )
+            .add_systems(
+                Update,
+                trigger_alignment_viewer_line_render
+                    .after(super::view::update_camera_from_viewport),
             );
-        // .add_systems(
-        //     Update,
-        //     trigger_alignment_viewer_line_render
-        //         .after(super::view::update_camera_from_viewport),
-        // );
     }
 
     fn finish(&self, app: &mut App) {

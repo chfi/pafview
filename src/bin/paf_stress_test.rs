@@ -283,37 +283,40 @@ fn main() -> anyhow::Result<()> {
     let (alignments, sequences) = pafview::paf::load_input_files_mmap(&mock_cli)?;
     println!("loaded in {}s", t0.elapsed().as_secs_f64());
 
-    println!("loading alignments from file");
-    let t0 = std::time::Instant::now();
-    let (expected, _) = pafview::paf::load_input_files(&mock_cli)?;
-    println!("loaded in {}s", t0.elapsed().as_secs_f64());
+    let mmap_pairs = alignments.pairs();
 
-    let exp_pairs = expected.pairs().count();
-    let mmap_pairs = alignments.pairs().count();
+    let mut digit_counts = [0usize; 10];
+    for (seq_pair, als) in mmap_pairs {
+        for al in als {
+            let cg = al.cigar.whole_cigar();
+            let count = cg.count();
 
-    println!("expected pairs: {exp_pairs}\tmmap pairs: {mmap_pairs}");
+            let pow10 = count.ilog10() as usize;
+            digit_counts[pow10.min(digit_counts.len() - 1)] += 1;
+        }
+        //
+        // let pow10 = len.ilog10() as usize;
+        // digit_counts[pow10.min(digit_counts.len() - 1)] += 1;
+    }
 
-    let al_pairs = std::iter::zip(alignments.alignments.iter(), expected.alignments.iter());
+    println!("{:16} - {}", "digits(op_count)", "cigar count");
+    for (exp10, count) in digit_counts.iter().enumerate() {
+        let v = 10u64.pow(exp10 as u32);
 
+        // let low = format!("{}", v - 1);
+        // let hi = format!("{low}{low}");
+        // let lim = format!("{low}-{hi}");
+        println!("{v:16} - {count}");
+    }
+    /*
     for (i, (mmap_al, exp_al)) in al_pairs.enumerate() {
         let range = cli.start.unwrap_or(10)..cli.end.unwrap_or(100);
 
         let mmap_loc = &mmap_al.location;
-        let exp_loc = &exp_al.location;
 
-        println!("expected location {exp_loc:?}");
         println!("  mmap   location {mmap_loc:?}");
 
-        let start = exp_loc.target_range.start + cli.start.unwrap_or(0);
-        let end = exp_loc.target_range.start + cli.end.unwrap_or(100);
-        // let range = 10..100;
-
-        let range = start..end;
-        println!();
-        println!(" [{i}] iterating range {start}..{end}");
-
         let new = mmap_al.iter_target_range(range.clone());
-        let old = exp_al.iter_target_range(range.clone());
 
         // let new = mmap_al.cigar.iter_target_range(range.clone());
         // let old = exp_al.cigar.iter_target_range(range.clone());
@@ -335,6 +338,7 @@ fn main() -> anyhow::Result<()> {
         println!("-----------");
         //
     }
+    */
 
     /*
     for (ix, al) in alignments.alignments.iter().enumerate() {

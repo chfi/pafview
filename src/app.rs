@@ -380,6 +380,8 @@ fn prepare_alignments(
 
     use bevy_mod_picking::prelude::*;
 
+    let mut digit_counts = [0usize; 10];
+
     for ((tgt_id, qry_id), alignments) in alignments.pairs() {
         let x_offset = grid.x_axis.sequence_offset(tgt_id).unwrap();
         let y_offset = grid.y_axis.sequence_offset(qry_id).unwrap();
@@ -409,6 +411,10 @@ fn prepare_alignments(
             ))
             .with_children(|parent| {
                 for (ix, alignment) in alignments.enumerate() {
+                    let len = alignment.location.target_total_len as usize;
+                    let pow10 = len.ilog10() as usize;
+                    digit_counts[pow10.min(digit_counts.len() - 1)] += 1;
+
                     let al_comp = alignments::AlignmentIndex {
                         target: alignment.target_id,
                         query: alignment.query_id,
@@ -416,46 +422,53 @@ fn prepare_alignments(
                     };
                     let color_scheme = color_schemes.colors.get(&al_comp);
 
-                    let material = render::AlignmentPolylineMaterial::from_alignment(
-                        grid,
-                        alignment,
-                        color_scheme.clone(),
-                    );
+                    // let vertices = if cli_args.low_mem {
+                    //     render::AlignmentVertices::from_alignment_ignore_cigar(alignment)
+                    // } else {
+                    //     render::AlignmentVertices::from_alignment(alignment)
+                    // };
 
-                    let vertices = if cli_args.low_mem {
-                        render::AlignmentVertices::from_alignment_ignore_cigar(alignment)
-                    } else {
-                        render::AlignmentVertices::from_alignment(alignment)
-                    };
+                    let mut al_entity = parent.spawn((
+                        al_comp,
+                        Pickable {
+                            should_block_lower: false,
+                            is_hoverable: true,
+                        },
+                        On::<Pointer<Out>>::send_event::<infobar::InfobarAlignmentEvent>(),
+                        On::<Pointer<Over>>::send_event::<infobar::InfobarAlignmentEvent>(),
+                    ));
 
-                    let vx_handle = alignment_vertices.add(vertices);
+                    if !cli_args.low_mem {
+                        let material = render::AlignmentPolylineMaterial::from_alignment(
+                            grid,
+                            alignment,
+                            color_scheme.clone(),
+                        );
+                        let vertices = render::AlignmentVertices::from_alignment(alignment);
 
-                    vertex_index.vertices.insert(al_comp, vx_handle.clone());
+                        let vx_handle = alignment_vertices.add(vertices);
 
-                    let al_entity = parent
-                        .spawn((
-                            al_comp,
-                            alignment_materials.add(material),
-                            vx_handle,
-                            Pickable {
-                                should_block_lower: false,
-                                is_hoverable: true,
-                            },
-                            On::<Pointer<Out>>::send_event::<infobar::InfobarAlignmentEvent>(),
-                            On::<Pointer<Over>>::send_event::<infobar::InfobarAlignmentEvent>(),
-                        ))
-                        // .insert(
-                        //     On::<Pointer<Over>>::run(|input: Res<ListenerInput<Pointer<Over>>>, alignments: Query<&alignments::Alignment>| {
-                        //         println!("hovering alignment: {:?}", input.listener());
-                        //     })
-                        // )
-                        .id();
+                        vertex_index.vertices.insert(al_comp, vx_handle.clone());
+
+                        al_entity.insert((alignment_materials.add(material), vx_handle));
+                    }
+                    // .insert(
+                    //     On::<Pointer<Over>>::run(|input: Res<ListenerInput<Pointer<Over>>>, alignments: Query<&alignments::Alignment>| {
+                    //         println!("hovering alignment: {:?}", input.listener());
+                    //     })
+                    // )
+
+                    let al_entity = al_entity.id();
                     alignment_entity_index.insert(al_comp, al_entity);
                 }
             })
             .id();
 
         seq_pair_entity_index.insert(seq_pair, parent);
+    }
+
+    for (exp10, count) in digit_counts.iter().enumerate() {
+        println!("{exp10:10} - {count}");
     }
 }
 
