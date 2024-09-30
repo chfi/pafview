@@ -3285,7 +3285,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c2a198fb6b0eada2a8df47933734e6d35d350665a33a3593d7164fa52c75c19"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -4181,6 +4181,7 @@ dependencies = [
  "ultraviolet",
  "wgpu",
  "winit 0.30.3",
+ "zeno",
 ]
 
 [[package]]
@@ -6431,6 +6432,12 @@ name = "xmlwriter"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ec7a2a501ed189703dba8b08142f057e887dfc4b2cc4db2d343ac6376ba3e0b9"
+
+[[package]]
+name = "zeno"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ea3a5f6377b61784d9fe23ecfea15202508978bce00b401fcd8efeb8d21c767b"
 
 [[package]]
 name = "zerocopy"

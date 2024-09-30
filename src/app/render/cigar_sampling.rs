@@ -88,12 +88,12 @@ fn setup_render_tiles_new(
     let win_size = window.physical_size();
 
     let tile_grid = RenderTileGrid {
-        rows: 1,
-        columns: 1,
+        // rows: 1,
+        // columns: 1,
         // rows: 2,
         // columns: 2,
-        // rows: 4,
-        // columns: 4,
+        rows: 4,
+        columns: 4,
     };
 
     commands.insert_resource(tile_grid);
@@ -127,7 +127,7 @@ fn setup_render_tiles_new(
             image.resize(size);
 
             let img_handle = images.add(image);
-            let tile = commands
+            let _tile = commands
                 .spawn((
                     RenderTile {
                         size: win_size,
@@ -222,15 +222,18 @@ where
     let mut total_dst = 0f64;
 
     let mut draw_dot = |mask_buf: &mut [u8], x: f32, y: f32, rad: f32| {
-        let x_min = (x - rad).floor() as usize;
-        let x_max = (x + rad).ceil() as usize;
-        let y_min = (y - rad).floor() as usize;
-        let y_max = (y + rad).ceil() as usize;
+        let radplus = rad + 1.0;
+        let x_min = (x - radplus).floor() as usize;
+        let x_max = (x + radplus).ceil() as usize;
+        let y_min = (y - radplus).floor() as usize;
+        let y_max = (y + radplus).ceil() as usize;
 
-        let x0 = x + 0.5;
-        let y0 = y + 0.5;
+        let x0 = x;
+        let y0 = y;
+        // let x0 = x + 0.5;
+        // let y0 = y + 0.5;
 
-        let rad_sq = rad * rad;
+        let rad_sq = ((rad * rad) - 0.5).max(0.5);
 
         for x in x_min..x_max {
             for y in y_min..y_max {
@@ -241,10 +244,13 @@ where
                 let y1 = y as f32 + 0.5;
 
                 let val = (x1 - x0).powi(2) + (y1 - y0).powi(2);
-                if val < rad_sq && i < mask_buf.len() {
-                    let px = mask_buf[i] as u32;
-                    let v = px + (val * 255.0) as u32;
-                    mask_buf[i] = v.max(255) as u8;
+                // if val < rad_sq && i < mask_buf.len() {
+                if i < mask_buf.len() {
+                    let px = mask_buf[i];
+
+                    let d = (rad_sq.sqrt() - val.sqrt()).clamp(0.0, 1.0);
+
+                    mask_buf[i] = px.max((d * 255.0) as u8);
                 }
                 // let dist = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
             }
@@ -313,7 +319,7 @@ where
                     let d = dist as f32;
                     let x = start.x + 0.5 * (end.x - start.x);
                     let y = start.y + 0.5 * (end.y - start.y);
-                    draw_dot(&mut mask_buf, x, y, 2.0);
+                    draw_dot(&mut mask_buf, x, y, 1.5);
                     // let i = end.x as usize + end.y as usize * tile_dims.x as usize;
                     // if i < mask_buf.len() {
                     //     mask_buf[i] = 255;
@@ -598,29 +604,12 @@ fn update_render_tile_transforms(
     let window = windows.single();
     let win_size = window.size();
 
-    // let tile_dims = UVec2::new(
-    //     win_size.x / render_grid.columns as u32,
-    //     win_size.y / render_grid.rows as u32,
-    // );
-
     let tile_dims = Vec2::new(
         win_size.x / render_grid.columns as f32,
         win_size.y / render_grid.rows as f32,
     );
 
-    // let top_left = win_size * -0.25;
-    // let top_left = win_size * 0.5;
-    // let top_left = win_size * 0.0;
-
-    let top_left = Vec2::new(
-        //
-        win_size.x * 0.,
-        win_size.y * 0.,
-        // win_size.x * -0.25,
-        // win_size.y * -0.25,
-        // win_size.x * -0.5,
-        // win_size.y * -0.5,
-    );
+    let top_left = Vec2::new(win_size.x * -0.5, win_size.y * -0.5);
 
     // let tile_screen_center = |pos: UVec2| {
     let tile_screen_top_left = |pos: UVec2| {
@@ -630,19 +619,12 @@ fn update_render_tile_transforms(
 
     for (mut transform, render_tile) in tiles.iter_mut() {
         let tpos = render_tile.tile_grid_pos;
-        // let pos = top_left + tile_dims * tpos.as_vec2() - tile_dims * 0.5;
-        let pos = tile_screen_top_left(tpos);
-        // println!("tile pos {tpos:?} => \t{pos:?}");
-        // let pos = top_left + tile_dims * tpos.as_vec2();
-
-        // let mut tile_screen_center = pos;
+        let pos = tile_screen_top_left(tpos) + tile_dims * 0.5;
 
         let old_view = render_tile.last_rendered.as_ref().map(|params| params.view);
         let new_view = render_tile.view;
 
         if let Some((old_view, new_view)) = old_view.zip(new_view) {
-            // if let Some(params) = render_tile.last_rendered.as_ref() {
-            // let old_view = params.view;
             let old_mid = old_view.center();
             let new_mid = new_view.center();
 
@@ -654,8 +636,6 @@ fn update_render_tile_transforms(
                 norm_delta.x as f32 * tile_dims.x,
                 norm_delta.y as f32 * tile_dims.y,
             );
-            // let screen_delta = norm_delta.to_f32()
-            // let screen_delta = norm_delta.to_f32() * [win_size.x, win_size.y].as_uv();
 
             let tile_w = render_tile.size.x as f64;
             let tile_h = render_tile.size.y as f64;
@@ -668,8 +648,6 @@ fn update_render_tile_transforms(
             let scale = Vec3::new(
                 (old_w_scale / new_w_scale) as f32,
                 (old_h_scale / new_h_scale) as f32,
-                // (old_view.width() / new_view.width()) as f32,
-                // (old_view.height() / new_view.height()) as f32,
                 1.0,
             );
 
@@ -713,14 +691,26 @@ fn spawn_render_tasks(
     >,
     // keys: Res<ButtonInput<KeyCode>>,
     // mut enabled: Local<bool>,
+    // mut view_timer_state: Local<Option<(Option<std::time::Instant>, crate::view::View)>>,
+    // mut spawn_task_timer: Local<Option<std::time::Instant>>,
 ) {
     // if keys.just_pressed(KeyCode::Space) {
     //     *enabled = true;
     // }
-
     // if !*enabled {
     //     return;
     // }
+
+    /*
+    let should_spawn = spawn_task_timer
+        .as_ref()
+        .map(|t| t.elapsed().as_millis() > 200)
+        .unwrap_or(false);
+
+    if viewport.is_changed() {
+
+    }
+    */
 
     let window = windows.single();
     let win_size = window.physical_size();
