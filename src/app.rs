@@ -42,7 +42,6 @@ impl Plugin for PafViewerPlugin {
             .add_plugins(rulers::ViewerRulersPlugin)
             .add_plugins(selection::RegionSelectionPlugin)
             .add_plugins(render::AlignmentRendererPlugin)
-            .add_plugins(render::cigar_sampling::CigarSamplingRenderPlugin)
             .add_plugins(picking::PickingPlugin)
             .add_plugins(figure_export::FigureExportPlugin)
             .add_systems(Startup, setup_base_level_display_image)
@@ -71,6 +70,12 @@ impl Plugin for PafViewerPlugin {
                     .after(send_base_level_view_events),
             )
             .add_systems(PostUpdate, save_app_config);
+
+        let args = crate::cli::Cli::parse();
+
+        if args.low_mem {
+            app.add_plugins(render::cigar_sampling::CigarSamplingRenderPlugin);
+        }
 
         #[cfg(debug_assertions)]
         app.add_plugins(bevy::dev_tools::fps_overlay::FpsOverlayPlugin {
