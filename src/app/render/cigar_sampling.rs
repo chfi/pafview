@@ -72,7 +72,7 @@ struct RenderTile {
     last_update: Option<std::time::Instant>,
 }
 
-#[derive(Resource, Clone, Copy)]
+#[derive(Resource, Component, Clone, Copy)]
 struct RenderTileGrid {
     rows: usize,
     columns: usize,
@@ -155,35 +155,39 @@ fn setup_render_tiles_new(
     }
 }
 
-fn rasterize_world_lines<P: Into<[f64; 2]>>(
-    tile_bounds: crate::view::View,
-    tile_dims: UVec2,
-    tile_data: &mut [[u8; 4]],
+fn update_viewport_locked_render_tile_params(
+    mut commands: Commands,
+    //
+    render_tile_grids: Query<(&Children, &RenderTileGrid), With<super::MainAlignmentView>>,
 
-    lines: impl IntoIterator<Item = [P; 2]>,
+    mut render_tiles: Query<(
+        &mut RenderTile,
+        // Option<&crate::app::view::AlignmentViewport>,
+    )>,
 ) {
-    use line_drawing::XiaolinWu;
+    // update the tiles with the "main view" marker entity on their controller/parent entity
+    // based on the current viewport & active layout
+    //
 
-    let mut mask_buf = vec![0u8; tile_data.len()];
+    for (children, tile_grid) in render_tile_grids.iter() {
+        for &tile_entity in children.iter() {
+            let Ok(render_tile) = render_tiles.get_mut(tile_entity) else {
+                continue;
+            };
 
-    for [p0, p1] in lines {
-        let p0 = p0.into();
-        let p1 = p1.into();
-
-        let dims = tile_dims.as_vec2();
-        let s0 = tile_bounds.map_world_to_screen(dims, p0);
-        let s1 = tile_bounds.map_world_to_screen(dims, p1);
-
-        for ((px, py), v) in XiaolinWu::<f32, i32>::new((s0.x, s0.y), (s1.x, s1.y)) {
-            if px >= 0 && px < tile_dims.x as i32 && py >= 0 && py < tile_dims.y as i32 {
-                let ix = (px + py * tile_dims.x as i32) as usize;
-                if ix < tile_data.len() {
-                    let alpha = (v * 255.0) as u8;
-                    tile_data[ix] = [0, 0, 0, alpha];
-                }
-            }
+            //
         }
     }
+
+    //
+}
+
+fn spawn_render_tasks_(
+    mut commands: Commands,
+    //
+    render_tile_grids: Query<(&Children, &RenderTileGrid)>,
+    mut tiles: Query<(&mut RenderTile, Has<RenderTask>)>,
+) {
 }
 
 fn rasterize_alignments_in_tile<'a, S, I>(
@@ -204,7 +208,7 @@ where
 
     let mut buffer = vec![0u8; px_count * 4];
     let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut buffer);
-    // pixels.fill(dbg_bg_color);
+    pixels.fill(dbg_bg_color);
 
     let vx_min = tile_bounds.x_min;
     let vx_max = tile_bounds.x_max;
@@ -815,16 +819,21 @@ fn spawn_render_tasks(
         let dbg_bg_color = {
             let pos = tile.tile_grid_pos;
             let cols = render_grid.columns;
-            let x = pos.x as f32 / cols as f32;
-            let y = pos.y as f32 / render_grid.rows as f32;
 
-            let hue = x * std::f32::consts::PI;
-            let lgt = ((y * std::f32::consts::PI).sin() * 0.25) + 0.5;
+            let i = pos.x + render_grid.columns as u32 * pos.y;
+            // let x = (pos.x + render_grid.columns as u32 * pos.y) as f32
+            //     / (render_grid.columns * render_grid.rows) as f32;
+            // let x = pos.x as f32 / cols as f32;
+            // let y = pos.y as f32 / render_grid.rows as f32;
+
+            let hue = i as f32 / (render_grid.columns * render_grid.rows) as f32;
+            let lgt = 0.5;
+            // let lgt = ((y * std::f32::consts::PI).sin() * 0.25) + 0.5;
 
             let color = Color::hsl(hue * 360.0, 0.8, lgt).to_srgba();
-            let map = |chn: f32| ((chn * 255.0) as u8).min(128);
+            let map = |chn: f32| ((chn * 255.0) as u8).min(160);
 
-            [map(color.red), map(color.green), map(color.red), 128]
+            [map(color.red), map(color.green), map(color.blue), 160]
         };
 
         // spawn task
@@ -1466,192 +1475,6 @@ fn start_render_task(
 }
 */
 
-mod stress_test {
-    use super::*;
-    use bevy::prelude::*;
-
-    pub(super) struct StressTestPlugin;
-
-    impl Plugin for StressTestPlugin {
-        fn build(&self, app: &mut App) {
-            app.add_systems(Startup, setup_stress_test)
-                .add_systems(Update, (spawn_task, finish_task).chain());
-        }
-    }
-
-    #[derive(Component)]
-    struct StressTestTile;
-
-    #[derive(Component)]
-    struct StressTestTask {
-        task: Task<(Vec<u8>, UVec2)>,
-    }
-
-    fn setup_stress_test(
-        mut commands: Commands,
-        mut images: ResMut<Assets<Image>>,
-
-        windows: Query<&Window>,
-    ) {
-        let window = windows.single();
-        let win_size = window.physical_size();
-
-        let size = wgpu::Extent3d {
-            width: win_size.x,
-            height: win_size.y,
-            depth_or_array_layers: 1,
-        };
-
-        let mut image = Image {
-            texture_descriptor: wgpu::TextureDescriptor {
-                label: None,
-                size,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                mip_level_count: 1,
-                sample_count: 1,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING
-                    | wgpu::TextureUsages::COPY_DST
-                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
-                view_formats: &[],
-            },
-            ..default()
-        };
-        image.resize(size);
-
-        let img_handle = images.add(image);
-        let tile = commands
-            .spawn((
-                StressTestTile,
-                RenderLayers::layer(1),
-                // SpatialBundle::default(),
-                // SpatialBundle {
-                //     transform: Transform::from_xyz(0.0, 0.0, 1.0),
-                //     ..default()
-                // }
-                Pickable {
-                    should_block_lower: false,
-                    is_hoverable: false,
-                },
-            ))
-            .insert(SpriteBundle {
-                sprite: Sprite { ..default() },
-                ..default()
-            })
-            .insert(img_handle.clone())
-            .id();
-    }
-
-    fn spawn_task(
-        mut commands: Commands,
-        keys: Res<ButtonInput<KeyCode>>,
-
-        tiles: Query<Entity, (With<StressTestTile>, Without<StressTestTask>)>,
-
-        windows: Query<&Window>,
-
-        mut lines: Local<Vec<[DVec2; 2]>>,
-    ) {
-        let window = windows.single();
-
-        let create_lines = lines.is_empty() || keys.just_pressed(KeyCode::Enter);
-
-        let view = crate::view::View {
-            x_min: -1000.0,
-            y_min: -1000.0,
-
-            x_max: 1_001_000.0,
-            y_max: 1_001_000.0,
-        };
-
-        if create_lines {
-            lines.clear();
-
-            use rand::prelude::*;
-            let mut rng = rand::thread_rng();
-
-            for i in 0..1_000 {
-                // generate lines
-                let x0 = rng.gen_range(0f64..=998_000.0);
-                let x1 = rng.gen_range((x0 + 100.0)..=999_000.0);
-
-                let y0 = rng.gen_range(0f64..=998_000.0);
-                let y1 = rng.gen_range((y0 + 100.0)..=999_000.0);
-
-                lines.push([DVec2::new(x0, y0), DVec2::new(x1, y1)]);
-            }
-        }
-
-        let should_render = create_lines || keys.just_pressed(KeyCode::Space);
-
-        if !should_render {
-            return;
-        }
-
-        let task_pool = AsyncComputeTaskPool::get();
-        for tile in tiles.iter() {
-            let lines = lines.clone();
-            let win_size = window.physical_size();
-            let task = task_pool.spawn(async move {
-                // let tile_size = UVec2::new(todo!(), todo!());
-                let tile_size = win_size;
-                let mut pixel_buffer = vec![0u8; (tile_size.x * tile_size.y) as usize * 4];
-
-                let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut pixel_buffer);
-
-                rasterize_world_lines(view, tile_size, pixels, lines);
-
-                (pixel_buffer, tile_size)
-            });
-
-            commands.entity(tile).insert(StressTestTask { task });
-        }
-    }
-
-    fn finish_task(
-        mut commands: Commands,
-        mut images: ResMut<Assets<Image>>,
-
-        mut tiles: Query<
-            (
-                Entity,
-                // &SequencePairTile,
-                // &Transform,
-                // &ViewVisibility,
-                &Handle<Image>,
-                // &mut StressTestTile,
-                &mut StressTestTask,
-            ),
-            With<StressTestTile>,
-        >,
-    ) {
-        for (tile, img_h, mut task) in tiles.iter_mut() {
-            //
-            let Some((data, img_size)) =
-                bevy::tasks::block_on(bevy::tasks::poll_once(&mut task.task))
-            else {
-                continue;
-            };
-
-            let Some(image) = images.get_mut(img_h) else {
-                continue;
-            };
-
-            image.resize(wgpu::Extent3d {
-                width: img_size.x,
-                height: img_size.y,
-                depth_or_array_layers: 1,
-            });
-
-            image.texture_descriptor.size.width = img_size.x;
-            image.texture_descriptor.size.height = img_size.y;
-            image.data = data;
-
-            commands.entity(tile).remove::<StressTestTask>();
-        }
-    }
-}
-
 struct CigarScreenPathStrokeIter<I> {
     iter: I,
 
@@ -1748,19 +1571,19 @@ impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathStrokeIte
                 if dist_sq > scale_sq {
                     if matches!(op, M | Eq | X) {
                         self.path_open = Some(w_start);
+                        let s_start = self
+                            .view
+                            .map_world_to_screen(screen_dims, [w_start.x, w_start.y]);
+                        // println!("emitting LineTo({}, {})", s_start.x, s_start.y);
+                        // println!("looped {loop_count} before emitting");
+                        return Some(Command::LineTo(Vector {
+                            x: s_start.x,
+                            y: s_start.y,
+                        }));
                     } else {
                         // emit MoveTo(w_end)... maybe?
                         // or actually just keep going, i guess?
                     }
-                    let s_start = self
-                        .view
-                        .map_world_to_screen(screen_dims, [w_start.x, w_start.y]);
-                    // println!("emitting LineTo({}, {})", s_start.x, s_start.y);
-                    // println!("looped {loop_count} before emitting");
-                    return Some(Command::LineTo(Vector {
-                        x: s_start.x,
-                        y: s_start.y,
-                    }));
                 }
             } else {
                 if matches!(op, M | Eq | X) {
@@ -1782,238 +1605,5 @@ impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathStrokeIte
 
             loop_count += 1;
         }
-    }
-}
-
-struct CigarScreenPathIter<I> {
-    iter: I,
-
-    view: crate::view::View,
-    dims: UVec2,
-    seq_pair_world_offset: DVec2,
-
-    bp_per_px: f64,
-
-    path_open: Option<[f64; 2]>,
-    // started: bool,
-    // path_open: bool,
-
-    // last_world_point: Option<[f64; 2]>,
-    // last_point: Option<Vec2>,
-}
-
-impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathIter<I> {
-    fn new(
-        view: crate::view::View,
-        dims: UVec2,
-        seq_pair_world_offset: impl Into<[f64; 2]>,
-        iter: I,
-    ) -> Self {
-        let bp_per_px = view.width() / dims.x as f64;
-
-        Self {
-            iter,
-
-            view,
-            dims,
-            seq_pair_world_offset: seq_pair_world_offset.into().into(),
-
-            bp_per_px,
-
-            // started: false,
-            path_open: None,
-            // last_world_point: None,
-        }
-    }
-
-    fn emit_next(&mut self) -> Option<zeno::Command> {
-        use crate::CigarOp::{Eq, D, I, M, X};
-        use zeno::{Command, Vector};
-
-        let origin = self.seq_pair_world_offset;
-        let screen_dims = [self.dims.x as f32, self.dims.y as f32];
-
-        loop {
-            let cg_item = self.iter.next()?;
-            let op = cg_item.op;
-            let len = cg_item.op_count;
-            // let len = cg_item.op_count as f64;
-            let tgt_r = cg_item.target_seq_range();
-            let qry_r = cg_item.query_seq_range();
-
-            let dx = op.target_delta(len) as f64;
-            let dy = op.query_delta(len) as f64;
-
-            let w_start = {
-                let x = (tgt_r.start as f64) + origin.x;
-                let y = (qry_r.start as f64) + origin.y;
-                ultraviolet::DVec2::new(x, y)
-            };
-            let w_end = {
-                let x = (tgt_r.end as f64) + origin.x;
-                let y = (qry_r.end as f64) + origin.y;
-                ultraviolet::DVec2::new(x, y)
-            };
-
-            if let Some([last_x, last_y]) = self.path_open {
-                // p0 - start of the open path segment
-                // p1 - start of current op
-                // p2 - end of the current op
-                let p0 = self.view.map_world_to_screen(screen_dims, [last_x, last_y]);
-                let p1 = self.view.map_world_to_screen(screen_dims, w_start);
-                let p2 = self.view.map_world_to_screen(screen_dims, w_end);
-
-                if matches!(op, Eq | X | M) {
-                    //
-                } else {
-                    //
-                }
-            } else {
-                if matches!(op, Eq | X | M) {
-                    //
-                } else {
-                    //
-                }
-            }
-
-            /*
-                emit "MoveTo" and "LineTo" commands to stroke a screen-space path
-                of the cigar being iterated
-
-                in some sense, all strokes are at a perfect 45 degrees -- but we're simplifying it
-
-                if the scale (in bp per pixel) is greater than the size of an I or D op,
-
-
-            */
-
-            /*
-            // first step... i think
-            if matches!(op, Eq | X | M) {
-                if self.last_world_point.is_none() && !self.path_open {
-                    let x = w_start.x;
-                    let y = w_start.y;
-
-                    self.last_world_point = Some([x, y]);
-                    let tile_pos = self.view.map_world_to_screen(screen_dims, [x, y]);
-
-                    return Some(Command::MoveTo(Vector {
-                        x: tile_pos.x,
-                        y: tile_pos.y,
-                    }));
-                }
-
-            //
-            } else {
-                if let Some([last_x, last_y]) = self.last_world_point {
-                    if self.path_open {
-                        // let tile_pos = w_
-
-                        return Some(Command::LineTo(Vector {
-                            x: tile_pos.x,
-                            y: tile_pos.y,
-                        }));
-                    }
-                    //
-                }
-
-                // if self.last_world_point.is_none() {
-                //     let x = (tgt_r.start as f64) + origin.x;
-                //     let y = (qry_r.start as f64) + origin.y;
-
-                //     // self.last_world_point = Some([x, y]);
-                //     let tile_pos = self.view.map_world_to_screen(screen_dims, [x, y]);
-
-                //     return Some(Command::MoveTo(Vector {
-                //         x: tile_pos.x,
-                //         y: tile_pos.y,
-                //     }));
-                // }
-
-                //
-            }
-            */
-
-            // let cmd = zeno::Command::MoveTo(());
-
-            /*
-            if let Some(emitted_point) = self.last_world_point {
-                let [em_x, em_y] = emitted_point;
-
-                match op {
-                    Eq | X | M => {
-                        //
-                        todo!()
-                    }
-                    I | D => {
-                        //
-                        todo!()
-                    }
-                }
-            } else {
-                match op {
-                    Eq | X | M => {
-                        // Some(zeno::Command)
-                        //
-                        todo!()
-                    }
-                    I | D => {
-                        //
-                        todo!()
-                    }
-                }
-            }
-            */
-
-            //
-
-            todo!();
-        }
-
-        todo!();
-    }
-}
-
-// maps (and compresses) an iterator over cigar ops into a sequence
-// of screen-space (pixel) lines, in some view
-struct CigarScreenLineIter<I>
-// where
-//     I: Iterator<Item = crate::CigarIterItem>,
-{
-    view: crate::view::View,
-    dims: UVec2,
-
-    bp_per_px: f64,
-
-    last_op: Option<crate::CigarOp>,
-
-    iter: I,
-}
-
-impl<I> CigarScreenLineIter<I>
-where
-    I: Iterator<Item = crate::CigarIterItem>,
-{
-    fn new(view: crate::view::View, dims: UVec2, iter: I) -> Self {
-        let bp_per_px = view.width() / dims.x as f64;
-
-        Self {
-            view,
-            dims,
-            last_op: None,
-            iter,
-            bp_per_px,
-        }
-    }
-}
-
-impl<I> Iterator for CigarScreenLineIter<I>
-where
-    I: Iterator<Item = crate::CigarIterItem>,
-{
-    type Item = [Vec2; 2];
-
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!()
     }
 }

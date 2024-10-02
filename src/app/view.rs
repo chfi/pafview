@@ -101,7 +101,7 @@ pub fn update_cursor_world(
     *cursor_world = new_al_cursor;
 }
 
-#[derive(Resource)]
+#[derive(Resource, Component)]
 pub struct AlignmentViewport {
     pub view: crate::view::View,
     pub initial_view: crate::view::View,
