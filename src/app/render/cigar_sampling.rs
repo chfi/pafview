@@ -65,15 +65,21 @@ struct RenderParams {
 struct RenderTile {
     tile_grid_pos: UVec2,
 
-    size: UVec2,
+    // size: UVec2,
     view: Option<crate::view::View>,
 
     last_rendered: Option<RenderParams>,
     last_update: Option<std::time::Instant>,
 }
 
+#[derive(Component, Component, Copy)]
+struct RenderTileGridCanvasSize {
+    pixels: UVec2,
+}
+
 #[derive(Resource, Component, Clone, Copy)]
 struct RenderTileGrid {
+    // pixel_dims: UVec2,
     rows: usize,
     columns: usize,
 }
@@ -92,6 +98,7 @@ fn setup_render_tiles_new(
         // columns: 1,
         // rows: 2,
         // columns: 2,
+        // pixel_dims: win_size,
         rows: 4,
         columns: 4,
     };
@@ -130,7 +137,7 @@ fn setup_render_tiles_new(
             let _tile = commands
                 .spawn((
                     RenderTile {
-                        size: win_size,
+                        // size: win_size,
                         tile_grid_pos: UVec2::new(column as u32, row as u32),
                         ..default()
                     },
@@ -155,6 +162,141 @@ fn setup_render_tiles_new(
     }
 }
 
+// creates the children for the `RenderTileGrid`
+fn spawn_render_grid_children(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+
+    render_tile_grids: Query<
+        (Entity, &RenderTileGrid, &RenderTileGridCanvasSize),
+        Changed<RenderTileGrid>,
+    >,
+) {
+    for (grid_entity, grid_size, canvas_size) in render_tile_grids.iter() {
+        let width = canvas_size.pixels.x / grid_size.rows as u32;
+        let height = canvas_size.pixels.y / grid_size.columns as u32;
+
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+
+        commands
+            .entity(grid_entity)
+            .despawn_descendants()
+            .with_children(|parent| {
+                //
+
+                for row in 0..grid_size.rows {
+                    for column in 0..grid_size.columns {
+                        let mut image = Image {
+                            texture_descriptor: wgpu::TextureDescriptor {
+                                label: None,
+                                size,
+                                dimension: wgpu::TextureDimension::D2,
+                                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                                mip_level_count: 1,
+                                sample_count: 1,
+                                usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                    | wgpu::TextureUsages::COPY_DST
+                                    | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                                view_formats: &[],
+                            },
+                            ..default()
+                        };
+                        image.resize(size);
+
+                        let img_handle = images.add(image);
+                        let _tile = commands
+                            .spawn((
+                                RenderTile {
+                                    // size: win_size,
+                                    tile_grid_pos: UVec2::new(column as u32, row as u32),
+                                    ..default()
+                                },
+                                // RenderLayers::layer(1),
+                                SpatialBundle::default(),
+                                // Pickable {
+                                //     should_block_lower: false,
+                                //     is_hoverable: false,
+                                // },
+                            ))
+                            // .insert(SpriteBundle {
+                            //     sprite: Sprite {
+                            //         // anchor: bevy::sprite::Anchor::TopLeft,
+                            //         anchor: bevy::sprite::Anchor::Center,
+                            //         ..default()
+                            //     },
+                            //     ..default()
+                            // })
+                            .insert(img_handle.clone())
+                            .id();
+                    }
+                }
+            });
+    }
+}
+
+// inserts additional components to the grid marked as the "main view",
+// which ensures that the tiles get rendered to the correct camera
+// & are updated as the "main viewport" changes
+//
+// must run after `spawn_render_grid_children`
+fn main_view_render_tile_init(
+    mut commands: Commands,
+
+    render_grids: Query<
+        (Entity, &Children, &RenderTileGrid),
+        (With<super::MainAlignmentView>, Added<RenderTileGrid>),
+    >,
+    tiles: Query<(&RenderTile, &Handle<Image>)>,
+) {
+    for (grid_entity, children, render_grid) in render_grids.iter() {
+        //
+
+        for &child in children.iter() {
+            commands.entity(child).insert((
+                RenderLayers::layer(1),
+                Pickable {
+                    should_block_lower: false,
+                    is_hoverable: false,
+                },
+                Sprite {
+                    anchor: bevy::sprite::Anchor::Center,
+                    ..default()
+                },
+            ));
+        }
+    }
+
+    //
+}
+
+// update `RenderTile`'s `view` and `dims` based on the parent's view
+// and size
+fn update_render_grid_tile_views(
+    render_tile_grids: Query<(&Children, &RenderTileGrid)>,
+
+    mut render_tiles: Query<(
+        &mut RenderTile,
+        // Option<&crate::app::view::AlignmentViewport>,
+    )>,
+) {
+    for (children, tile_grid) in render_tile_grids.iter() {
+        for &tile_entity in children.iter() {
+            // let width = win_size.x / tile_grid.rows as u32;
+            // let height = win_size.y / tile_grid.columns as u32;
+
+            let Ok(render_tile) = render_tiles.get_mut(tile_entity) else {
+                continue;
+            };
+
+            //
+        }
+    }
+}
+
 fn update_viewport_locked_render_tile_params(
     mut commands: Commands,
     //
@@ -169,15 +311,18 @@ fn update_viewport_locked_render_tile_params(
     // based on the current viewport & active layout
     //
 
-    for (children, tile_grid) in render_tile_grids.iter() {
-        for &tile_entity in children.iter() {
-            let Ok(render_tile) = render_tiles.get_mut(tile_entity) else {
-                continue;
-            };
+    // for (children, tile_grid) in render_tile_grids.iter() {
+    //     for &tile_entity in children.iter() {
+    //         // let width = win_size.x / tile_grid.rows as u32;
+    //         // let height = win_size.y / tile_grid.columns as u32;
 
-            //
-        }
-    }
+    //         let Ok(render_tile) = render_tiles.get_mut(tile_entity) else {
+    //             continue;
+    //         };
+
+    //         //
+    //     }
+    // }
 
     //
 }
@@ -208,7 +353,7 @@ where
 
     let mut buffer = vec![0u8; px_count * 4];
     let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut buffer);
-    pixels.fill(dbg_bg_color);
+    // pixels.fill(dbg_bg_color);
 
     let vx_min = tile_bounds.x_min;
     let vx_max = tile_bounds.x_max;
@@ -641,13 +786,15 @@ fn update_render_tile_transforms(
                 norm_delta.y as f32 * tile_dims.y,
             );
 
-            let tile_w = render_tile.size.x as f64;
-            let tile_h = render_tile.size.y as f64;
+            let grid_w = render_grid.pixel_dims.x as f64;
+            let grid_h = render_grid.pixel_dims.y as f64;
+            // let tile_w = render_tile.size.x as f64;
+            // let tile_h = render_tile.size.y as f64;
 
-            let old_w_scale = old_view.width() / tile_w;
-            let old_h_scale = old_view.height() / tile_h;
-            let new_w_scale = new_view.width() / tile_w;
-            let new_h_scale = new_view.height() / tile_h;
+            let old_w_scale = old_view.width() / grid_w;
+            let old_h_scale = old_view.height() / grid_h;
+            let new_w_scale = new_view.width() / grid_w;
+            let new_h_scale = new_view.height() / grid_h;
 
             let scale = Vec3::new(
                 (old_w_scale / new_w_scale) as f32,
@@ -1605,5 +1752,155 @@ impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathStrokeIte
 
             loop_count += 1;
         }
+    }
+}
+
+/*
+rather than working directly with a world view and exact tile dimensions,
+and outputting tile-space (pixel) zeno path commands, as the
+`CigarScreenPathStrokeIter` above,
+
+this iterator only takes the view scale and alignment-local target range
+into account, outputting world-unit (basepair) path commands with a minimum
+size based on the `bp_per_px` scale. these positions must then be offset
+by the alignment location and seq. pair offset before rasterization
+*/
+struct SimpleCigarPathStrokeIter<I> {
+    iter: I,
+    bp_per_px: f64,
+
+    target_range: std::ops::Range<u64>,
+
+    current_item: Option<crate::CigarIterItem>,
+    last_emitted: Option<StrokeCmd>,
+    cursor: DVec2,
+    // cursor: CigarPathCursor,
+    // state: Option<CigarPathState>,
+    // current_op: Option<(crate::CigarOp, u32)>,
+
+    // segment_start: Option<[f64; 2]>,
+}
+
+struct CigarPathCursor {
+    offset: DVec2,
+    stroke_start: Option<DVec2>,
+    // drawing: bool,
+}
+
+impl<I: Iterator<Item = crate::CigarIterItem>> SimpleCigarPathStrokeIter<I> {
+    // target_range must match `iter`'s target range
+    fn new(bp_per_px: f64, target_range: std::ops::Range<u64>, iter: I) -> Self {
+        Self {
+            iter,
+            bp_per_px,
+
+            target_range,
+
+            current_item: None,
+            last_emitted: None,
+            cursor: DVec2::ZERO,
+            /*
+            cursor: CigarPathCursor {
+                offset: DVec2::ZERO,
+                stroke_start: None,
+                // drawing: false,
+            }, // state: None,
+            */
+        }
+    }
+
+    //
+
+    fn process_item(&mut self, item: crate::CigarIterItem) -> Option<StrokeCmd> {
+        todo!();
+    }
+
+    fn emit(&mut self) -> Option<StrokeCmd> {
+        //
+        use crate::CigarOp::{Eq, D, I, M, X};
+        if self.last_emitted.is_none() {
+            // NB: this will get moved by the seq. pair & alignment offset
+            // later... mostly here to help me think
+            let cmd = StrokeCmd::MoveTo(DVec2::ZERO);
+            self.last_emitted = Some(cmd);
+            return Some(cmd);
+        }
+
+        let scale_sq = self.bp_per_px * self.bp_per_px;
+
+        loop {
+            if let Some(item) = self.current_item.take() {
+                if matches!(item.op, M | Eq | X) {
+                    let cmd = StrokeCmd::MoveTo(DVec2::ZERO);
+                    self.last_emitted = Some(cmd);
+                    // return Some()
+                }
+            }
+
+            let Some(item) = self.iter.next() else {
+                todo!();
+                // output final LineTo command if needed
+            };
+
+            let op = item.op;
+            let len = item.op_count;
+            let dx = op.target_delta(len) as f64;
+            let dy = op.query_delta(len) as f64;
+
+            let len_sq = dx * dx + dy * dy;
+
+            if matches!(op, M | Eq | X) {
+                if len_sq >= scale_sq {
+                    // this one's enough to emit by itself
+                }
+            }
+
+            //
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum StrokeCmd {
+    MoveTo(DVec2),
+    LineTo(DVec2),
+}
+
+impl<I: Iterator<Item = crate::CigarIterItem>> Iterator for SimpleCigarPathStrokeIter<I> {
+    type Item = StrokeCmd;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        todo!();
+        /*
+        match self.state.take() {
+            Some(CigarPathState::Done) => None,
+            None => {
+                let Some(item) = self.iter.next() else {
+                    self.state = Some(CigarPathState::Done);
+                    return None;
+                };
+
+                // update state and recurse; won't even happen more than once
+                self.state = Some(CigarPathState::StartOf(item));
+                return self.next();
+            }
+            Some(CigarPathState::StartOf(item)) => {
+                //
+
+                self.state = Some(CigarPathState::EndOf(item));
+                todo!();
+            }
+            Some(CigarPathState::EndOf(item)) => {
+                //
+
+                self.state = Some(CigarPathState::EndOf(item));
+                todo!();
+            }
+        }
+
+        // if self.current_op.is_none() {
+        //     self.current_op = self.iter.next();
+        // }
+        */
     }
 }
