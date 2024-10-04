@@ -101,17 +101,22 @@ pub fn update_cursor_world(
     *cursor_world = new_al_cursor;
 }
 
-#[derive(Resource, Component)]
+#[derive(Resource, Component, Debug, Clone, Copy)]
 pub struct AlignmentViewport {
     pub view: crate::view::View,
-    pub initial_view: crate::view::View,
+    // pub initial_view: crate::view::View,
 }
 
-impl AlignmentViewport {
-    pub fn initial_view(&self) -> &crate::view::View {
-        &self.initial_view
-    }
+#[derive(Resource, Component, Debug, Clone, Copy)]
+pub struct LayoutBounds {
+    pub bounds: crate::view::View,
 }
+
+// impl AlignmentViewport {
+//     pub fn initial_view(&self) -> &crate::view::View {
+//         &self.initial_view
+//     }
+// }
 
 fn setup(mut commands: Commands, grid: Res<crate::AlignmentGrid>) {
     let initial_view = crate::view::View {
@@ -123,10 +128,13 @@ fn setup(mut commands: Commands, grid: Res<crate::AlignmentGrid>) {
 
     let viewport = AlignmentViewport {
         view: initial_view,
-        initial_view,
+        // initial_view,
     };
 
     commands.insert_resource(viewport);
+    commands.insert_resource(LayoutBounds {
+        bounds: initial_view,
+    });
     commands.init_resource::<CursorAlignmentPosition>();
 }
 
@@ -309,6 +317,7 @@ fn input_update_viewport(
     mut mouse_wheel: EventReader<MouseWheel>,
     mut mouse_motion: EventReader<MouseMotion>,
 
+    layout_bounds: Res<LayoutBounds>,
     mut alignment_view: ResMut<AlignmentViewport>,
     mut view_events: EventWriter<ViewEvent>,
 
@@ -322,7 +331,7 @@ fn input_update_viewport(
 
     if keyboard.just_pressed(KeyCode::Escape) && !region_selection_mode.user_is_selecting {
         view_events.send(ViewEvent {
-            view: alignment_view.initial_view,
+            view: layout_bounds.bounds,
         });
     }
 

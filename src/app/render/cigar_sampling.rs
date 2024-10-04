@@ -8,11 +8,11 @@ use bevy::{
 use bevy_mod_picking::prelude::Pickable;
 
 use crate::{
-    app::{ForegroundColor, SequencePairTile},
+    app::{view::AlignmentViewport, ForegroundColor, SequencePairTile},
     math_conv::*,
 };
 
-use super::{AlignmentRenderTarget, AlignmentViewer};
+use super::{AlignmentRenderTarget, AlignmentViewer, MainAlignmentView};
 
 pub struct CigarSamplingRenderPlugin;
 
@@ -26,10 +26,42 @@ impl Plugin for CigarSamplingRenderPlugin {
 
         // app.add_plugins(stress_test::StressTestPlugin);
 
-        app.add_systems(Startup, setup_render_tiles_new);
-        app.add_systems(Startup, setup_tile_debug_time.after(setup_render_tiles_new));
+        app.add_systems(Startup, |mut commands: Commands| {
+            commands.spawn((
+                SpatialBundle::default(),
+                RenderTileGrid {
+                    rows: 4,
+                    columns: 4,
+                },
+                RenderTileGridCanvasSize {
+                    pixels: [800, 600].into(),
+                },
+                MainAlignmentView,
+            ));
+        });
 
-        app.add_systems(Update, update_tile_debug_time);
+        app.add_systems(
+            PreUpdate,
+            (
+                (
+                    //
+                    spawn_render_grid_children,
+                    main_view_render_tile_init,
+                )
+                    .chain(),
+                update_main_viewport_render_grid,
+                update_viewport_locked_render_tile_params,
+            )
+                .chain(),
+        );
+        // ).add_systems(
+
+        // )
+
+        // app.add_systems(Startup, setup_render_tiles_new);
+        // app.add_systems(Startup, setup_tile_debug_time.after(setup_render_tiles_new));
+
+        // app.add_systems(Update, update_tile_debug_time);
         /*
             update_render_tile_transforms
             spawn_render_tasks
@@ -50,7 +82,9 @@ impl Plugin for CigarSamplingRenderPlugin {
         )
         .add_systems(
             PreUpdate,
-            (update_image_from_task, cleanup_render_task).chain(),
+            (update_image_from_task, cleanup_render_task)
+                .chain()
+                .before(update_viewport_locked_render_tile_params),
         );
     }
 }
@@ -65,14 +99,14 @@ struct RenderParams {
 struct RenderTile {
     tile_grid_pos: UVec2,
 
-    // size: UVec2,
+    size: UVec2,
     view: Option<crate::view::View>,
 
     last_rendered: Option<RenderParams>,
     last_update: Option<std::time::Instant>,
 }
 
-#[derive(Component, Component, Copy)]
+#[derive(Resource, Component, Clone, Copy)]
 struct RenderTileGridCanvasSize {
     pixels: UVec2,
 }
@@ -82,84 +116,6 @@ struct RenderTileGrid {
     // pixel_dims: UVec2,
     rows: usize,
     columns: usize,
-}
-
-fn setup_render_tiles_new(
-    mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-
-    windows: Query<&Window>,
-) {
-    let window = windows.single();
-    let win_size = window.physical_size();
-
-    let tile_grid = RenderTileGrid {
-        // rows: 1,
-        // columns: 1,
-        // rows: 2,
-        // columns: 2,
-        // pixel_dims: win_size,
-        rows: 4,
-        columns: 4,
-    };
-
-    commands.insert_resource(tile_grid);
-
-    let width = win_size.x / tile_grid.rows as u32;
-    let height = win_size.y / tile_grid.columns as u32;
-
-    let size = wgpu::Extent3d {
-        width,
-        height,
-        depth_or_array_layers: 1,
-    };
-
-    for row in 0..tile_grid.rows {
-        for column in 0..tile_grid.columns {
-            let mut image = Image {
-                texture_descriptor: wgpu::TextureDescriptor {
-                    label: None,
-                    size,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::COPY_DST
-                        | wgpu::TextureUsages::RENDER_ATTACHMENT,
-                    view_formats: &[],
-                },
-                ..default()
-            };
-            image.resize(size);
-
-            let img_handle = images.add(image);
-            let _tile = commands
-                .spawn((
-                    RenderTile {
-                        // size: win_size,
-                        tile_grid_pos: UVec2::new(column as u32, row as u32),
-                        ..default()
-                    },
-                    RenderLayers::layer(1),
-                    SpatialBundle::default(),
-                    Pickable {
-                        should_block_lower: false,
-                        is_hoverable: false,
-                    },
-                ))
-                .insert(SpriteBundle {
-                    sprite: Sprite {
-                        // anchor: bevy::sprite::Anchor::TopLeft,
-                        anchor: bevy::sprite::Anchor::Center,
-                        ..default()
-                    },
-                    ..default()
-                })
-                .insert(img_handle.clone())
-                .id();
-        }
-    }
 }
 
 // creates the children for the `RenderTileGrid`
@@ -173,6 +129,7 @@ fn spawn_render_grid_children(
     >,
 ) {
     for (grid_entity, grid_size, canvas_size) in render_tile_grids.iter() {
+        println!("spawning tiles as children on grid");
         let width = canvas_size.pixels.x / grid_size.rows as u32;
         let height = canvas_size.pixels.y / grid_size.columns as u32;
 
@@ -208,7 +165,7 @@ fn spawn_render_grid_children(
                         image.resize(size);
 
                         let img_handle = images.add(image);
-                        let _tile = commands
+                        let _tile = parent
                             .spawn((
                                 RenderTile {
                                     // size: win_size,
@@ -246,16 +203,20 @@ fn spawn_render_grid_children(
 fn main_view_render_tile_init(
     mut commands: Commands,
 
-    render_grids: Query<
-        (Entity, &Children, &RenderTileGrid),
-        (With<super::MainAlignmentView>, Added<RenderTileGrid>),
-    >,
-    tiles: Query<(&RenderTile, &Handle<Image>)>,
-) {
-    for (grid_entity, children, render_grid) in render_grids.iter() {
-        //
+    viewport: Res<AlignmentViewport>,
 
-        for &child in children.iter() {
+    render_grids: Query<
+        // (Entity, &Children, &RenderTileGrid),
+        (Entity, &Children),
+        (With<super::MainAlignmentView>, Changed<Children>),
+        // (With<super::MainAlignmentView>, Added<RenderTileGrid>),
+    >,
+    // tiles: Query<(&RenderTile, &Handle<Image>)>,
+) {
+    for (grid_ent, grid_children) in render_grids.iter() {
+        commands.entity(grid_ent).insert(viewport.clone());
+
+        for &child in grid_children.iter() {
             commands.entity(child).insert((
                 RenderLayers::layer(1),
                 Pickable {
@@ -273,6 +234,7 @@ fn main_view_render_tile_init(
     //
 }
 
+/*
 // update `RenderTile`'s `view` and `dims` based on the parent's view
 // and size
 fn update_render_grid_tile_views(
@@ -296,17 +258,96 @@ fn update_render_grid_tile_views(
         }
     }
 }
+*/
 
+fn update_main_viewport_render_grid(
+    viewport: Res<AlignmentViewport>,
+
+    windows: Query<&Window>,
+
+    mut render_tile_grids: Query<
+        (&mut AlignmentViewport, &mut RenderTileGridCanvasSize),
+        (With<MainAlignmentView>, With<RenderTileGrid>),
+    >,
+) {
+    let window = windows.single();
+    let canvas_size = RenderTileGridCanvasSize {
+        pixels: window.physical_size(),
+    };
+
+    for (mut render_viewport, mut grid_canvas_size) in render_tile_grids.iter_mut() {
+        *render_viewport = viewport.clone();
+        *grid_canvas_size = canvas_size;
+    }
+}
+
+// run after systems that update the parent/grid's `AlignmentViewport`
 fn update_viewport_locked_render_tile_params(
     mut commands: Commands,
     //
-    render_tile_grids: Query<(&Children, &RenderTileGrid), With<super::MainAlignmentView>>,
+    // render_tile_grids: Query<(&RenderTileGrid, &AlignmentViewport, &Children)>,
+    render_grids: Query<(
+        Entity,
+        &RenderTileGrid,
+        &RenderTileGridCanvasSize,
+        &AlignmentViewport,
+        &Children,
+    )>,
 
-    mut render_tiles: Query<(
+    mut render_tiles: Query<
         &mut RenderTile,
         // Option<&crate::app::view::AlignmentViewport>,
-    )>,
+    >,
 ) {
+    for (grid_ent, render_grid, grid_canvas_size, render_view, children) in render_grids.iter() {
+        let win_size = grid_canvas_size.pixels;
+        // let win_size = win_size_px.as_vec2();
+
+        let tile_dims = UVec2::new(
+            win_size.x / render_grid.columns as u32,
+            win_size.y / render_grid.rows as u32,
+        );
+
+        let world_tile_size = DVec2::new(
+            render_view.view.width() / render_grid.columns as f64,
+            render_view.view.height() / render_grid.rows as f64,
+        );
+        println!("parent grid {grid_ent:?} - {} children", children.len());
+
+        for &tile_ent in children.iter() {
+            dbg!();
+            let Ok(mut tile) = render_tiles.get_mut(tile_ent) else {
+                continue;
+            };
+            dbg!();
+            //
+            // let tile_bounds =
+            let tile_pos = tile.tile_grid_pos;
+            let s_x0 = (tile_pos.x * tile_dims.x) as f64;
+            let s_y0 = (tile_pos.y * tile_dims.y) as f64;
+
+            let s_x1 = s_x0 + tile_dims.x as f64;
+            let s_y1 = s_y0 + tile_dims.y as f64;
+
+            // compute world viewport corresponding to tile
+            let w_x0 = render_view.view.x_min + tile_pos.x as f64 * world_tile_size.x;
+            let w_y0 = render_view.view.y_min + tile_pos.y as f64 * world_tile_size.y;
+
+            let w_x1 = w_x0 + world_tile_size.x;
+            let w_y1 = w_y0 + world_tile_size.y;
+
+            let tile_bounds = crate::view::View {
+                x_min: w_x0,
+                x_max: w_x1,
+                y_min: w_y0,
+                y_max: w_y1,
+            };
+
+            tile.view = Some(tile_bounds);
+            tile.size = tile_dims;
+        }
+    }
+
     // update the tiles with the "main view" marker entity on their controller/parent entity
     // based on the current viewport & active layout
     //
@@ -327,12 +368,151 @@ fn update_viewport_locked_render_tile_params(
     //
 }
 
-fn spawn_render_tasks_(
+fn spawn_render_tasks(
     mut commands: Commands,
-    //
-    render_tile_grids: Query<(&Children, &RenderTileGrid)>,
-    mut tiles: Query<(&mut RenderTile, Has<RenderTask>)>,
+
+    alignments: Res<crate::Alignments>,
+    alignment_grid: Res<crate::AlignmentGrid>,
+
+    render_tile_grids: Query<(&RenderTileGrid, &Children)>,
+    // mut tiles: Query<(&mut RenderTile, Has<RenderTask>)>,
+    // mut tiles: Query<&mut RenderTile>,
+    // mut tiles: Query<(&mut RenderTile, &AlignmentViewport), Without<RenderTask>>,
+    tiles: Query<(Entity, &RenderTile), Without<RenderTask>>,
 ) {
+    let task_pool = AsyncComputeTaskPool::get();
+
+    for (render_grid, children) in render_tile_grids.iter() {
+        let mut tiles_iter = tiles.iter_many(children);
+        // dbg!();
+
+        // while let Some((mut render_tile, is_rendering)) = tiles_iter.fetch_next() {
+        // while let Some((mut tile, tile_bounds)) = tiles_iter.fetch_next() {
+        while let Some((tile_ent, tile)) = tiles_iter.fetch_next() {
+            // dbg!();
+            let Some(tile_bounds) = tile.view else {
+                continue;
+            };
+
+            dbg!();
+            if let Some(last) = tile.last_update.as_ref() {
+                let ms = last.elapsed().as_millis();
+                if ms < 100 {
+                    // println!("skipping due to timer");
+                    continue;
+                } else {
+                    // println!("timer lapsed; updating");
+                }
+            }
+            // dbg!();
+
+            let canvas_size = tile.size;
+
+            let params = RenderParams {
+                view: tile_bounds,
+                canvas_size,
+            };
+
+            //
+
+            let w_x0 = params.view.x_min;
+            let w_x1 = params.view.x_max;
+            let w_y0 = params.view.y_min;
+            let w_y1 = params.view.y_max;
+
+            let tgts = alignment_grid.x_axis.tiles_covered_by_range(w_x0..=w_x1);
+            let qrys = alignment_grid.y_axis.tiles_covered_by_range(w_y0..=w_y1);
+            let Some((tgts, qrys)) = tgts.zip(qrys) else {
+                continue;
+            };
+            // dbg!();
+            let qrys = qrys.collect::<Vec<_>>();
+
+            let tile_pairs = tgts.flat_map(|tgt| qrys.iter().map(move |qry| (tgt, *qry)));
+
+            let tile_positions = tile_pairs
+                .filter_map(|(target, query)| {
+                    let xs = alignment_grid.x_axis.sequence_axis_range(target)?;
+                    let ys = alignment_grid.y_axis.sequence_axis_range(query)?;
+
+                    let x0 = xs.start as f64;
+                    let y0 = ys.start as f64;
+
+                    let x1 = xs.end as f64;
+                    let y1 = ys.end as f64;
+
+                    Some((
+                        SequencePairTile { target, query },
+                        [DVec2::new(x0, y0), DVec2::new(x1, y1)],
+                    ))
+                })
+                .collect::<Vec<_>>();
+
+            let als = alignments.alignments.clone();
+            let al_pairs = alignments.indices.clone();
+
+            let dbg_bg_color = {
+                let pos = tile.tile_grid_pos;
+                let cols = render_grid.columns;
+
+                let i = pos.x + render_grid.columns as u32 * pos.y;
+                // let x = (pos.x + render_grid.columns as u32 * pos.y) as f32
+                //     / (render_grid.columns * render_grid.rows) as f32;
+                // let x = pos.x as f32 / cols as f32;
+                // let y = pos.y as f32 / render_grid.rows as f32;
+
+                let hue = i as f32 / (render_grid.columns * render_grid.rows) as f32;
+                let lgt = 0.5;
+                // let lgt = ((y * std::f32::consts::PI).sin() * 0.25) + 0.5;
+
+                let color = Color::hsl(hue * 360.0, 0.8, lgt).to_srgba();
+                let map = |chn: f32| ((chn * 255.0) as u8).min(160);
+
+                [map(color.red), map(color.green), map(color.blue), 160]
+            };
+
+            // spawn task
+            let task = task_pool.spawn(async move {
+                let mut count = 0;
+                let alignments = tile_positions
+                    .into_iter()
+                    .filter_map(|(seq_pair, bounds)| {
+                        let key = (seq_pair.target, seq_pair.query);
+                        let als = al_pairs
+                            .get(&key)?
+                            .into_iter()
+                            .filter_map(|ix| als.get(*ix))
+                            .collect::<Vec<_>>();
+                        count += als.len();
+                        Some((seq_pair, bounds, als))
+                    })
+                    .collect::<Vec<_>>();
+
+                println!(" >> {count} alignments to render");
+
+                // async_io::Timer::after(std::time::Duration::from_millis(1_000)).await;
+
+                rasterize_alignments_in_tile(dbg_bg_color, tile_bounds, canvas_size, alignments)
+            });
+
+            println!(
+                "spawning task for tile [{:?}][{}, {}]\t view: {:?}",
+                tile_ent, tile.tile_grid_pos.x, tile.tile_grid_pos.y, tile.view
+            );
+
+            commands
+                .entity(tile_ent)
+                .insert(RenderTask { task, params });
+
+            //
+        }
+        // for mut render_tile in tiles.iter_many_mut(children) {
+        //     //
+        // }
+        // for (mut render_tile, is_rendering) in tiles.iter_many_mut(children) {
+        //     //
+        // }
+    }
 }
 
 fn rasterize_alignments_in_tile<'a, S, I>(
@@ -353,7 +533,7 @@ where
 
     let mut buffer = vec![0u8; px_count * 4];
     let pixels: &mut [[u8; 4]] = bytemuck::cast_slice_mut(&mut buffer);
-    // pixels.fill(dbg_bg_color);
+    pixels.fill(dbg_bg_color);
 
     let vx_min = tile_bounds.x_min;
     let vx_max = tile_bounds.x_max;
@@ -742,72 +922,87 @@ fn setup_render_tile_targets(
 }
 */
 
+// run after whatever updates the `AlignmentViewport`
 fn update_render_tile_transforms(
     // viewport: Res<crate::app::view::AlignmentViewport>,
-    render_grid: Res<RenderTileGrid>,
-    windows: Query<&Window>,
+    // render_grid: Res<RenderTileGrid>,
+    // windows: Query<&Window>,
+    render_grids: Query<(
+        &RenderTileGrid,
+        &RenderTileGridCanvasSize,
+        &AlignmentViewport,
+        &Children,
+    )>,
 
     mut tiles: Query<(&mut Transform, &RenderTile)>,
     // mut tiles: Query<(&SequencePairTile, &mut Visibility, &mut Transform), With<RenderTileTarget>>,
 ) {
-    let window = windows.single();
-    let win_size = window.size();
+    for (render_grid, grid_canvas_size, render_view, children) in render_grids.iter() {
+        let win_size_px = grid_canvas_size.pixels;
+        let win_size = win_size_px.as_vec2();
 
-    let tile_dims = Vec2::new(
-        win_size.x / render_grid.columns as f32,
-        win_size.y / render_grid.rows as f32,
-    );
+        let tile_dims = Vec2::new(
+            win_size.x / render_grid.columns as f32,
+            win_size.y / render_grid.rows as f32,
+        );
 
-    let top_left = Vec2::new(win_size.x * -0.5, win_size.y * -0.5);
+        let top_left = Vec2::new(win_size.x * -0.5, win_size.y * -0.5);
 
-    // let tile_screen_center = |pos: UVec2| {
-    let tile_screen_top_left = |pos: UVec2| {
-        let offset = pos.as_vec2() * tile_dims;
-        top_left + offset
-    };
+        // let tile_screen_center = |pos: UVec2| {
+        let tile_screen_top_left = |pos: UVec2| {
+            let offset = pos.as_vec2() * tile_dims;
+            top_left + offset
+        };
 
-    for (mut transform, render_tile) in tiles.iter_mut() {
-        let tpos = render_tile.tile_grid_pos;
-        let pos = tile_screen_top_left(tpos) + tile_dims * 0.5;
+        for &child in children.iter() {
+            // }
 
-        let old_view = render_tile.last_rendered.as_ref().map(|params| params.view);
-        let new_view = render_tile.view;
+            // for (mut transform, render_tile) in tiles.iter_mut() {
 
-        if let Some((old_view, new_view)) = old_view.zip(new_view) {
-            let old_mid = old_view.center();
-            let new_mid = new_view.center();
+            let Ok((mut transform, render_tile)) = tiles.get_mut(child) else {
+                continue;
+            };
 
-            let world_delta = new_mid - old_mid;
-            let norm_delta = world_delta / new_view.size();
+            let tpos = render_tile.tile_grid_pos;
+            let pos = tile_screen_top_left(tpos) + tile_dims * 0.5;
 
-            let screen_delta = Vec2::new(
-                //
-                norm_delta.x as f32 * tile_dims.x,
-                norm_delta.y as f32 * tile_dims.y,
-            );
+            let old_view = render_tile.last_rendered.as_ref().map(|params| params.view);
+            let new_view = render_tile.view;
 
-            let grid_w = render_grid.pixel_dims.x as f64;
-            let grid_h = render_grid.pixel_dims.y as f64;
-            // let tile_w = render_tile.size.x as f64;
-            // let tile_h = render_tile.size.y as f64;
+            if let Some((old_view, new_view)) = old_view.zip(new_view) {
+                let old_mid = old_view.center();
+                let new_mid = new_view.center();
 
-            let old_w_scale = old_view.width() / grid_w;
-            let old_h_scale = old_view.height() / grid_h;
-            let new_w_scale = new_view.width() / grid_w;
-            let new_h_scale = new_view.height() / grid_h;
+                let world_delta = new_mid - old_mid;
+                let norm_delta = world_delta / new_view.size();
 
-            let scale = Vec3::new(
-                (old_w_scale / new_w_scale) as f32,
-                (old_h_scale / new_h_scale) as f32,
-                1.0,
-            );
+                let screen_delta = Vec2::new(
+                    //
+                    norm_delta.x as f32 * tile_dims.x,
+                    norm_delta.y as f32 * tile_dims.y,
+                );
 
-            transform.translation.x = pos.x - screen_delta.x;
-            transform.translation.y = pos.y - screen_delta.y;
-            transform.scale = scale;
-        } else {
-            transform.translation.x = pos.x;
-            transform.translation.y = pos.y;
+                let grid_w = win_size_px.x as f64;
+                let grid_h = win_size_px.y as f64;
+
+                let old_w_scale = old_view.width() / grid_w;
+                let old_h_scale = old_view.height() / grid_h;
+                let new_w_scale = new_view.width() / grid_w;
+                let new_h_scale = new_view.height() / grid_h;
+
+                let scale = Vec3::new(
+                    (old_w_scale / new_w_scale) as f32,
+                    (old_h_scale / new_h_scale) as f32,
+                    1.0,
+                );
+
+                transform.translation.x = pos.x - screen_delta.x;
+                transform.translation.y = pos.y - screen_delta.y;
+                transform.scale = scale;
+            } else {
+                transform.translation.x = pos.x;
+                transform.translation.y = pos.y;
+            }
         }
     }
 }
@@ -819,7 +1014,7 @@ struct RenderTask {
     params: RenderParams,
 }
 
-fn spawn_render_tasks(
+fn spawn_render_tasks_old(
     mut commands: Commands,
 
     // time: Res<Time>,
@@ -1902,5 +2097,83 @@ impl<I: Iterator<Item = crate::CigarIterItem>> Iterator for SimpleCigarPathStrok
         //     self.current_op = self.iter.next();
         // }
         */
+    }
+}
+
+fn setup_render_tiles_new(
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+
+    windows: Query<&Window>,
+) {
+    let window = windows.single();
+    let win_size = window.physical_size();
+
+    let tile_grid = RenderTileGrid {
+        // rows: 1,
+        // columns: 1,
+        // rows: 2,
+        // columns: 2,
+        // pixel_dims: win_size,
+        rows: 4,
+        columns: 4,
+    };
+
+    commands.insert_resource(tile_grid);
+
+    let width = win_size.x / tile_grid.rows as u32;
+    let height = win_size.y / tile_grid.columns as u32;
+
+    let size = wgpu::Extent3d {
+        width,
+        height,
+        depth_or_array_layers: 1,
+    };
+
+    for row in 0..tile_grid.rows {
+        for column in 0..tile_grid.columns {
+            let mut image = Image {
+                texture_descriptor: wgpu::TextureDescriptor {
+                    label: None,
+                    size,
+                    dimension: wgpu::TextureDimension::D2,
+                    format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                    view_formats: &[],
+                },
+                ..default()
+            };
+            image.resize(size);
+
+            let img_handle = images.add(image);
+            let _tile = commands
+                .spawn((
+                    RenderTile {
+                        // size: win_size,
+                        tile_grid_pos: UVec2::new(column as u32, row as u32),
+                        ..default()
+                    },
+                    RenderLayers::layer(1),
+                    SpatialBundle::default(),
+                    Pickable {
+                        should_block_lower: false,
+                        is_hoverable: false,
+                    },
+                ))
+                .insert(SpriteBundle {
+                    sprite: Sprite {
+                        // anchor: bevy::sprite::Anchor::TopLeft,
+                        anchor: bevy::sprite::Anchor::Center,
+                        ..default()
+                    },
+                    ..default()
+                })
+                .insert(img_handle.clone())
+                .id();
+        }
     }
 }

@@ -161,6 +161,7 @@ fn show_figure_export_window(
 
     mut window_open: ResMut<FigureExportWindowOpen>,
     // mut is_rendering: Local<bool>,
+    layout_bounds: Res<super::view::LayoutBounds>,
     alignment_viewport: Res<AlignmentViewport>,
     alignment_grid: Res<crate::AlignmentGrid>,
 
@@ -233,7 +234,7 @@ fn show_figure_export_window(
                     println!("rendering view {view:?}");
                     viewer.next_view = Some(view);
                 } else {
-                    let view = &alignment_viewport.initial_view;
+                    let view = &layout_bounds.bounds;
 
                     let new_view = alignment_viewport
                         .view
