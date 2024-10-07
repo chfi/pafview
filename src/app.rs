@@ -292,6 +292,27 @@ pub struct ForegroundColor(pub Color);
 pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
     let args = crate::cli::Cli::parse();
 
+    let default_layout = {
+        use render::layout::*;
+
+        let mut seqs = app
+            .sequences
+            .sequences
+            .iter()
+            .map(|(id, seq)| (*id, seq.len()))
+            .collect::<Vec<_>>();
+        seqs.sort_by_key(|(_, l)| *l);
+
+        let targets = seqs.iter().map(|(i, _)| *i);
+        let queries = targets.clone();
+
+        let layout =
+            LayoutBuilder::from_axes(targets, queries).with_vertical_offset(Some(10_000_000.0));
+
+        let layout = layout.build(&app.sequences);
+        DefaultLayout(layout)
+    };
+
     let mut paf_color_schemes = if args.dark_mode {
         PafColorSchemes::dark_mode()
     } else {
@@ -341,6 +362,7 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
         }))
         .add_plugins(PolylinePlugin)
         .insert_resource(args)
+        .insert_resource(default_layout)
         .insert_resource(clear_color)
         .insert_resource(foreground_color)
         .insert_resource(app.app_config)

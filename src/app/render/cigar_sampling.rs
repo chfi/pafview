@@ -1,3 +1,4 @@
+use avian2d::parry::bounding_volume::Aabb;
 use bevy::{
     math::DVec2,
     prelude::*,
@@ -318,15 +319,22 @@ fn spawn_render_tasks(
     mut commands: Commands,
 
     alignments: Res<crate::Alignments>,
-    alignment_grid: Res<crate::AlignmentGrid>,
+    // alignment_grid: Res<crate::AlignmentGrid>,
+    default_layout: Res<super::layout::DefaultLayout>,
 
-    render_tile_grids: Query<(&RenderTileGrid, &Children)>,
+    render_tile_grids: Query<(
+        &RenderTileGrid,
+        &Children,
+        Option<&super::layout::SeqPairLayout>,
+    )>,
 
     tiles: Query<(Entity, &RenderTile), Without<RenderTask>>,
 ) {
     let task_pool = AsyncComputeTaskPool::get();
 
-    for (render_grid, children) in render_tile_grids.iter() {
+    for (render_grid, children, layout) in render_tile_grids.iter() {
+        let layout = layout.unwrap_or(&default_layout.0);
+
         for (tile_ent, tile) in tiles.iter_many(children) {
             let Some(tile_bounds) = tile.view else {
                 continue;
@@ -356,33 +364,46 @@ fn spawn_render_tasks(
             let w_y0 = params.view.y_min;
             let w_y1 = params.view.y_max;
 
-            let tgts = alignment_grid.x_axis.tiles_covered_by_range(w_x0..=w_x1);
-            let qrys = alignment_grid.y_axis.tiles_covered_by_range(w_y0..=w_y1);
-            let Some((tgts, qrys)) = tgts.zip(qrys) else {
-                continue;
-            };
+            let tiles = layout
+                .layout_qbvh
+                .tiles_in_rect(params.view.center(), params.view.size() * 0.5);
 
-            let qrys = qrys.collect::<Vec<_>>();
+            // let tgts = alignment_grid.x_axis.tiles_covered_by_range(w_x0..=w_x1);
+            // let qrys = alignment_grid.y_axis.tiles_covered_by_range(w_y0..=w_y1);
+            // let Some((tgts, qrys)) = tgts.zip(qrys) else {
+            //     continue;
+            // };
 
-            let tile_pairs = tgts.flat_map(|tgt| qrys.iter().map(move |qry| (tgt, *qry)));
+            // let qrys = qrys.collect::<Vec<_>>();
 
-            let tile_positions = tile_pairs
-                .filter_map(|(target, query)| {
-                    let xs = alignment_grid.x_axis.sequence_axis_range(target)?;
-                    let ys = alignment_grid.y_axis.sequence_axis_range(query)?;
-
-                    let x0 = xs.start as f64;
-                    let y0 = ys.start as f64;
-
-                    let x1 = xs.end as f64;
-                    let y1 = ys.end as f64;
-
-                    Some((
-                        SequencePairTile { target, query },
-                        [DVec2::new(x0, y0), DVec2::new(x1, y1)],
-                    ))
+            // let tile_pairs = tgts.flat_map(|tgt| qrys.iter().map(move |qry| (tgt, *qry)));
+            let tile_aabbs = tiles
+                .into_iter()
+                .filter_map(|seq_pair| {
+                    let aabb = layout.aabbs.get(&seq_pair)?;
+                    Some((seq_pair, *aabb))
                 })
                 .collect::<Vec<_>>();
+
+            // let tile_pairs = tiles.
+
+            // let tile_positions = tile_pairs
+            //     .filter_map(|(target, query)| {
+            //         let xs = alignment_grid.x_axis.sequence_axis_range(target)?;
+            //         let ys = alignment_grid.y_axis.sequence_axis_range(query)?;
+
+            //         let x0 = xs.start as f64;
+            //         let y0 = ys.start as f64;
+
+            //         let x1 = xs.end as f64;
+            //         let y1 = ys.end as f64;
+
+            //         Some((
+            //             SequencePairTile { target, query },
+            //             [DVec2::new(x0, y0), DVec2::new(x1, y1)],
+            //         ))
+            //     })
+            //     .collect::<Vec<_>>();
 
             let als = alignments.alignments.clone();
             let al_pairs = alignments.indices.clone();
@@ -403,7 +424,7 @@ fn spawn_render_tasks(
             // spawn task
             let task = task_pool.spawn(async move {
                 let mut count = 0;
-                let alignments = tile_positions
+                let alignments = tile_aabbs
                     .into_iter()
                     .filter_map(|(seq_pair, bounds)| {
                         let key = (seq_pair.target, seq_pair.query);
@@ -413,6 +434,9 @@ fn spawn_render_tasks(
                             .filter_map(|ix| als.get(*ix))
                             .collect::<Vec<_>>();
                         count += als.len();
+
+                        // let p0 = bounds.mins;
+                        // let offset = DVec2::new(p0.x, p0.y);
                         Some((seq_pair, bounds, als))
                     })
                     .collect::<Vec<_>>();
@@ -455,7 +479,7 @@ fn rasterize_alignments_in_tile<'a, S, I>(
     seq_pairs: S,
 ) -> Vec<u8>
 where
-    S: IntoIterator<Item = (SequencePairTile, [DVec2; 2], I)>,
+    S: IntoIterator<Item = (SequencePairTile, Aabb, I)>,
     I: IntoIterator<Item = &'a crate::Alignment>,
 {
     let px_count = (tile_dims.x * tile_dims.y) as usize;
@@ -479,7 +503,7 @@ where
 
     let mut total_dst = 0f64;
 
-    let mut draw_dot = |mask_buf: &mut [u8], x: f32, y: f32, rad: f32| {
+    let draw_dot = |mask_buf: &mut [u8], x: f32, y: f32, rad: f32| {
         let radplus = rad + 1.0;
         let x_min = (x - radplus).floor() as usize;
         let x_max = (x + radplus).ceil() as usize;
@@ -502,20 +526,17 @@ where
                 let y1 = y as f32 + 0.5;
 
                 let val = (x1 - x0).powi(2) + (y1 - y0).powi(2);
-                // if val < rad_sq && i < mask_buf.len() {
                 if i < mask_buf.len() {
                     let px = mask_buf[i];
-
                     let d = (rad_sq.sqrt() - val.sqrt()).clamp(0.0, 1.0);
-
                     mask_buf[i] = px.max((d * 255.0) as u8);
                 }
-                // let dist = Vec2::new(x as f32 + 0.5, y as f32 + 0.5);
             }
         }
     };
 
-    for (seq_pair, [seq_min, seq_max], alignments) in seq_pairs.into_iter() {
+    // for (seq_pair, [seq_min, seq_max], alignments) in seq_pairs.into_iter() {
+    for (seq_pair, seq_aabb, alignments) in seq_pairs.into_iter() {
         // seq_min, seq_max encode the position of the seq. pair tile in the world
 
         for alignment in alignments {
@@ -524,7 +545,7 @@ where
             let loc = &alignment.location;
             let tgt_len = loc.target_range.end - loc.target_range.start;
 
-            let al_min = seq_min.x + loc.target_range.start as f64;
+            let al_min = seq_aabb.mins.x + loc.target_range.start as f64;
             let al_max = al_min + tgt_len as f64;
 
             // println!("{al_min}, {al_max}");
@@ -535,8 +556,12 @@ where
                 continue;
             }
 
-            let loc_min = cal_min.checked_sub(seq_min.x as u64).unwrap_or_default();
-            let loc_max = cal_max.checked_sub(seq_min.x as u64).unwrap_or_default();
+            let loc_min = cal_min
+                .checked_sub(seq_aabb.mins.x as u64)
+                .unwrap_or_default();
+            let loc_max = cal_max
+                .checked_sub(seq_aabb.mins.x as u64)
+                .unwrap_or_default();
 
             if loc_min == loc_max {
                 // println!("no overlap after offset; skipping");
@@ -547,8 +572,12 @@ where
             // let mut count = 0;
             // line_buf.clear();
             let iter = alignment.iter_target_range(loc_min..loc_max);
-            let mut cmd_iter =
-                CigarScreenPathStrokeIter::new(tile_bounds, tile_dims, seq_min, iter);
+            let mut cmd_iter = CigarScreenPathStrokeIter::new(
+                tile_bounds,
+                tile_dims,
+                [seq_aabb.mins.x, seq_aabb.mins.y],
+                iter,
+            );
 
             path_commands.clear();
 
@@ -918,6 +947,13 @@ impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathStrokeIte
         }
     }
 }
+
+// struct CigarPathCommandsIter<I> {
+//     iter: I,
+//     bp_per_px: f64,
+
+//     target_range: std::ops::Range<u64>,
+// }
 
 /*
 rather than working directly with a world view and exact tile dimensions,

@@ -1,11 +1,19 @@
 use bevy::{math::DVec2, prelude::*, utils::HashMap};
 
+// use rapier2d::parry;
+use avian2d::parry::{self, bounding_volume::Aabb};
+
 use crate::{app::SequencePairTile, sequences::SeqId};
 
 #[derive(Component, Clone)]
 pub struct SeqPairLayout {
-    pub offsets: HashMap<SequencePairTile, DVec2>,
+    pub aabbs: HashMap<SequencePairTile, Aabb>,
+
+    pub layout_qbvh: LayoutQbvh,
 }
+
+#[derive(Resource, Clone)]
+pub struct DefaultLayout(pub SeqPairLayout);
 
 pub struct LayoutBuilder {
     /// stack tiles using this uniform (cumulative) offset, allowing overlap,
@@ -21,9 +29,9 @@ pub struct LayoutBuilder {
 
 impl LayoutBuilder {
     pub fn build(self, sequences: &crate::Sequences) -> SeqPairLayout {
-        let offsets = match self.data {
+        let aabbs = match self.data {
             LayoutInput::Axes { targets, queries } => {
-                let mut offsets = HashMap::default();
+                let mut aabbs = HashMap::default();
 
                 let mut x_offset = 0.0;
 
@@ -32,8 +40,10 @@ impl LayoutBuilder {
                         continue;
                     };
 
+                    let tgt_len = tgt_seq.len() as f64;
+
                     let x0 = x_offset;
-                    x_offset += self.horizontal_offset.unwrap_or(tgt_seq.len() as f64);
+                    x_offset += self.horizontal_offset.unwrap_or(tgt_len);
 
                     let mut y_offset = 0.0;
 
@@ -41,20 +51,39 @@ impl LayoutBuilder {
                         let Some(qry_seq) = sequences.get(query) else {
                             continue;
                         };
+                        let qry_len = qry_seq.len() as f64;
 
                         let y0 = y_offset;
-                        y_offset += self.vertical_offset.unwrap_or(qry_seq.len() as f64);
+                        y_offset += self.vertical_offset.unwrap_or(qry_len);
 
-                        offsets.insert(SequencePairTile { target, query }, [x0, y0].into());
+                        let center = [x0, y0];
+
+                        let half_extents = [tgt_len * 0.5, qry_len * 0.5];
+
+                        let aabb = Aabb::from_half_extents([x0, y0].into(), half_extents.into());
+
+                        aabbs.insert(SequencePairTile { target, query }, aabb);
                     }
                 }
 
-                offsets
+                aabbs
             }
-            LayoutInput::TilePositions { offsets } => offsets,
+            LayoutInput::TilePositions { offsets } => offsets
+                .iter()
+                .filter_map(|(&seq_pair, &offset)| {
+                    let tgt_len = sequences.get(seq_pair.target)?.len() as f64;
+                    let qry_len = sequences.get(seq_pair.query)?.len() as f64;
+                    let half_extents = [tgt_len * 0.5, qry_len * 0.5];
+                    let aabb =
+                        Aabb::from_half_extents([offset.x, offset.y].into(), half_extents.into());
+                    Some((seq_pair, aabb))
+                })
+                .collect(),
         };
 
-        SeqPairLayout { offsets }
+        let layout_qbvh = LayoutQbvh::from_tiles(aabbs.iter().map(|(&sp, &aabb)| (sp, aabb)));
+
+        SeqPairLayout { aabbs, layout_qbvh }
     }
 
     pub fn from_axes<T, Q>(targets: T, queries: Q) -> Self
@@ -88,12 +117,12 @@ impl LayoutBuilder {
         }
     }
 
-    pub fn with_vertical_offset(&mut self, offset: Option<f64>) -> &mut Self {
+    pub fn with_vertical_offset(mut self, offset: Option<f64>) -> Self {
         self.vertical_offset = offset;
         self
     }
 
-    pub fn with_horizontal_offset(&mut self, offset: Option<f64>) -> &mut Self {
+    pub fn with_horizontal_offset(mut self, offset: Option<f64>) -> Self {
         self.horizontal_offset = offset;
         self
     }
@@ -107,4 +136,99 @@ enum LayoutInput {
     TilePositions {
         offsets: HashMap<SequencePairTile, DVec2>,
     },
+}
+
+#[derive(Clone)]
+pub struct LayoutQbvh {
+    qbvh: parry::partitioning::Qbvh<usize>,
+    tile_index_map: Vec<SequencePairTile>,
+    // tile_index_map: HashMap<usize,
+}
+
+impl LayoutQbvh {
+    pub fn from_tiles<T>(tiles: T) -> Self
+    where
+        T: ExactSizeIterator<Item = (SequencePairTile, Aabb)>,
+    {
+        use parry::partitioning::Qbvh;
+
+        let (tile_index_map, leaf_data): (
+            Vec<SequencePairTile>,
+            Vec<(usize, parry::bounding_volume::Aabb)>,
+        ) = tiles
+            .enumerate()
+            .map(|(ix, (seq_pair, aabb))| (seq_pair, (ix, aabb)))
+            .unzip();
+
+        let mut qbvh = Qbvh::new();
+        qbvh.clear_and_rebuild(leaf_data.into_iter(), 1.0);
+
+        Self {
+            qbvh,
+            tile_index_map,
+        }
+    }
+
+    pub fn tiles_in_rect_callback(
+        &self,
+        center: impl Into<[f64; 2]>,
+        half_extents: impl Into<[f64; 2]>,
+        mut callback: impl FnMut(SequencePairTile) -> bool,
+    ) {
+        let leaf_cb = &mut |index: &usize| {
+            let seq_pair = self.tile_index_map[*index];
+            callback(seq_pair)
+        };
+
+        let center = center.into();
+        let half_extents = half_extents.into();
+
+        let aabb =
+            parry::bounding_volume::Aabb::from_half_extents(center.into(), half_extents.into());
+        let mut visitor =
+            parry::query::visitors::BoundingVolumeIntersectionsVisitor::new(&aabb, leaf_cb);
+        self.qbvh.traverse_depth_first(&mut visitor);
+    }
+
+    pub fn tiles_in_rect(
+        &self,
+        center: impl Into<[f64; 2]>,
+        half_extents: impl Into<[f64; 2]>,
+    ) -> Vec<SequencePairTile> {
+        let mut results = Vec::new();
+
+        self.tiles_in_rect_callback(center, half_extents, |tile| {
+            results.push(tile);
+            true
+        });
+
+        results
+    }
+
+    pub fn tiles_at_point_callback(
+        &self,
+        point: impl Into<[f64; 2]>,
+        mut callback: impl FnMut(SequencePairTile) -> bool,
+    ) {
+        let leaf_cb = &mut |index: &usize| {
+            let seq_pair = self.tile_index_map[*index];
+            callback(seq_pair)
+        };
+
+        let query_pt = point.into().into();
+        let mut visitor =
+            parry::query::visitors::PointIntersectionsVisitor::new(&query_pt, leaf_cb);
+        self.qbvh.traverse_depth_first(&mut visitor);
+    }
+
+    pub fn tiles_at_point(&self, point: impl Into<[f64; 2]>) -> Vec<SequencePairTile> {
+        let mut results = Vec::new();
+
+        self.tiles_at_point_callback(point, |tile| {
+            results.push(tile);
+            true
+        });
+
+        results
+    }
 }
