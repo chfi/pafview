@@ -31,6 +31,7 @@ use super::view::AlignmentViewport;
 
 mod base_level;
 pub(crate) mod cigar_sampling;
+pub mod layout;
 
 /*
 
