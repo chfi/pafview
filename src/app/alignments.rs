@@ -64,6 +64,7 @@ fn update_seq_pair_transforms(
 pub(super) fn prepare_alignments(
     mut commands: Commands,
     alignments: Res<crate::Alignments>,
+    sequences: Res<crate::Sequences>,
     alignment_grid: Res<crate::AlignmentGrid>,
     color_schemes: Res<AlignmentColorSchemes>,
     cli_args: Res<crate::cli::Cli>,
@@ -72,6 +73,8 @@ pub(super) fn prepare_alignments(
     mut alignment_entity_index: ResMut<AlignmentEntityIndex>,
     mut vertex_index: ResMut<super::render::AlignmentVerticesIndex>,
 
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut border_rect_materials: ResMut<Assets<super::render::bordered_rect::BorderedRectMaterial>>,
     mut alignment_materials: ResMut<Assets<super::render::AlignmentPolylineMaterial>>,
     mut alignment_vertices: ResMut<Assets<super::render::AlignmentVertices>>,
 
@@ -82,6 +85,15 @@ pub(super) fn prepare_alignments(
     let low_mem = cli_args.low_mem;
 
     use bevy_mod_picking::prelude::*;
+
+    let border_rect_mat =
+        border_rect_materials.add(crate::app::render::bordered_rect::BorderedRectMaterial {
+            fill_color: LinearRgba::rgb(1.0, 0.0, 0.0),
+            border_color: LinearRgba::rgb(0.0, 0.0, 1.0),
+            border_opacities: 0xFFFFFFFF,
+            border_width_px: 10.0,
+            alpha_mode: AlphaMode::Blend,
+        });
 
     let mut digit_counts = [0usize; 10];
 
@@ -97,8 +109,21 @@ pub(super) fn prepare_alignments(
             query: qry_id,
         };
 
+        let tgt_len = sequences
+            .get(tgt_id)
+            .map(|s| s.len() as f32)
+            .unwrap_or_default();
+        let qry_len = sequences
+            .get(qry_id)
+            .map(|s| s.len() as f32)
+            .unwrap_or_default();
+
+        let mesh = Rectangle::from_size([tgt_len, qry_len].into());
+
         let parent = commands
             .spawn((
+                meshes.add(mesh),
+                border_rect_mat.clone(),
                 seq_pair,
                 SpatialBundle {
                     transform,
