@@ -57,6 +57,7 @@ pub(crate) fn menubar_system(
     mut contexts: EguiContexts,
     mut window_states: ResMut<WindowStates>,
     mut figure_export_open: ResMut<super::figure_export::FigureExportWindowOpen>,
+    mut layout_editor_open: ResMut<super::alignments::layout::gui::LayoutEditorOpen>,
     mut menubar_size: ResMut<MenubarSize>,
 ) {
     let window_states = &mut window_states.window_states;
@@ -70,6 +71,10 @@ pub(crate) fn menubar_system(
             // show/hide goto range window
             if ui.button("Go to range").clicked() {
                 window_states.goto_region_open = !window_states.goto_region_open;
+            }
+
+            if ui.button("Edit layout").clicked() {
+                layout_editor_open.0 = !layout_editor_open.0;
             }
 
             // show/hide annotations list window

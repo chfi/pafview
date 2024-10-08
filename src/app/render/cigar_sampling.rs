@@ -9,7 +9,10 @@ use bevy::{
 use bevy_mod_picking::prelude::Pickable;
 
 use crate::{
-    app::{view::AlignmentViewport, ForegroundColor, SequencePairTile},
+    app::{
+        alignments::layout::SeqPairLayout, view::AlignmentViewport, ForegroundColor,
+        SequencePairTile,
+    },
     math_conv::*,
 };
 
@@ -320,20 +323,20 @@ fn spawn_render_tasks(
 
     alignments: Res<crate::Alignments>,
     // alignment_grid: Res<crate::AlignmentGrid>,
-    default_layout: Res<super::layout::DefaultLayout>,
+    default_layout: Res<crate::app::alignments::layout::DefaultLayout>,
 
-    render_tile_grids: Query<(
-        &RenderTileGrid,
-        &Children,
-        Option<&super::layout::SeqPairLayout>,
-    )>,
+    layouts: Res<Assets<SeqPairLayout>>,
+
+    render_tile_grids: Query<(&RenderTileGrid, &Children, Option<&Handle<SeqPairLayout>>)>,
 
     tiles: Query<(Entity, &RenderTile), Without<RenderTask>>,
 ) {
     let task_pool = AsyncComputeTaskPool::get();
 
     for (render_grid, children, layout) in render_tile_grids.iter() {
-        let layout = layout.unwrap_or(&default_layout.0);
+        let layout = layout
+            .and_then(|h| layouts.get(h))
+            .unwrap_or(&default_layout.layout);
 
         for (tile_ent, tile) in tiles.iter_many(children) {
             let Some(tile_bounds) = tile.view else {

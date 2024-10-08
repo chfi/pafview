@@ -5,7 +5,16 @@ use avian2d::parry::{self, bounding_volume::Aabb};
 
 use crate::{app::SequencePairTile, sequences::SeqId};
 
-#[derive(Component, Clone)]
+pub struct AlignmentLayoutPlugin;
+
+impl Plugin for AlignmentLayoutPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_asset::<SeqPairLayout>()
+            .add_plugins(gui::AlignmentLayoutGuiPlugin);
+    }
+}
+
+#[derive(Asset, Clone, TypePath)]
 pub struct SeqPairLayout {
     pub aabbs: HashMap<SequencePairTile, Aabb>,
 
@@ -13,8 +22,21 @@ pub struct SeqPairLayout {
 }
 
 #[derive(Resource, Clone)]
-pub struct DefaultLayout(pub SeqPairLayout);
+pub struct DefaultLayout {
+    pub layout: SeqPairLayout,
+    builder: LayoutBuilder,
+}
 
+impl DefaultLayout {
+    pub fn new(layout: SeqPairLayout, builder: LayoutBuilder) -> Self {
+        Self { layout, builder }
+    }
+    pub fn builder(&self) -> &LayoutBuilder {
+        &self.builder
+    }
+}
+
+#[derive(PartialEq, Clone, Reflect)]
 pub struct LayoutBuilder {
     /// stack tiles using this uniform (cumulative) offset, allowing overlap,
     /// instead of lining them up side-by-side
@@ -128,6 +150,7 @@ impl LayoutBuilder {
     }
 }
 
+#[derive(PartialEq, Clone, Reflect)]
 enum LayoutInput {
     Axes {
         targets: Vec<SeqId>,
@@ -230,5 +253,128 @@ impl LayoutQbvh {
         });
 
         results
+    }
+}
+
+pub mod gui {
+
+    use super::*;
+    use bevy_egui::EguiContexts;
+
+    pub struct AlignmentLayoutGuiPlugin;
+
+    impl Plugin for AlignmentLayoutGuiPlugin {
+        fn build(&self, app: &mut App) {
+            app.insert_resource(LayoutEditorOpen(false))
+                .init_resource::<LiveLayoutBuilder>()
+                .add_systems(
+                    PreUpdate,
+                    show_live_layout_editor.after(bevy_egui::EguiSet::BeginFrame),
+                );
+        }
+    }
+
+    #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Reflect)]
+    pub struct LayoutEditorOpen(pub bool);
+
+    #[derive(Default, PartialEq)]
+    struct LayoutEditorState {
+        vertical_offset_on: bool,
+        vertical_offset: f64,
+
+        horizontal_offset_on: bool,
+        horizontal_offset: f64,
+    }
+
+    #[derive(Resource, Default, Clone, PartialEq)]
+    pub struct LiveLayoutBuilder {
+        builder: Option<LayoutBuilder>,
+    }
+
+    fn show_live_layout_editor(
+        mut contexts: EguiContexts,
+        mut editor_open: ResMut<LayoutEditorOpen>,
+        mut builder: ResMut<LiveLayoutBuilder>,
+
+        mut default_layout: ResMut<DefaultLayout>,
+        // mut layout_assets: ResMut<Assets<SeqPairLayout>>,
+        sequences: Res<crate::Sequences>,
+
+        mut editor_state: Local<LayoutEditorState>,
+    ) {
+        let init_builder = builder.bypass_change_detection().builder.is_none();
+
+        if init_builder {
+            builder.builder = Some(default_layout.builder().clone());
+        }
+
+        let ctx = contexts.ctx_mut();
+
+        egui::Window::new("Layout Editor")
+            .open(&mut editor_open.0)
+            .show(ctx, |ui| {
+                //
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Vertical offset");
+                        ui.checkbox(&mut editor_state.vertical_offset_on, "Enable");
+                        ui.add_enabled(
+                            editor_state.vertical_offset_on,
+                            egui::DragValue::new(&mut editor_state.vertical_offset),
+                        );
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("Horizontal offset");
+                        ui.checkbox(&mut editor_state.horizontal_offset_on, "Enable");
+                        ui.add_enabled(
+                            editor_state.horizontal_offset_on,
+                            egui::DragValue::new(&mut editor_state.horizontal_offset),
+                        );
+                    });
+
+                    //
+                });
+            });
+
+        let mut builder_changed = false;
+
+        let builder_state: Option<LayoutEditorState> = builder
+            .bypass_change_detection()
+            .builder
+            .as_ref()
+            .map(|b| LayoutEditorState {
+                vertical_offset_on: b.vertical_offset.is_some(),
+                vertical_offset: b.vertical_offset.unwrap_or_default(),
+                horizontal_offset_on: b.horizontal_offset.is_some(),
+                horizontal_offset: b.horizontal_offset.unwrap_or_default(),
+            });
+
+        {
+            let editor_state: &LayoutEditorState = &editor_state;
+            if builder_state.map(|s| &s != editor_state).unwrap_or(false) {
+                if let Some(builder) = builder.builder.as_mut() {
+                    if editor_state.vertical_offset_on {
+                        if Some(editor_state.vertical_offset) != builder.vertical_offset {
+                            builder.vertical_offset = Some(editor_state.vertical_offset);
+                            builder_changed = true;
+                        }
+                    }
+
+                    if editor_state.horizontal_offset_on {
+                        if Some(editor_state.horizontal_offset) != builder.horizontal_offset {
+                            builder.horizontal_offset = Some(editor_state.horizontal_offset);
+                            builder_changed = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        if builder_changed {
+            if let Some(builder) = builder.builder.as_mut() {
+                default_layout.layout = builder.clone().build(&sequences);
+            }
+        }
     }
 }

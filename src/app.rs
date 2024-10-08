@@ -127,7 +127,7 @@ impl std::default::Default for AlignmentRenderConfig {
     }
 }
 
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
 pub struct SequencePairTile {
     pub target: SeqId,
     pub query: SeqId,
@@ -293,7 +293,7 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
     let args = crate::cli::Cli::parse();
 
     let default_layout = {
-        use render::layout::*;
+        use alignments::layout::*;
 
         let mut seqs = app
             .sequences
@@ -306,11 +306,11 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
         let targets = seqs.iter().map(|(i, _)| *i);
         let queries = targets.clone();
 
-        let layout =
+        let builder =
             LayoutBuilder::from_axes(targets, queries).with_vertical_offset(Some(10_000_000.0));
 
-        let layout = layout.build(&app.sequences);
-        DefaultLayout(layout)
+        let layout = builder.clone().build(&app.sequences);
+        DefaultLayout::new(layout, builder)
     };
 
     let mut paf_color_schemes = if args.dark_mode {
