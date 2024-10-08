@@ -9,6 +9,8 @@ pub mod rulers;
 pub mod selection;
 pub mod view;
 
+pub use alignments::{AlignmentIndex, SequencePairTile};
+
 use bevy::prelude::*;
 
 use bevy_polyline::{
@@ -45,10 +47,7 @@ impl Plugin for PafViewerPlugin {
             .add_plugins(picking::PickingPlugin)
             .add_plugins(figure_export::FigureExportPlugin)
             .add_systems(Startup, setup_base_level_display_image)
-            .add_systems(
-                Startup,
-                (setup, setup_screenspace_camera, prepare_alignments).chain(),
-            )
+            .add_systems(Startup, (setup, setup_screenspace_camera).chain())
             .add_systems(PreUpdate, config_update_grid_material)
             .add_systems(
                 Update,
@@ -125,12 +124,6 @@ impl std::default::Default for AlignmentRenderConfig {
             base_level_render_min_bp_per_px: 1.0,
         }
     }
-}
-
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
-pub struct SequencePairTile {
-    pub target: SeqId,
-    pub query: SeqId,
 }
 
 #[derive(Component, Debug)]
@@ -306,8 +299,8 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
         let targets = seqs.iter().map(|(i, _)| *i);
         let queries = targets.clone();
 
-        let builder =
-            LayoutBuilder::from_axes(targets, queries).with_vertical_offset(Some(10_000_000.0));
+        let builder = LayoutBuilder::from_axes(targets, queries);
+        // LayoutBuilder::from_axes(targets, queries).with_vertical_offset(Some(10_000_000.0));
 
         let layout = builder.clone().build(&app.sequences);
         DefaultLayout::new(layout, builder)
@@ -383,120 +376,6 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
     viewer_app.run();
 
     Ok(())
-}
-
-fn prepare_alignments(
-    mut commands: Commands,
-    alignments: Res<crate::Alignments>,
-    alignment_grid: Res<crate::AlignmentGrid>,
-    color_schemes: Res<AlignmentColorSchemes>,
-    cli_args: Res<crate::cli::Cli>,
-
-    mut seq_pair_entity_index: ResMut<alignments::SequencePairEntityIndex>,
-    mut alignment_entity_index: ResMut<alignments::AlignmentEntityIndex>,
-    mut vertex_index: ResMut<render::AlignmentVerticesIndex>,
-
-    mut alignment_materials: ResMut<Assets<render::AlignmentPolylineMaterial>>,
-    mut alignment_vertices: ResMut<Assets<render::AlignmentVertices>>,
-
-    mut infobar_writer: EventWriter<infobar::InfobarAlignmentEvent>,
-) {
-    let grid = &alignment_grid;
-
-    let low_mem = cli_args.low_mem;
-
-    use bevy_mod_picking::prelude::*;
-
-    let mut digit_counts = [0usize; 10];
-
-    for ((tgt_id, qry_id), alignments) in alignments.pairs() {
-        let x_offset = grid.x_axis.sequence_offset(tgt_id).unwrap();
-        let y_offset = grid.y_axis.sequence_offset(qry_id).unwrap();
-
-        let transform =
-            Transform::from_translation(Vec3::new(x_offset as f32, y_offset as f32, 0.0));
-
-        let seq_pair = SequencePairTile {
-            target: tgt_id,
-            query: qry_id,
-        };
-
-        let parent = commands
-            .spawn((
-                seq_pair,
-                SpatialBundle {
-                    transform,
-                    ..default()
-                },
-                Pickable {
-                    should_block_lower: false,
-                    is_hoverable: true,
-                },
-                // On::<Pointer<Over>>::run(|input: Res<ListenerInput<Pointer<Over>>>| {
-                //     println!("hovering seq pair: {:?}", input.listener());
-                // }),
-            ))
-            .with_children(|parent| {
-                for (ix, alignment) in alignments.enumerate() {
-                    let len = alignment.location.target_total_len as usize;
-                    let pow10 = len.ilog10() as usize;
-                    digit_counts[pow10.min(digit_counts.len() - 1)] += 1;
-
-                    let al_comp = alignments::AlignmentIndex {
-                        target: alignment.target_id,
-                        query: alignment.query_id,
-                        pair_index: ix,
-                    };
-                    let color_scheme = color_schemes.colors.get(&al_comp);
-
-                    // let vertices = if cli_args.low_mem {
-                    //     render::AlignmentVertices::from_alignment_ignore_cigar(alignment)
-                    // } else {
-                    //     render::AlignmentVertices::from_alignment(alignment)
-                    // };
-
-                    let mut al_entity = parent.spawn((
-                        al_comp,
-                        Pickable {
-                            should_block_lower: false,
-                            is_hoverable: true,
-                        },
-                        On::<Pointer<Out>>::send_event::<infobar::InfobarAlignmentEvent>(),
-                        On::<Pointer<Over>>::send_event::<infobar::InfobarAlignmentEvent>(),
-                    ));
-
-                    if !cli_args.low_mem {
-                        let material = render::AlignmentPolylineMaterial::from_alignment(
-                            grid,
-                            alignment,
-                            color_scheme.clone(),
-                        );
-                        let vertices = render::AlignmentVertices::from_alignment(alignment);
-
-                        let vx_handle = alignment_vertices.add(vertices);
-
-                        vertex_index.vertices.insert(al_comp, vx_handle.clone());
-
-                        al_entity.insert((alignment_materials.add(material), vx_handle));
-                    }
-                    // .insert(
-                    //     On::<Pointer<Over>>::run(|input: Res<ListenerInput<Pointer<Over>>>, alignments: Query<&alignments::Alignment>| {
-                    //         println!("hovering alignment: {:?}", input.listener());
-                    //     })
-                    // )
-
-                    let al_entity = al_entity.id();
-                    alignment_entity_index.insert(al_comp, al_entity);
-                }
-            })
-            .id();
-
-        seq_pair_entity_index.insert(seq_pair, parent);
-    }
-
-    for (exp10, count) in digit_counts.iter().enumerate() {
-        println!("{exp10:10} - {count}");
-    }
 }
 
 // NB: will probably/maybe replace these events with a component

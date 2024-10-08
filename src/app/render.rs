@@ -30,6 +30,7 @@ use crate::{
 use super::view::AlignmentViewport;
 
 mod base_level;
+pub mod bordered_rect;
 pub(crate) mod cigar_sampling;
 
 /*
@@ -77,7 +78,8 @@ impl Plugin for AlignmentRendererPlugin {
             .add_plugins(ExtractResourcePlugin::<AlignmentShaderConfig>::default())
             .add_systems(
                 Startup,
-                prepare_alignment_grid_layout_materials.after(super::prepare_alignments),
+                prepare_alignment_grid_layout_materials
+                    .after(super::alignments::prepare_alignments),
             )
             .add_systems(
                 PreUpdate,
