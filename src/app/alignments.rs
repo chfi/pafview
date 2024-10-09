@@ -88,10 +88,10 @@ pub(super) fn prepare_alignments(
 
     let border_rect_mat =
         border_rect_materials.add(crate::app::render::bordered_rect::BorderedRectMaterial {
-            fill_color: LinearRgba::rgb(1.0, 0.0, 0.0),
-            border_color: LinearRgba::rgb(0.0, 0.0, 1.0),
+            fill_color: LinearRgba::new(0.0, 0.0, 0.0, 0.0),
+            border_color: LinearRgba::new(0.0, 0.0, 0.0, 1.0),
             border_opacities: 0xFFFFFFFF,
-            border_width_px: 10.0,
+            border_width_px: 1.0,
             alpha_mode: AlphaMode::Blend,
         });
 

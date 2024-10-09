@@ -2,17 +2,17 @@ use bevy::{asset::load_internal_asset, prelude::*, render::render_resource::AsBi
 
 pub struct BorderedRectRenderPlugin;
 
-pub const BORDERED_RECT_SHADER_HANDLE: Handle<Shader> =
-    Handle::weak_from_u128(66283402603114632559453785259996878691);
+// pub const BORDERED_RECT_SHADER_HANDLE: Handle<Shader> =
+//     Handle::weak_from_u128(66283402603114632559453785259996878691);
 
 impl Plugin for BorderedRectRenderPlugin {
     fn build(&self, app: &mut App) {
-        load_internal_asset!(
-            app,
-            BORDERED_RECT_SHADER_HANDLE,
-            "bordered_rect.wgsl",
-            Shader::from_wgsl
-        );
+        // load_internal_asset!(
+        //     app,
+        //     BORDERED_RECT_SHADER_HANDLE,
+        //     "bordered_rect.wgsl",
+        //     Shader::from_wgsl
+        // );
 
         app.add_plugins(MaterialPlugin::<BorderedRectMaterial>::default())
             .add_systems(Startup, debug_print_shader);
@@ -24,6 +24,8 @@ fn debug_print_shader(shaders: Res<Assets<Shader>>, mut is_done: Local<bool>) {
         return;
     }
 
+    *is_done = true;
+    /*
     if let Some(shader) = shaders.get(&BORDERED_RECT_SHADER_HANDLE) {
         *is_done = true;
         //
@@ -41,6 +43,7 @@ fn debug_print_shader(shaders: Res<Assets<Shader>>, mut is_done: Local<bool>) {
             }
         }
     }
+    */
 }
 
 #[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
@@ -63,7 +66,10 @@ pub struct BorderedRectMaterial {
 
 impl Material for BorderedRectMaterial {
     fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
-        BORDERED_RECT_SHADER_HANDLE.into()
+        bevy::render::render_resource::ShaderRef::Path(
+            "../src/app/render/bordered_rect.wgsl".into(),
+        )
+        // BORDERED_RECT_SHADER_HANDLE.into()
     }
 
     fn alpha_mode(&self) -> AlphaMode {
