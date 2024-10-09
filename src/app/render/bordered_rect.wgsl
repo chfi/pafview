@@ -47,15 +47,8 @@ fn fragment(
     let screen_height = view.viewport.w;
 
     let fc_px = mesh.position;
-    // let fc_px = mesh.uv;
-
-    // let xydx = dpdx(fc_px);
-    // let xydy = dpdy(fc_px);
 
     let fw = fwidth(mesh.uv);
-
-    let xydx = dpdx(mesh.uv);
-    let xydy = dpdy(mesh.uv);
 
     let uv = mesh.uv;
     let min_x = min(uv.x, 1.0 - uv.x);
@@ -67,24 +60,11 @@ fn fragment(
 
     // let border = min(fw.x, fw.y) * border_width_px;
 
-    var v = 1.0;
-
+    var color = fill_color;
     if min_x < border.x || min_y < border.y {
-        v = 0.0;
+        color = border_color;
     }
 
-    // if min(min_x, min_y) > border {
-    // }
-
-    // let v = smoothstep(0.0, border, min(min_x, min_y));
-    // let v = smoothstep(border, 2.0 * border, min(min_x, min_y));
-    // let color = vec4f(xydx.x, xydx.y, xydy.x, 1.0);
-    // let color = vec4f(xydx.x, xydy.y, v, 1.0);
-
-    // let rgb =
-    // let rgb = mix(fill_color, border_color, v);
-    // let color = vec4f(rgb.xyz, 1.0);
-    let color = vec4f(v, v, v, 0.5);
     return color;
 
 }

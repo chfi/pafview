@@ -89,7 +89,7 @@ pub(super) fn prepare_alignments(
     let border_rect_mat =
         border_rect_materials.add(crate::app::render::bordered_rect::BorderedRectMaterial {
             fill_color: LinearRgba::new(0.0, 0.0, 0.0, 0.0),
-            border_color: LinearRgba::new(0.0, 0.0, 0.0, 1.0),
+            border_color: LinearRgba::new(0.4, 0.4, 0.4, 1.0),
             border_opacities: 0xFFFFFFFF,
             border_width_px: 1.0,
             alpha_mode: AlphaMode::Blend,
@@ -101,9 +101,6 @@ pub(super) fn prepare_alignments(
         let x_offset = grid.x_axis.sequence_offset(tgt_id).unwrap();
         let y_offset = grid.y_axis.sequence_offset(qry_id).unwrap();
 
-        let transform =
-            Transform::from_translation(Vec3::new(x_offset as f32, y_offset as f32, 0.0));
-
         let seq_pair = SequencePairTile {
             target: tgt_id,
             query: qry_id,
@@ -111,14 +108,18 @@ pub(super) fn prepare_alignments(
 
         let tgt_len = sequences
             .get(tgt_id)
-            .map(|s| s.len() as f32)
+            .map(|s| s.len() as f64)
             .unwrap_or_default();
         let qry_len = sequences
             .get(qry_id)
-            .map(|s| s.len() as f32)
+            .map(|s| s.len() as f64)
             .unwrap_or_default();
 
-        let mesh = Rectangle::from_size([tgt_len, qry_len].into());
+        let x_pos = x_offset as f64 + tgt_len * 0.5;
+        let y_pos = y_offset as f64 + qry_len * 0.5;
+        let transform = Transform::from_translation(Vec3::new(x_pos as f32, y_pos as f32, 0.0));
+
+        let mesh = Rectangle::from_size([tgt_len as f32, qry_len as f32].into());
 
         let parent = commands
             .spawn((
