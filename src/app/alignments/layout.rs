@@ -256,6 +256,12 @@ impl LayoutQbvh {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Event, Reflect)]
+pub struct LayoutChangedEvent {
+    pub entity: Entity,
+    pub need_respawn: bool,
+}
+
 pub mod gui {
 
     use super::*;

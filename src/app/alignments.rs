@@ -1,9 +1,12 @@
-use crate::{sequences::SeqId, PafViewerApp};
 use bevy::{prelude::*, utils::HashMap};
+use bevy_mod_picking::prelude::*;
 
 use super::AlignmentColorSchemes;
+use crate::{sequences::SeqId, PafViewerApp};
 
 pub mod layout;
+
+use layout::SeqPairLayout;
 
 /*
 
@@ -17,11 +20,15 @@ impl Plugin for AlignmentsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AlignmentEntityIndex>()
             .init_resource::<SequencePairEntityIndex>()
-            .add_plugins(layout::AlignmentLayoutPlugin)
-            .add_systems(
-                Startup,
-                prepare_alignments.after(super::setup_screenspace_camera),
-            );
+            .add_plugins(layout::AlignmentLayoutPlugin);
+
+        app.add_systems(Startup, initialize_default_layout);
+
+        app.add_systems(
+            Startup,
+            prepare_alignments.after(super::setup_screenspace_camera),
+        )
+        .add_systems(PreUpdate, update_seq_pair_transforms);
         //
     }
 }
@@ -61,6 +68,186 @@ fn update_seq_pair_transforms(
     }
 }
 
+// create the initial sequence pair layout from the application input data,
+// and create the DefaultLayout resource
+pub(super) fn initialize_default_layout(
+    mut commands: Commands,
+
+    // cli_args: Res<crate::cli::Cli>,
+    sequences: Res<crate::Sequences>,
+) {
+    // use alignments::layout::*;
+
+    let mut seqs = sequences
+        .sequences
+        .iter()
+        .map(|(id, seq)| (*id, seq.len()))
+        .collect::<Vec<_>>();
+    seqs.sort_by_key(|(_, l)| *l);
+
+    let targets = seqs.iter().map(|(i, _)| *i);
+    let queries = targets.clone();
+
+    let builder = layout::LayoutBuilder::from_axes(targets, queries);
+    // LayoutBuilder::from_axes(targets, queries).with_vertical_offset(Some(10_000_000.0));
+
+    let layout = builder.clone().build(&sequences);
+    let default_layout = layout::DefaultLayout::new(layout, builder);
+
+    commands.insert_resource(default_layout);
+}
+
+/*
+
+
+*/
+
+//
+pub(super) fn spawn_layout_children(
+    //
+    mut commands: Commands,
+
+    layouts: Res<Assets<SeqPairLayout>>,
+    mut layout_events: EventReader<layout::LayoutChangedEvent>,
+
+    // layout_roots: Query<(Entity, &Handle<SeqPairLayout>), Added<Handle<SeqPairLayout>>>,
+    layout_roots: Query<(Entity, &Handle<SeqPairLayout>)>,
+) {
+    for layout_event in layout_events.read() {
+        if !layout_event.need_respawn {
+            continue;
+        }
+
+        let Ok((root, layout_handle)) = layout_roots.get(layout_event.entity) else {
+            continue;
+        };
+
+        let Some(layout) = layouts.get(layout_handle) else {
+            continue;
+        };
+
+        commands.entity(root).despawn_descendants();
+
+        for (seq_pair, aabb) in layout.aabbs.iter() {
+            //
+
+            commands.spawn((
+                *seq_pair,
+                SpatialBundle::INHERITED_IDENTITY,
+                Pickable {
+                    should_block_lower: false,
+                    is_hoverable: true,
+                },
+            ));
+        }
+    }
+}
+
+pub(super) fn spawn_alignments_in_tiles(
+    mut commands: Commands,
+
+    alignments: Res<crate::Alignments>,
+    seq_pair_tiles: Query<(Entity, &SequencePairTile), Without<Children>>,
+) {
+    for (tile_ent, seq_pair) in seq_pair_tiles.iter() {
+        let Some(al_indices) = alignments.indices.get(&(seq_pair.target, seq_pair.query)) else {
+            continue;
+        };
+
+        let tile_als = al_indices
+            .iter()
+            .filter_map(|&ix| Some((ix, alignments.alignments.get(ix)?)));
+
+        commands.entity(tile_ent).with_children(|parent| {
+            for (pair_index, alignment) in tile_als {
+                parent.spawn((
+                    AlignmentIndex {
+                        target: alignment.target_id,
+                        query: alignment.query_id,
+                        pair_index,
+                    },
+                    Pickable {
+                        should_block_lower: false,
+                        is_hoverable: true,
+                    },
+                    // On::<Pointer<Out>>::send_event::<super::infobar::InfobarAlignmentEvent>(),
+                    // On::<Pointer<Over>>::send_event::<super::infobar::InfobarAlignmentEvent>(),
+                ));
+            }
+        });
+    }
+}
+
+pub(super) fn insert_alignment_polyline_materials(
+    mut commands: Commands,
+
+    // alignments: Res<crate::Alignments>,
+    vertex_index: Res<super::render::AlignmentVerticesIndex>,
+    mut alignment_materials: ResMut<Assets<super::render::AlignmentPolylineMaterial>>,
+    color_schemes: Res<AlignmentColorSchemes>,
+
+    cli_args: Res<crate::cli::Cli>,
+
+    alignment_query: Query<
+        (Entity, &AlignmentIndex),
+        (
+            Without<Handle<super::render::AlignmentPolylineMaterial>>,
+            Without<Handle<super::render::AlignmentVertices>>,
+        ),
+    >,
+) {
+    if cli_args.low_mem {
+        return;
+    }
+
+    for (entity, al_ix) in alignment_query.iter() {
+        let Some(vertices) = vertex_index.vertices.get(al_ix) else {
+            continue;
+        };
+
+        // create the polyline material;
+        // let tile_offset =
+
+        // let material = super::render::AlignmentPolylineMaterial::from_alignment(
+        //     grid,
+        //     alignment,
+        //     color_scheme.clone(),
+        // );
+        todo!();
+    }
+}
+
+// updates `Transform` component of children of layout roots
+// run after spawn_layout_children
+pub(super) fn update_layout_tile_positions(
+    mut commands: Commands,
+
+    layouts: Res<Assets<SeqPairLayout>>,
+
+    mut layout_events: EventReader<layout::LayoutChangedEvent>,
+    layout_roots: Query<(Entity, &Handle<SeqPairLayout>, &Children)>,
+
+    mut seq_pair_tiles: Query<(&SequencePairTile, &mut Transform)>,
+) {
+    let layout_entities = layout_events.read().map(|ev| ev.entity);
+    for (root, layout_handle, children) in layout_roots.iter_many(layout_entities) {
+        let Some(layout) = layouts.get(layout_handle) else {
+            continue;
+        };
+        let mut child_iter = seq_pair_tiles.iter_many_mut(children);
+
+        while let Some((child_tile, mut transform)) = child_iter.fetch_next() {
+            let Some(aabb) = layout.aabbs.get(child_tile) else {
+                continue;
+            };
+
+            let mid = aabb.center();
+            transform.translation.x = mid.x as f32;
+            transform.translation.y = mid.y as f32;
+        }
+    }
+}
+
 pub(super) fn prepare_alignments(
     mut commands: Commands,
     alignments: Res<crate::Alignments>,
@@ -84,14 +271,12 @@ pub(super) fn prepare_alignments(
 
     let low_mem = cli_args.low_mem;
 
-    use bevy_mod_picking::prelude::*;
-
     let border_rect_mat =
         border_rect_materials.add(crate::app::render::bordered_rect::BorderedRectMaterial {
             fill_color: LinearRgba::new(0.0, 0.0, 0.0, 0.0),
-            border_color: LinearRgba::new(0.4, 0.4, 0.4, 1.0),
+            border_color: LinearRgba::new(0.0, 0.0, 0.0, 1.0),
             border_opacities: 0xFFFFFFFF,
-            border_width_px: 1.0,
+            border_width_px: 0.0,
             alpha_mode: AlphaMode::Blend,
         });
 

@@ -844,6 +844,18 @@ pub struct AlignmentPolylineMaterial {
 }
 
 impl AlignmentPolylineMaterial {
+    pub fn from_colors_and_offset(
+        world_pt: impl Into<[f64; 2]>,
+        color_scheme: AlignmentColorScheme,
+    ) -> Self {
+        let [x, y] = world_pt.into();
+        let model = Transform::from_xyz(x as f32, y as f32, 0.0).compute_matrix();
+        Self {
+            model,
+            color_scheme,
+        }
+    }
+
     pub fn from_alignment(
         grid: &crate::AlignmentGrid,
         alignment: &crate::Alignment,
@@ -1236,4 +1248,28 @@ fn queue_draw_alignment_lines(
         });
         commands.entity(tgt_entity).insert(Rendering);
     }
+}
+
+fn queue_draw_alignments_in_tiles(
+    mut commands: Commands,
+
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
+    pipeline_cache: Res<PipelineCache>,
+    pipeline: Res<AlignmentPolylinePipeline>,
+
+    gpu_images: Res<RenderAssets<GpuImage>>,
+    gpu_vertices: Res<RenderAssets<GpuAlignmentVertices>>,
+    gpu_materials: Res<RenderAssets<GpuAlignmentPolylineMaterial>>,
+
+    targets: Query<
+        (
+            Entity,
+            &AlignmentViewer,
+            &AlignmentViewerImages,
+            &AlignmentRenderTarget,
+        ),
+        Without<Rendering>,
+    >,
+) {
 }

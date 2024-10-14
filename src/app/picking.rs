@@ -14,6 +14,12 @@ impl Plugin for PickingPlugin {
     }
 }
 
+pub fn seq_pair_tile_picking(
+    pointers: Query<(&PointerId, &PointerLocation)>,
+    // alignments: Res<crate::Alignments>,
+) {
+}
+
 // this is pretty hacky and makes a number of assumptions;
 // it'd be good to have an implementation that works with any number
 // of views (e.g. picture-in-picture using multiple display images)
