@@ -1,4 +1,10 @@
-use bevy::{prelude::*, utils::HashMap};
+use std::sync::{atomic::AtomicBool, Arc};
+
+use bevy::{
+    prelude::*,
+    tasks::{AsyncComputeTaskPool, Task},
+    utils::HashMap,
+};
 use bevy_mod_picking::prelude::*;
 
 use super::AlignmentColorSchemes;
@@ -178,6 +184,68 @@ pub(super) fn spawn_alignments_in_tiles(
     }
 }
 
+pub(super) fn prepare_alignment_vertices(
+    mut commands: Commands,
+
+    alignments: Res<crate::Alignments>,
+    alignment_query: Query<
+        (Entity, &AlignmentIndex),
+        Without<Handle<super::render::AlignmentVertices>>,
+        // (Without<Handle<super::render::AlignmentVertices>>,),
+    >,
+
+    mut alignment_vertices_map: ResMut<super::render::AlignmentVerticesIndex>,
+    mut alignment_vertices: ResMut<Assets<super::render::AlignmentVertices>>,
+
+    // might want to do multiple alignments per task
+    mut tasks: Local<HashMap<AlignmentIndex, Task<super::render::AlignmentVertices>>>,
+    // mut tasks: Local<HashMap<AlignmentIndex, Task<Vec<(Vec2, Vec2, crate::CigarOp)>>>>,
+    // processing: Local<HashMap<AlignmentIndex, Arc<AtomicBool>>>,
+) {
+    let task_pool = AsyncComputeTaskPool::get();
+
+    for (al_ent, al_ix) in alignment_query.iter() {
+        if alignment_vertices_map.vertices.contains_key(al_ix) || tasks.contains_key(al_ix) {
+            continue;
+        }
+
+        let Some((location, cigar)) = alignments
+            .get(*al_ix)
+            .map(|al| (al.location.clone(), al.cigar.clone()))
+        else {
+            continue;
+        };
+
+        let task = task_pool.spawn(async move {
+            super::render::AlignmentVertices::from_location_and_cigar(&location, &cigar)
+        });
+
+        tasks.insert(*al_ix, task);
+    }
+
+    let mut complete_tasks = Vec::new();
+
+    for (&al_ix, task) in tasks.iter_mut() {
+        if !task.is_finished() {
+            continue;
+        }
+
+        let Some(vertices) = bevy::tasks::block_on(bevy::tasks::poll_once(task)) else {
+            continue;
+        };
+
+        alignment_vertices_map
+            .vertices
+            .insert(al_ix, alignment_vertices.add(vertices));
+
+        complete_tasks.push(al_ix);
+    }
+
+    for al_ix in complete_tasks {
+        tasks.remove(&al_ix);
+    }
+}
+
 pub(super) fn insert_alignment_polyline_materials(
     mut commands: Commands,
 
@@ -188,6 +256,8 @@ pub(super) fn insert_alignment_polyline_materials(
 
     cli_args: Res<crate::cli::Cli>,
 
+    // layout_roots: Query<(Entity, &Handle<SeqPairLayout>, &Children)>,
+    // seq_pair_tiles: Query<(&SequencePairTile, &Children)>,
     alignment_query: Query<
         (Entity, &AlignmentIndex),
         (
@@ -200,20 +270,61 @@ pub(super) fn insert_alignment_polyline_materials(
         return;
     }
 
+    /*
+    for (layout_root, layout_handle, root_children) in layout_roots.iter() {
+
+
+        for (seq_pair, tile_children) in seq_pair_tiles.iter_many(root_children) {
+
+        }
+
+
+
+    }
+    */
+
     for (entity, al_ix) in alignment_query.iter() {
         let Some(vertices) = vertex_index.vertices.get(al_ix) else {
             continue;
         };
 
-        // create the polyline material;
-        // let tile_offset =
-
+        // create the polyline material; place at origin since `update_polyline_materials` should run after
+        let material = super::render::AlignmentPolylineMaterial::from_offset_and_colors(
+            [0.0, 0.0],
+            color_scheme.clone(),
+        );
         // let material = super::render::AlignmentPolylineMaterial::from_alignment(
         //     grid,
         //     alignment,
         //     color_scheme.clone(),
         // );
         todo!();
+    }
+}
+
+pub(super) fn update_alignment_polyline_materials(
+    mut commands: Commands,
+
+    mut layout_events: EventReader<layout::LayoutChangedEvent>,
+    mut alignment_materials: ResMut<Assets<super::render::AlignmentPolylineMaterial>>,
+
+    seq_pair_tiles: Query<(&SequencePairTile, &Children)>,
+    alignments_query: Query<(
+        Entity,
+        &AlignmentIndex,
+        &Handle<super::render::AlignmentPolylineMaterial>,
+    )>,
+) {
+    for event in layout_events.read() {
+        for (seq_pair, children) in seq_pair_tiles.iter() {
+            let new_model: Mat4 = todo!();
+
+            let mut child_iter = alignments_query.iter_many_mut(children);
+
+            while let Some((_ent, al_ix, mat_handle)) = child_iter.fetch_next() {
+                //
+            }
+        }
     }
 }
 

@@ -23,6 +23,19 @@ pub trait IndexedCigar {
     ) -> Box<dyn Iterator<Item = CigarIterItem> + '_>;
 }
 
+impl<T: IndexedCigar> IndexedCigar for &T {
+    fn whole_cigar(&self) -> Box<dyn Iterator<Item = (CigarOp, u32)> + '_> {
+        <T as IndexedCigar>::whole_cigar(&self)
+    }
+
+    fn iter_target_range(
+        &self,
+        target_range: std::ops::Range<u64>,
+    ) -> Box<dyn Iterator<Item = CigarIterItem> + '_> {
+        <T as IndexedCigar>::iter_target_range(&self, target_range)
+    }
+}
+
 impl IndexedCigar for CigarIndex {
     fn is_empty(&self) -> bool {
         self.cigar.0.is_empty()

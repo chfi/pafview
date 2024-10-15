@@ -10,6 +10,7 @@ pub struct AlignmentLayoutPlugin;
 impl Plugin for AlignmentLayoutPlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<SeqPairLayout>()
+            .add_event::<LayoutChangedEvent>()
             .add_plugins(gui::AlignmentLayoutGuiPlugin);
     }
 }

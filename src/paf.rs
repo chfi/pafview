@@ -341,6 +341,12 @@ pub struct Alignments {
 }
 
 impl Alignments {
+    pub fn get(&self, index: AlignmentIndex) -> Option<&Alignment> {
+        let indices = self.indices.get(&(index.target, index.query))?;
+        let list_index = indices.get(index.pair_index)?;
+        self.alignments.get(*list_index)
+    }
+
     pub fn pair_alignments(
         &self,
         key: (SeqId, SeqId),
@@ -622,12 +628,6 @@ pub fn load_input_files(cli: &crate::cli::Cli) -> anyhow::Result<(Alignments, Se
 }
 
 impl Alignments {
-    pub fn get(&self, index: AlignmentIndex) -> Option<&Alignment> {
-        let al_indices = self.indices.get(&(index.target, index.query))?;
-        let ix = al_indices.get(index.pair_index)?;
-        self.alignments.get(*ix)
-    }
-
     pub fn from_mmap_paf(
         sequences: &Sequences,
         paf: Arc<super::cigar::memmap::IndexedPaf>,

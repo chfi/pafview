@@ -844,7 +844,7 @@ pub struct AlignmentPolylineMaterial {
 }
 
 impl AlignmentPolylineMaterial {
-    pub fn from_colors_and_offset(
+    pub fn from_offset_and_colors(
         world_pt: impl Into<[f64; 2]>,
         color_scheme: AlignmentColorScheme,
     ) -> Self {
@@ -919,13 +919,11 @@ impl From<crate::render::color::AlignmentColorScheme> for GpuAlignmentColorSchem
 
 #[derive(Debug, Default, Asset, Clone, TypePath)]
 pub struct AlignmentVertices {
-    data: Vec<(Vec2, Vec2, CigarOp)>,
+    pub data: Vec<(Vec2, Vec2, CigarOp)>,
 }
 
 impl AlignmentVertices {
-    pub fn from_alignment_ignore_cigar(alignment: &crate::Alignment) -> Self {
-        let location = &alignment.location;
-
+    pub fn from_location(location: &crate::paf::AlignmentLocation) -> Self {
         let tgt_range = &location.target_range;
         let qry_range = &location.query_range;
 
@@ -941,20 +939,21 @@ impl AlignmentVertices {
         return Self { data: vertices };
     }
 
-    pub fn from_alignment(alignment: &crate::Alignment) -> Self {
-        if alignment.cigar.is_empty() {
-            return Self::from_alignment_ignore_cigar(alignment);
+    pub fn from_location_and_cigar(
+        location: &crate::paf::AlignmentLocation,
+        cigar: &Arc<dyn crate::IndexedCigar + Send + Sync + 'static>,
+    ) -> Self {
+        if cigar.is_empty() {
+            return Self::from_location(location);
         }
 
         use crate::cigar::CigarOp;
-
-        let location = &alignment.location;
 
         let mut vertices = Vec::new();
         let mut tgt_cg = 0;
         let mut qry_cg = 0;
 
-        for (op, count) in alignment.cigar.whole_cigar() {
+        for (op, count) in cigar.whole_cigar() {
             // tgt_cg and qry_cg are offsets from the start of the cigar
             let tgt_start = tgt_cg;
             let qry_start = qry_cg;
@@ -992,6 +991,10 @@ impl AlignmentVertices {
         }
 
         Self { data: vertices }
+    }
+
+    pub fn from_alignment(alignment: &crate::Alignment) -> Self {
+        Self::from_location_and_cigar(&alignment.location, &alignment.cigar)
     }
 }
 
