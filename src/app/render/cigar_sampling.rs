@@ -335,8 +335,12 @@ fn spawn_render_tasks(
 
     for (render_grid, children, layout) in render_tile_grids.iter() {
         let layout = layout
-            .and_then(|h| layouts.get(h))
-            .unwrap_or(&default_layout.layout);
+            .or(Some(&default_layout.layout))
+            .and_then(|h| layouts.get(h));
+
+        let Some(layout) = layout else {
+            continue;
+        };
 
         for (tile_ent, tile) in tiles.iter_many(children) {
             let Some(tile_bounds) = tile.view else {

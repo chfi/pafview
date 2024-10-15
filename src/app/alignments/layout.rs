@@ -24,12 +24,13 @@ pub struct SeqPairLayout {
 
 #[derive(Resource, Clone)]
 pub struct DefaultLayout {
-    pub layout: SeqPairLayout,
+    // pub layout: SeqPairLayout,
+    pub layout: Handle<SeqPairLayout>,
     builder: LayoutBuilder,
 }
 
 impl DefaultLayout {
-    pub fn new(layout: SeqPairLayout, builder: LayoutBuilder) -> Self {
+    pub fn new(layout: Handle<SeqPairLayout>, builder: LayoutBuilder) -> Self {
         Self { layout, builder }
     }
     pub fn builder(&self) -> &LayoutBuilder {
@@ -303,6 +304,7 @@ pub mod gui {
         mut editor_open: ResMut<LayoutEditorOpen>,
         mut builder: ResMut<LiveLayoutBuilder>,
 
+        mut layouts: ResMut<Assets<SeqPairLayout>>,
         mut default_layout: ResMut<DefaultLayout>,
         // mut layout_assets: ResMut<Assets<SeqPairLayout>>,
         sequences: Res<crate::Sequences>,
@@ -379,8 +381,11 @@ pub mod gui {
         }
 
         if builder_changed {
-            if let Some(builder) = builder.builder.as_mut() {
-                default_layout.layout = builder.clone().build(&sequences);
+            let builder = builder.builder.as_mut();
+            let layout = layouts.get_mut(&default_layout.layout);
+            if let Some((builder, layout)) = builder.zip(layout) {
+                *layout = builder.clone().build(&sequences);
+                default_layout.builder = builder.clone();
             }
         }
     }

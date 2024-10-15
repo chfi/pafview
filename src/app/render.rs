@@ -839,8 +839,8 @@ pub struct AlignmentShaderConfig {
 
 #[derive(Asset, Debug, PartialEq, Clone, TypePath)]
 pub struct AlignmentPolylineMaterial {
-    color_scheme: AlignmentColorScheme,
-    model: Mat4,
+    pub color_scheme: AlignmentColorScheme,
+    pub model: Mat4,
 }
 
 impl AlignmentPolylineMaterial {

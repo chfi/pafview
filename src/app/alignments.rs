@@ -28,13 +28,36 @@ impl Plugin for AlignmentsPlugin {
             .init_resource::<SequencePairEntityIndex>()
             .add_plugins(layout::AlignmentLayoutPlugin);
 
-        app.add_systems(Startup, initialize_default_layout);
-
+        // app.add_systems(Startup, initialize_default_layout);
         app.add_systems(
             Startup,
-            prepare_alignments.after(super::setup_screenspace_camera),
+            (initialize_default_layout, spawn_default_layout_root).chain(),
+        );
+
+        app.add_systems(
+            PreUpdate,
+            (
+                spawn_alignments_in_tiles,
+                spawn_layout_children,
+                update_layout_tile_positions,
+                prepare_alignment_vertices,
+            )
+                .chain(),
         )
-        .add_systems(PreUpdate, update_seq_pair_transforms);
+        .add_systems(
+            PreUpdate,
+            (
+                insert_alignment_polyline_materials.after(spawn_layout_children),
+                update_alignment_polyline_materials,
+            )
+                .chain(),
+        );
+
+        // app.add_systems(
+        //     Startup,
+        //     prepare_alignments.after(super::setup_screenspace_camera),
+        // )
+        // .add_systems(PreUpdate, update_seq_pair_transforms);
         //
     }
 }
@@ -59,27 +82,13 @@ pub struct AlignmentIndex {
     pub pair_index: usize,
 }
 
-fn update_seq_pair_transforms(
-    default_layout: Res<layout::DefaultLayout>,
-
-    mut seq_pair_tiles: Query<(&mut Transform, &SequencePairTile)>,
-) {
-    for (mut transform, tile_key) in seq_pair_tiles.iter_mut() {
-        let Some(aabb) = default_layout.layout.aabbs.get(tile_key) else {
-            continue;
-        };
-
-        let center = aabb.center();
-        transform.translation = Vec3::new(center.x as f32, center.y as f32, 0.0);
-    }
-}
-
 // create the initial sequence pair layout from the application input data,
 // and create the DefaultLayout resource
 pub(super) fn initialize_default_layout(
     mut commands: Commands,
 
     // cli_args: Res<crate::cli::Cli>,
+    mut layouts: ResMut<Assets<SeqPairLayout>>,
     sequences: Res<crate::Sequences>,
 ) {
     // use alignments::layout::*;
@@ -98,9 +107,16 @@ pub(super) fn initialize_default_layout(
     // LayoutBuilder::from_axes(targets, queries).with_vertical_offset(Some(10_000_000.0));
 
     let layout = builder.clone().build(&sequences);
-    let default_layout = layout::DefaultLayout::new(layout, builder);
+    let default_layout = layout::DefaultLayout::new(layouts.add(layout), builder);
 
     commands.insert_resource(default_layout);
+}
+
+pub(super) fn spawn_default_layout_root(
+    mut commands: Commands,
+    default_layout: Res<layout::DefaultLayout>,
+) {
+    commands.spawn((SpatialBundle::default(), default_layout.layout.clone()));
 }
 
 /*
@@ -270,59 +286,49 @@ pub(super) fn insert_alignment_polyline_materials(
         return;
     }
 
-    /*
-    for (layout_root, layout_handle, root_children) in layout_roots.iter() {
-
-
-        for (seq_pair, tile_children) in seq_pair_tiles.iter_many(root_children) {
-
-        }
-
-
-
-    }
-    */
-
     for (entity, al_ix) in alignment_query.iter() {
         let Some(vertices) = vertex_index.vertices.get(al_ix) else {
             continue;
         };
 
         // create the polyline material; place at origin since `update_polyline_materials` should run after
+        let color_scheme = color_schemes.get(al_ix);
         let material = super::render::AlignmentPolylineMaterial::from_offset_and_colors(
             [0.0, 0.0],
             color_scheme.clone(),
         );
-        // let material = super::render::AlignmentPolylineMaterial::from_alignment(
-        //     grid,
-        //     alignment,
-        //     color_scheme.clone(),
-        // );
-        todo!();
+
+        commands
+            .entity(entity)
+            .insert((vertices.clone(), alignment_materials.add(material)));
     }
 }
 
 pub(super) fn update_alignment_polyline_materials(
-    mut commands: Commands,
-
-    mut layout_events: EventReader<layout::LayoutChangedEvent>,
+    layouts: Res<Assets<SeqPairLayout>>,
     mut alignment_materials: ResMut<Assets<super::render::AlignmentPolylineMaterial>>,
 
+    layout_roots: Query<(Entity, &Handle<SeqPairLayout>)>,
     seq_pair_tiles: Query<(&SequencePairTile, &Children)>,
-    alignments_query: Query<(
-        Entity,
-        &AlignmentIndex,
-        &Handle<super::render::AlignmentPolylineMaterial>,
-    )>,
+    alignments_query: Query<(Entity, &Handle<super::render::AlignmentPolylineMaterial>)>,
 ) {
-    for event in layout_events.read() {
+    for (root_ent, layout_handle) in layout_roots.iter() {
+        let Some(layout) = layouts.get(layout_handle) else {
+            continue;
+        };
+
         for (seq_pair, children) in seq_pair_tiles.iter() {
-            let new_model: Mat4 = todo!();
+            let Some(aabb) = layout.aabbs.get(seq_pair) else {
+                continue;
+            };
 
-            let mut child_iter = alignments_query.iter_many_mut(children);
+            let pos = aabb.center();
+            let new_model = Transform::from_xyz(pos.x as f32, pos.y as f32, 0.0).compute_matrix();
 
-            while let Some((_ent, al_ix, mat_handle)) = child_iter.fetch_next() {
-                //
+            for (_ent, mat_handle) in alignments_query.iter_many(children) {
+                if let Some(mat) = alignment_materials.get_mut(mat_handle) {
+                    mat.model = new_model;
+                }
             }
         }
     }
@@ -331,8 +337,6 @@ pub(super) fn update_alignment_polyline_materials(
 // updates `Transform` component of children of layout roots
 // run after spawn_layout_children
 pub(super) fn update_layout_tile_positions(
-    mut commands: Commands,
-
     layouts: Res<Assets<SeqPairLayout>>,
 
     mut layout_events: EventReader<layout::LayoutChangedEvent>,
