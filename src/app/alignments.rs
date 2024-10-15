@@ -7,7 +7,7 @@ use bevy::{
 };
 use bevy_mod_picking::prelude::*;
 
-use super::AlignmentColorSchemes;
+use super::{render::bordered_rect::BorderedRectMaterial, AlignmentColorSchemes};
 use crate::{sequences::SeqId, PafViewerApp};
 
 pub mod layout;
@@ -109,32 +109,59 @@ pub(super) fn initialize_default_layout(
     let layout = builder.clone().build(&sequences);
     let default_layout = layout::DefaultLayout::new(layouts.add(layout), builder);
 
+    println!("inserting default layout resource");
     commands.insert_resource(default_layout);
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Resource, Reflect)]
+pub struct DefaultLayoutRoot(pub Entity);
 
 pub(super) fn spawn_default_layout_root(
     mut commands: Commands,
     default_layout: Res<layout::DefaultLayout>,
+    mut layout_events: EventWriter<layout::LayoutChangedEvent>,
 ) {
-    commands.spawn((SpatialBundle::default(), default_layout.layout.clone()));
+    let entity = commands
+        .spawn((SpatialBundle::default(), default_layout.layout.clone()))
+        .id();
+    layout_events.send(layout::LayoutChangedEvent {
+        entity,
+        need_respawn: true,
+    });
+    commands.insert_resource(DefaultLayoutRoot(entity));
 }
 
-/*
-
-
-*/
-
-//
+// When a layout for a "layout root" (any entity with a Handle<SeqPairLayout>,
+// for now) has been updated, this system spawns a tile for each sequence pair
+// in the layout, as children of the root
 pub(super) fn spawn_layout_children(
-    //
     mut commands: Commands,
 
     layouts: Res<Assets<SeqPairLayout>>,
     mut layout_events: EventReader<layout::LayoutChangedEvent>,
 
-    // layout_roots: Query<(Entity, &Handle<SeqPairLayout>), Added<Handle<SeqPairLayout>>>,
     layout_roots: Query<(Entity, &Handle<SeqPairLayout>)>,
+
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut border_rect_materials: ResMut<Assets<super::render::bordered_rect::BorderedRectMaterial>>,
+    // :)
+    mut border_rect_mat: Local<Option<Handle<BorderedRectMaterial>>>,
 ) {
+    if border_rect_mat.is_none() {
+        let mat =
+            border_rect_materials.add(crate::app::render::bordered_rect::BorderedRectMaterial {
+                fill_color: LinearRgba::new(0.0, 0.0, 0.0, 0.0),
+                border_color: LinearRgba::new(0.0, 0.0, 0.0, 1.0),
+                border_opacities: 0xFFFFFFFF,
+                border_width_px: 1.0,
+                alpha_mode: AlphaMode::Blend,
+            });
+        *border_rect_mat = Some(mat);
+    }
+    let Some(border_rect_mat) = border_rect_mat.as_ref() else {
+        unreachable!();
+    };
+
     for layout_event in layout_events.read() {
         if !layout_event.need_respawn {
             continue;
@@ -150,18 +177,28 @@ pub(super) fn spawn_layout_children(
 
         commands.entity(root).despawn_descendants();
 
-        for (seq_pair, aabb) in layout.aabbs.iter() {
-            //
+        let mut count = 0;
+        commands.entity(root).with_children(|parent| {
+            for (seq_pair, aabb) in layout.aabbs.iter() {
+                count += 1;
+                //
+                let size = aabb.extents();
+                let mesh = Rectangle::from_size([size.x as f32, size.y as f32].into());
 
-            commands.spawn((
-                *seq_pair,
-                SpatialBundle::INHERITED_IDENTITY,
-                Pickable {
-                    should_block_lower: false,
-                    is_hoverable: true,
-                },
-            ));
-        }
+                parent.spawn((
+                    *seq_pair,
+                    SpatialBundle::INHERITED_IDENTITY,
+                    meshes.add(mesh),
+                    border_rect_mat.clone(),
+                    Pickable {
+                        should_block_lower: false,
+                        is_hoverable: true,
+                    },
+                ));
+            }
+        });
+
+        println!("spawned {count} tiles");
     }
 }
 
@@ -180,8 +217,10 @@ pub(super) fn spawn_alignments_in_tiles(
             .iter()
             .filter_map(|&ix| Some((ix, alignments.alignments.get(ix)?)));
 
+        let mut count = 0;
         commands.entity(tile_ent).with_children(|parent| {
             for (pair_index, alignment) in tile_als {
+                count += 1;
                 parent.spawn((
                     AlignmentIndex {
                         target: alignment.target_id,
@@ -197,11 +236,14 @@ pub(super) fn spawn_alignments_in_tiles(
                 ));
             }
         });
+        println!("spawned {count} alignment entities");
     }
 }
 
 pub(super) fn prepare_alignment_vertices(
     mut commands: Commands,
+
+    cli_args: Res<crate::cli::Cli>,
 
     alignments: Res<crate::Alignments>,
     alignment_query: Query<
@@ -218,13 +260,19 @@ pub(super) fn prepare_alignment_vertices(
     // mut tasks: Local<HashMap<AlignmentIndex, Task<Vec<(Vec2, Vec2, crate::CigarOp)>>>>,
     // processing: Local<HashMap<AlignmentIndex, Arc<AtomicBool>>>,
 ) {
+    if cli_args.low_mem {
+        return;
+    }
+
     let task_pool = AsyncComputeTaskPool::get();
 
     for (al_ent, al_ix) in alignment_query.iter() {
+        dbg!();
         if alignment_vertices_map.vertices.contains_key(al_ix) || tasks.contains_key(al_ix) {
             continue;
         }
 
+        dbg!();
         let Some((location, cigar)) = alignments
             .get(*al_ix)
             .map(|al| (al.location.clone(), al.cigar.clone()))
@@ -335,17 +383,16 @@ pub(super) fn update_alignment_polyline_materials(
 }
 
 // updates `Transform` component of children of layout roots
-// run after spawn_layout_children
 pub(super) fn update_layout_tile_positions(
     layouts: Res<Assets<SeqPairLayout>>,
 
     mut layout_events: EventReader<layout::LayoutChangedEvent>,
-    layout_roots: Query<(Entity, &Handle<SeqPairLayout>, &Children)>,
+    layout_roots: Query<(&Handle<SeqPairLayout>, &Children)>,
 
     mut seq_pair_tiles: Query<(&SequencePairTile, &mut Transform)>,
 ) {
     let layout_entities = layout_events.read().map(|ev| ev.entity);
-    for (root, layout_handle, children) in layout_roots.iter_many(layout_entities) {
+    for (layout_handle, children) in layout_roots.iter_many(layout_entities) {
         let Some(layout) = layouts.get(layout_handle) else {
             continue;
         };
