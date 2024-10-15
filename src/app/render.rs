@@ -124,7 +124,11 @@ impl Plugin for AlignmentRendererPlugin {
             )
             // .add_systems(ExtractSchedule, extract_alignment_position_overrides)
             .add_systems(ExtractSchedule, extract_alignment_viewer_children)
-            .add_systems(Render, queue_draw_alignment_lines.in_set(RenderSet::Render))
+            .add_systems(
+                Render,
+                queue_draw_alignments_in_tiles.in_set(RenderSet::Render),
+            )
+            // .add_systems(Render, queue_draw_alignment_lines.in_set(RenderSet::Render))
             // .add_systems(
             //     Render,
             //     (queue_alignment_draw, queue_alignment_draw_overrides).in_set(RenderSet::Render),
@@ -1265,14 +1269,101 @@ fn queue_draw_alignments_in_tiles(
     gpu_vertices: Res<RenderAssets<GpuAlignmentVertices>>,
     gpu_materials: Res<RenderAssets<GpuAlignmentPolylineMaterial>>,
 
+    alignments: Query<(
+        &Handle<AlignmentVertices>,
+        &Handle<AlignmentPolylineMaterial>,
+    )>,
     targets: Query<
         (
             Entity,
             &AlignmentViewer,
             &AlignmentViewerImages,
             &AlignmentRenderTarget,
+            &VertexBindGroup,
         ),
         Without<Rendering>,
     >,
 ) {
+    let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline) else {
+        return;
+    };
+
+    for (tgt_entity, viewer, viewer_imgs, render_target, vx_bind_group) in targets.iter() {
+        let Some(view) = viewer.next_view else {
+            continue;
+        };
+
+        let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("AlignmentRenderer".into()),
+        });
+
+        let tgt_handle = &viewer_imgs.back;
+        let tgt_img = gpu_images.get(tgt_handle).unwrap();
+
+        let depth_handle = &viewer_imgs.back_depth;
+        let depth_img = gpu_images.get(depth_handle).unwrap();
+
+        // let bp_per_px = (view.width() / tgt_img.size.x as f64) as f32;
+        let px_per_bp = tgt_img.size.x as f64 / view.width();
+
+        let bg = viewer.background_color.to_srgba();
+        let clear_color = wgpu::Color {
+            r: bg.red as f64,
+            g: bg.green as f64,
+            b: bg.blue as f64,
+            a: bg.alpha as f64,
+        };
+
+        {
+            let mut pass = cmds.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("AlignmentRendererPass".into()),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &tgt_img.texture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_color),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &depth_img.texture_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0.0),
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..default()
+            });
+
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, &vx_bind_group.group_0, &[]);
+
+            for (vertices, material) in alignments.iter() {
+                let Some((vertices, material)) =
+                    gpu_vertices.get(vertices).zip(gpu_materials.get(material))
+                else {
+                    continue;
+                };
+
+                // if px_per_bp > 1.0 && !line_only {
+                if px_per_bp > 1.0 {
+                    continue;
+                }
+
+                pass.set_bind_group(1, &material.bind_groups.group_1, &[]);
+                pass.set_bind_group(2, &material.bind_groups.group_2, &[]);
+                pass.set_vertex_buffer(0, wgpu::Buffer::slice(&vertices.vertex_buffer, ..));
+                pass.draw(0..6, 0..vertices.segment_count);
+            }
+        }
+
+        render_queue.0.submit([cmds.finish()]);
+
+        let is_ready = render_target.is_ready.clone();
+        render_queue.0.on_submitted_work_done(move || {
+            is_ready.store(true);
+        });
+        commands.entity(tgt_entity).insert(Rendering);
+    }
 }

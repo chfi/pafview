@@ -80,11 +80,12 @@ impl LayoutBuilder {
                         let y0 = y_offset;
                         y_offset += self.vertical_offset.unwrap_or(qry_len);
 
-                        let center = [x0, y0];
+                        // let center = [x0, y0];
+                        let center = [x0 + tgt_len * 0.5, y0 + qry_len * 0.5];
 
                         let half_extents = [tgt_len * 0.5, qry_len * 0.5];
 
-                        let aabb = Aabb::from_half_extents([x0, y0].into(), half_extents.into());
+                        let aabb = Aabb::from_half_extents(center.into(), half_extents.into());
 
                         aabbs.insert(SequencePairTile { target, query }, aabb);
                     }
@@ -115,8 +116,8 @@ impl LayoutBuilder {
         T: IntoIterator<Item = SeqId>,
         Q: IntoIterator<Item = SeqId>,
     {
-        let targets = targets.into_iter().collect::<Vec<_>>();
-        let queries = queries.into_iter().collect::<Vec<_>>();
+        let mut targets = targets.into_iter().collect::<Vec<_>>();
+        let mut queries = queries.into_iter().collect::<Vec<_>>();
 
         let data = LayoutInput::Axes { targets, queries };
         Self {
@@ -310,6 +311,10 @@ pub mod gui {
         sequences: Res<crate::Sequences>,
 
         mut editor_state: Local<LayoutEditorState>,
+
+        default_layout_root: Res<crate::app::alignments::DefaultLayoutRoot>,
+        mut layout_events: EventWriter<LayoutChangedEvent>,
+        mut update_layout_debounce: Local<Option<std::time::Instant>>,
     ) {
         let init_builder = builder.bypass_change_detection().builder.is_none();
 
@@ -386,6 +391,18 @@ pub mod gui {
             if let Some((builder, layout)) = builder.zip(layout) {
                 *layout = builder.clone().build(&sequences);
                 default_layout.builder = builder.clone();
+            }
+            *update_layout_debounce = Some(std::time::Instant::now());
+        }
+
+        if let Some(time) = update_layout_debounce.take() {
+            if time.elapsed().as_millis() < 100 {
+                *update_layout_debounce = Some(time);
+            } else {
+                layout_events.send(LayoutChangedEvent {
+                    entity: default_layout_root.0,
+                    need_respawn: false,
+                });
             }
         }
     }

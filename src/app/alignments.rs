@@ -99,6 +99,7 @@ pub(super) fn initialize_default_layout(
         .map(|(id, seq)| (*id, seq.len()))
         .collect::<Vec<_>>();
     seqs.sort_by_key(|(_, l)| *l);
+    seqs.dedup();
 
     let targets = seqs.iter().map(|(i, _)| *i);
     let queries = targets.clone();
