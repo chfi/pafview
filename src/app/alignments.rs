@@ -129,7 +129,11 @@ pub(super) fn spawn_default_layout_root(
     mut layout_events: EventWriter<layout::LayoutChangedEvent>,
 ) {
     let entity = commands
-        .spawn((SpatialBundle::default(), default_layout.layout.clone()))
+        .spawn((
+            SpatialBundle::default(),
+            default_layout.layout.clone(),
+            layout::LayoutEntityIndex(default()),
+        ))
         .id();
     layout_events.send(layout::LayoutChangedEvent {
         entity,
@@ -147,7 +151,11 @@ pub(super) fn spawn_layout_children(
     layouts: Res<Assets<SeqPairLayout>>,
     mut layout_events: EventReader<layout::LayoutChangedEvent>,
 
-    layout_roots: Query<(Entity, &Handle<SeqPairLayout>)>,
+    mut layout_roots: Query<(
+        Entity,
+        &Handle<SeqPairLayout>,
+        &mut layout::LayoutEntityIndex,
+    )>,
 
     mut meshes: ResMut<Assets<Mesh>>,
     mut border_rect_materials: ResMut<Assets<super::render::bordered_rect::BorderedRectMaterial>>,
@@ -174,7 +182,8 @@ pub(super) fn spawn_layout_children(
             continue;
         }
 
-        let Ok((root, layout_handle)) = layout_roots.get(layout_event.entity) else {
+        let Ok((root, layout_handle, mut entity_index)) = layout_roots.get_mut(layout_event.entity)
+        else {
             continue;
         };
 
@@ -183,25 +192,33 @@ pub(super) fn spawn_layout_children(
         };
 
         commands.entity(root).despawn_descendants();
+        entity_index.clear();
 
         let mut count = 0;
         commands.entity(root).with_children(|parent| {
             for (seq_pair, aabb) in layout.aabbs.iter() {
                 count += 1;
-                //
+
                 let size = aabb.extents();
                 let mesh = Rectangle::from_size([size.x as f32, size.y as f32].into());
 
-                parent.spawn((
-                    *seq_pair,
-                    SpatialBundle::INHERITED_IDENTITY,
-                    meshes.add(mesh),
-                    border_rect_mat.clone(),
-                    Pickable {
-                        should_block_lower: false,
-                        is_hoverable: true,
-                    },
-                ));
+                let id = parent
+                    .spawn((
+                        *seq_pair,
+                        SpatialBundle::INHERITED_IDENTITY,
+                        meshes.add(mesh),
+                        border_rect_mat.clone(),
+                        Pickable {
+                            should_block_lower: false,
+                            is_hoverable: true,
+                        },
+                        On::<Pointer<Over>>::run(|input: Res<ListenerInput<Pointer<Over>>>| {
+                            println!("hovering seq pair: {:?}", input.listener());
+                        }),
+                    ))
+                    .id();
+
+                entity_index.insert(*seq_pair, id);
             }
         });
 

@@ -1,7 +1,10 @@
 use bevy::{math::DVec2, prelude::*, utils::HashMap};
 
 // use rapier2d::parry;
-use avian2d::parry::{self, bounding_volume::Aabb};
+use avian2d::parry::{
+    self,
+    bounding_volume::{Aabb, BoundingVolume},
+};
 
 use crate::{app::SequencePairTile, sequences::SeqId};
 
@@ -28,6 +31,9 @@ pub struct DefaultLayout {
     pub layout: Handle<SeqPairLayout>,
     builder: LayoutBuilder,
 }
+
+#[derive(Component, Deref, DerefMut)]
+pub struct LayoutEntityIndex(pub HashMap<SequencePairTile, Entity>);
 
 impl DefaultLayout {
     pub fn new(layout: Handle<SeqPairLayout>, builder: LayoutBuilder) -> Self {
@@ -168,6 +174,7 @@ enum LayoutInput {
 pub struct LayoutQbvh {
     qbvh: parry::partitioning::Qbvh<usize>,
     tile_index_map: Vec<SequencePairTile>,
+    aabbs: Vec<Aabb>,
     // tile_index_map: HashMap<usize,
 }
 
@@ -178,7 +185,7 @@ impl LayoutQbvh {
     {
         use parry::partitioning::Qbvh;
 
-        let (tile_index_map, leaf_data): (
+        let (tile_index_map, mut leaf_data): (
             Vec<SequencePairTile>,
             Vec<(usize, parry::bounding_volume::Aabb)>,
         ) = tiles
@@ -186,12 +193,14 @@ impl LayoutQbvh {
             .map(|(ix, (seq_pair, aabb))| (seq_pair, (ix, aabb)))
             .unzip();
 
+        let aabbs = leaf_data.iter().map(|(_, aabb)| *aabb).collect::<Vec<_>>();
         let mut qbvh = Qbvh::new();
         qbvh.clear_and_rebuild(leaf_data.into_iter(), 1.0);
 
         Self {
             qbvh,
             tile_index_map,
+            aabbs,
         }
     }
 
@@ -201,18 +210,24 @@ impl LayoutQbvh {
         half_extents: impl Into<[f64; 2]>,
         mut callback: impl FnMut(SequencePairTile) -> bool,
     ) {
-        let leaf_cb = &mut |index: &usize| {
-            let seq_pair = self.tile_index_map[*index];
-            callback(seq_pair)
-        };
-
         let center = center.into();
         let half_extents = half_extents.into();
 
-        let aabb =
+        let query_aabb =
             parry::bounding_volume::Aabb::from_half_extents(center.into(), half_extents.into());
+
+        let leaf_cb = &mut |index: &usize| {
+            let aabb = &self.aabbs[*index];
+            if query_aabb.intersects(aabb) {
+                let seq_pair = self.tile_index_map[*index];
+                callback(seq_pair)
+            } else {
+                true
+            }
+        };
+
         let mut visitor =
-            parry::query::visitors::BoundingVolumeIntersectionsVisitor::new(&aabb, leaf_cb);
+            parry::query::visitors::BoundingVolumeIntersectionsVisitor::new(&query_aabb, leaf_cb);
         self.qbvh.traverse_depth_first(&mut visitor);
     }
 
@@ -236,12 +251,19 @@ impl LayoutQbvh {
         point: impl Into<[f64; 2]>,
         mut callback: impl FnMut(SequencePairTile) -> bool,
     ) {
+        let query_pt = point.into();
+
         let leaf_cb = &mut |index: &usize| {
-            let seq_pair = self.tile_index_map[*index];
-            callback(seq_pair)
+            let aabb = &self.aabbs[*index];
+            if aabb.contains_local_point(&query_pt.into()) {
+                let seq_pair = self.tile_index_map[*index];
+                callback(seq_pair)
+            } else {
+                true
+            }
         };
 
-        let query_pt = point.into().into();
+        let query_pt = query_pt.into();
         let mut visitor =
             parry::query::visitors::PointIntersectionsVisitor::new(&query_pt, leaf_cb);
         self.qbvh.traverse_depth_first(&mut visitor);

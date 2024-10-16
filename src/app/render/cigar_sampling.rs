@@ -34,8 +34,8 @@ impl Plugin for CigarSamplingRenderPlugin {
             commands.spawn((
                 SpatialBundle::default(),
                 RenderTileGrid {
-                    rows: 4,
-                    columns: 4,
+                    rows: 1,
+                    columns: 1,
                 },
                 RenderTileGridCanvasSize {
                     pixels: [800, 600].into(),

@@ -2,28 +2,98 @@ use bevy::prelude::*;
 use bevy_mod_picking::prelude::*;
 use picking_core::PickSet;
 
-use super::render::AlignmentViewer;
+use super::{
+    alignments::layout::{LayoutEntityIndex, SeqPairLayout},
+    render::AlignmentViewer,
+    view::AlignmentViewport,
+};
 
 pub struct PickingPlugin;
 
 impl Plugin for PickingPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(DefaultPickingPlugins)
-            .add_systems(PreUpdate, alignment_picking_grid.in_set(PickSet::Backend));
+            .add_systems(PreUpdate, seq_pair_tile_picking.in_set(PickSet::Backend));
+        // .add_systems(PreUpdate, alignment_picking_grid.in_set(PickSet::Backend));
         //
     }
 }
 
-pub fn seq_pair_tile_picking(
+fn seq_pair_tile_picking(
     pointers: Query<(&PointerId, &PointerLocation)>,
+    cameras: Query<(Entity, &Camera), With<super::AlignmentCamera>>,
+    windows: Query<&Window>,
+
+    alignment_viewport: Res<AlignmentViewport>,
     // alignments: Res<crate::Alignments>,
+    layouts: Res<Assets<SeqPairLayout>>,
+    layout_roots: Query<(&Handle<SeqPairLayout>, &LayoutEntityIndex)>,
+
+    mut output: EventWriter<backend::PointerHits>,
 ) {
+    let (camera_ent, _camera) = cameras.single();
+
+    let view = alignment_viewport.view;
+
+    for (layout_handle, entity_index) in layout_roots.iter() {
+        let Some(layout) = layouts.get(layout_handle) else {
+            continue;
+        };
+
+        for (ptr_id, ptr_loc) in pointers.iter() {
+            let Some(loc) = ptr_loc.location() else {
+                continue;
+            };
+
+            let window = match loc.target {
+                bevy::render::camera::NormalizedRenderTarget::Window(ent) => {
+                    windows.get(ent.entity()).unwrap()
+                }
+                // bevy::render::camera::NormalizedRenderTarget::Image(_) => todo!(),
+                // bevy::render::camera::NormalizedRenderTarget::TextureView(_) => todo!(),
+                _ => continue,
+            };
+
+            let size = window.resolution.size();
+
+            let cursor = loc.position;
+            // println!("cursor pos: {cursor:?}");
+
+            // map pointer screen location to world
+            let world_pos = view.map_screen_to_world(size, cursor.to_array());
+
+            // find tile under pointer
+            let mut hit_tile = None;
+            layout
+                .layout_qbvh
+                .tiles_at_point_callback(world_pos, |seq_pair| {
+                    hit_tile = Some(seq_pair);
+                    false
+                });
+
+            let Some(seq_entity) = hit_tile.and_then(|seq_pair| entity_index.get(&seq_pair)) else {
+                continue;
+            };
+
+            let hit_data = backend::HitData::new(
+                camera_ent,
+                10.0,
+                Some(Vec3::new(world_pos.x as f32, world_pos.y as f32, 10.0)),
+                None,
+            );
+            output.send(backend::PointerHits::new(
+                *ptr_id,
+                vec![(*seq_entity, hit_data)],
+                1.0,
+            ));
+        }
+    }
 }
 
 // this is pretty hacky and makes a number of assumptions;
 // it'd be good to have an implementation that works with any number
 // of views (e.g. picture-in-picture using multiple display images)
-pub fn alignment_picking_grid(
+fn alignment_picking_grid(
     pointers: Query<(&PointerId, &PointerLocation)>,
 
     // TODO positions should be taken from the cache associated with the
