@@ -6,9 +6,9 @@ default-run = "pafview"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-# [[bin]]
-# name = "paf-stress-test"
-# path = "src/bin/paf_stress_test.rs"
+[[bin]]
+name = "paf-stress-test"
+path = "src/bin/paf_stress_test.rs"
 
 [dependencies]
 anyhow = "1.0.80"
@@ -91,6 +91,9 @@ opt-level = 3
 debug-info = "full"
 debug-assertions = true
 overflow-checks = true
+
+[profile.release]
+codegen-units = 1
 
 # [profile.dev.package."*"]
 # opt-level = 3

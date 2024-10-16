@@ -89,20 +89,26 @@ pub(super) fn initialize_default_layout(
 
     // cli_args: Res<crate::cli::Cli>,
     mut layouts: ResMut<Assets<SeqPairLayout>>,
+    alignments: Res<crate::Alignments>,
     sequences: Res<crate::Sequences>,
 ) {
-    // use alignments::layout::*;
-
-    let mut seqs = sequences
-        .sequences
+    let (mut targets, mut queries): (Vec<_>, Vec<_>) = alignments
+        .alignments
         .iter()
-        .map(|(id, seq)| (*id, seq.len()))
-        .collect::<Vec<_>>();
-    seqs.sort_by_key(|(_, l)| *l);
-    seqs.dedup();
+        .map(|al| {
+            let tgt = (al.target_id, al.location.target_total_len);
+            let qry = (al.query_id, al.location.query_total_len);
+            (tgt, qry)
+        })
+        .unzip();
 
-    let targets = seqs.iter().map(|(i, _)| *i);
-    let queries = targets.clone();
+    targets.sort_by_key(|(_, l)| *l);
+    targets.dedup();
+    queries.sort_by_key(|(_, l)| *l);
+    queries.dedup();
+
+    let targets = targets.iter().map(|(i, _)| *i);
+    let queries = queries.iter().map(|(i, _)| *i);
 
     let builder = layout::LayoutBuilder::from_axes(targets, queries);
     // LayoutBuilder::from_axes(targets, queries).with_vertical_offset(Some(10_000_000.0));
@@ -268,12 +274,12 @@ pub(super) fn prepare_alignment_vertices(
     let task_pool = AsyncComputeTaskPool::get();
 
     for (al_ent, al_ix) in alignment_query.iter() {
-        dbg!();
+        // dbg!();
         if alignment_vertices_map.vertices.contains_key(al_ix) || tasks.contains_key(al_ix) {
             continue;
         }
 
-        dbg!();
+        // dbg!();
         let Some((location, cigar)) = alignments
             .get(*al_ix)
             .map(|al| (al.location.clone(), al.cigar.clone()))
@@ -371,7 +377,7 @@ pub(super) fn update_alignment_polyline_materials(
                 continue;
             };
 
-            let pos = aabb.center();
+            let pos = aabb.center() - aabb.half_extents();
             let new_model = Transform::from_xyz(pos.x as f32, pos.y as f32, 0.0).compute_matrix();
 
             for (_ent, mat_handle) in alignments_query.iter_many(children) {
