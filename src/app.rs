@@ -207,17 +207,7 @@ fn config_update_grid_material(
 
 // #[derive(Resource)]
 
-fn setup(
-    mut commands: Commands,
-
-    alignment_grid: Res<crate::AlignmentGrid>,
-
-    fg_color: Res<ForegroundColor>,
-
-    // viewer: Res<PafViewer>,
-    mut polyline_materials: ResMut<Assets<PolylineMaterial>>,
-    mut polylines: ResMut<Assets<Polyline>>,
-) {
+fn setup(mut commands: Commands) {
     // NB: initial values don't matter here as the camera will be updated
     // from the AlignmentViewport resource
     commands.spawn((
@@ -234,50 +224,6 @@ fn setup(
         },
         AlignmentCamera,
     ));
-
-    // create polylines for grid
-    let grid = &alignment_grid;
-
-    let mut vertices: Vec<Vec3> = Vec::new();
-
-    for x in grid.x_axis.offsets() {
-        let x = x as f32;
-        let y0 = 0f32;
-        let y1 = grid.y_axis.total_len as f32;
-
-        vertices.push(Vec3::new(x, y0, 0.0));
-        vertices.push(Vec3::new(x, y1, 0.0));
-
-        // https://github.com/ForesightMiningSoftwareCorporation/bevy_polyline/issues/20#issuecomment-1035624250
-        vertices.push(Vec3::splat(std::f32::INFINITY));
-    }
-
-    for y in grid.y_axis.offsets() {
-        let y = y as f32;
-        let x0 = 0f32;
-        let x1 = grid.x_axis.total_len as f32;
-
-        vertices.push(Vec3::new(x0, y, 0.0));
-        vertices.push(Vec3::new(x1, y, 0.0));
-        vertices.push(Vec3::splat(std::f32::INFINITY));
-    }
-
-    let grid_mat = polyline_materials.add(PolylineMaterial {
-        width: 0.8,
-        color: fg_color.0.into(),
-        depth_bias: 0.0,
-        perspective: false,
-    });
-
-    commands.insert_resource(GridMaterial {
-        handle: grid_mat.clone(),
-    });
-
-    let grid = commands.spawn(PolylineBundle {
-        polyline: polylines.add(Polyline { vertices }),
-        material: grid_mat,
-        ..default()
-    });
 }
 
 #[derive(Resource)]

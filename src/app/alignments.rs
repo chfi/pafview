@@ -102,9 +102,9 @@ pub(super) fn initialize_default_layout(
         })
         .unzip();
 
-    targets.sort_by_key(|(_, l)| *l);
+    targets.sort_by_key(|(_, l)| (std::cmp::Reverse(*l)));
     targets.dedup();
-    queries.sort_by_key(|(_, l)| *l);
+    queries.sort_by_key(|(_, l)| (std::cmp::Reverse(*l)));
     queries.dedup();
 
     let targets = targets.iter().map(|(i, _)| *i);
