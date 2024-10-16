@@ -899,16 +899,21 @@ impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathStrokeIte
             let dx = op.target_delta(len) as f64;
             let dy = op.query_delta(len) as f64;
 
-            let w_start = {
+            let mut w_start = {
                 let x = (tgt_r.start as f64) + origin.x;
                 let y = (qry_r.start as f64) + origin.y;
                 DVec2::new(x, y)
             };
-            let w_end = {
+            let mut w_end = {
                 let x = (tgt_r.end as f64) + origin.x;
                 let y = (qry_r.end as f64) + origin.y;
                 DVec2::new(x, y)
             };
+
+            if cg_item.strand() == crate::Strand::Reverse {
+                std::mem::swap(&mut w_start.y, &mut w_end.y);
+            }
+
             self.last_end = Some(w_end);
 
             if let Some(path_0) = self.path_open {
