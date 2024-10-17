@@ -6,6 +6,9 @@ use bevy::{
     tasks::{AsyncComputeTaskPool, Task},
     utils::HashMap,
 };
+use bevy_inspector_egui::{
+    inspector_options::ReflectInspectorOptions, quick::ResourceInspectorPlugin, InspectorOptions,
+};
 use bevy_mod_picking::prelude::Pickable;
 
 use crate::{
@@ -34,8 +37,8 @@ impl Plugin for CigarSamplingRenderPlugin {
             commands.spawn((
                 SpatialBundle::default(),
                 RenderTileGrid {
-                    rows: 1,
-                    columns: 1,
+                    rows: 4,
+                    columns: 4,
                 },
                 RenderTileGridCanvasSize {
                     pixels: [800, 600].into(),
@@ -598,7 +601,12 @@ where
         }
     }
 
-    for (val, px) in std::iter::zip(mask_buf, pixels) {
+    for (i, (val, px)) in std::iter::zip(mask_buf, pixels).enumerate() {
+        let x = i % tile_dims.x as usize;
+        // NB: quick hack to avoid vertical line artifacts
+        if x == 0 {
+            continue;
+        }
         if val > 0 {
             // let val = val.max(32);
             let val = val.max(128);
