@@ -364,7 +364,9 @@ fn spawn_render_tasks(
                 canvas_size,
             };
 
-            //
+            if Some(&params) == tile.last_rendered.as_ref() {
+                continue;
+            }
 
             let w_x0 = params.view.x_min;
             let w_x1 = params.view.x_max;
@@ -375,15 +377,6 @@ fn spawn_render_tasks(
                 .layout_qbvh
                 .tiles_in_rect(params.view.center(), params.view.size() * 0.5);
 
-            // let tgts = alignment_grid.x_axis.tiles_covered_by_range(w_x0..=w_x1);
-            // let qrys = alignment_grid.y_axis.tiles_covered_by_range(w_y0..=w_y1);
-            // let Some((tgts, qrys)) = tgts.zip(qrys) else {
-            //     continue;
-            // };
-
-            // let qrys = qrys.collect::<Vec<_>>();
-
-            // let tile_pairs = tgts.flat_map(|tgt| qrys.iter().map(move |qry| (tgt, *qry)));
             let tile_aabbs = tiles
                 .into_iter()
                 .filter_map(|seq_pair| {
@@ -391,26 +384,6 @@ fn spawn_render_tasks(
                     Some((seq_pair, *aabb))
                 })
                 .collect::<Vec<_>>();
-
-            // let tile_pairs = tiles.
-
-            // let tile_positions = tile_pairs
-            //     .filter_map(|(target, query)| {
-            //         let xs = alignment_grid.x_axis.sequence_axis_range(target)?;
-            //         let ys = alignment_grid.y_axis.sequence_axis_range(query)?;
-
-            //         let x0 = xs.start as f64;
-            //         let y0 = ys.start as f64;
-
-            //         let x1 = xs.end as f64;
-            //         let y1 = ys.end as f64;
-
-            //         Some((
-            //             SequencePairTile { target, query },
-            //             [DVec2::new(x0, y0), DVec2::new(x1, y1)],
-            //         ))
-            //     })
-            //     .collect::<Vec<_>>();
 
             let als = alignments.alignments.clone();
             let al_pairs = alignments.indices.clone();
@@ -448,9 +421,7 @@ fn spawn_render_tasks(
                     })
                     .collect::<Vec<_>>();
 
-                println!(" >> {count} alignments to render");
-
-                // async_io::Timer::after(std::time::Duration::from_millis(1_000)).await;
+                // println!(" >> {count} alignments to render");
 
                 rasterize_alignments_in_tile(dbg_bg_color, tile_bounds, canvas_size, alignments)
             });
@@ -774,12 +745,10 @@ fn update_image_from_task(
     )>,
 ) {
     for (tile, image, mut render, mut task) in tiles.iter_mut() {
-        // dbg!();
         let Some(pixels) = bevy::tasks::block_on(bevy::tasks::poll_once(&mut task.task)) else {
             continue;
         };
 
-        // println!("updating image {image:?} for tile {tile:?}");
         let Some(image) = images.get_mut(image) else {
             panic!("couldn't modify render tile image");
         };
@@ -790,8 +759,6 @@ fn update_image_from_task(
             depth_or_array_layers: 1,
         });
 
-        // println!("image data size: {}", image.data.len());
-        // println!("pixels size: {}", pixels.len());
         let img_size = task.params.canvas_size;
         image.texture_descriptor.size.width = img_size.x;
         image.texture_descriptor.size.height = img_size.y;
