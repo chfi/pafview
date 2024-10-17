@@ -519,8 +519,6 @@ where
 
         let x0 = x;
         let y0 = y;
-        // let x0 = x + 0.5;
-        // let y0 = y + 0.5;
 
         let rad_sq = ((rad * rad) - 0.5).max(0.5);
 
@@ -536,7 +534,11 @@ where
                 if i < mask_buf.len() {
                     let px = mask_buf[i];
                     let d = (rad_sq.sqrt() - val.sqrt()).clamp(0.0, 1.0);
-                    mask_buf[i] = px.max((d * 255.0) as u8);
+
+                    // NB: explicitly using Ord::max to quiet rust-analyzer
+                    // TODO: make an issue
+                    let val = Ord::max(px, (d * 255.0) as u8);
+                    mask_buf[i] = val;
                 }
             }
         }
@@ -547,7 +549,6 @@ where
         // seq_min, seq_max encode the position of the seq. pair tile in the world
 
         for alignment in alignments {
-            // dbg!();
             let alignment: &crate::Alignment = alignment;
             let loc = &alignment.location;
             let tgt_len = loc.target_range.end - loc.target_range.start;
@@ -555,7 +556,6 @@ where
             let al_min = seq_aabb.mins.x + loc.target_range.start as f64;
             let al_max = al_min + tgt_len as f64;
 
-            // println!("{al_min}, {al_max}");
             let cal_min = vx_min.clamp(al_min, al_max) as u64;
             let cal_max = vx_max.clamp(al_min, al_max) as u64;
             if cal_min == cal_max {
@@ -593,17 +593,7 @@ where
             }
 
             /*
-            if path_commands.len() == 1 {
-
-            } else if path_commands.len() == 2 {
-
-            } else {
-
-            }
-            */
-
-            use zeno::Command as Cmd;
-
+            // use zeno::Command as Cmd;
             if let [Cmd::MoveTo(start), Cmd::MoveTo(end) | Cmd::LineTo(end)] =
                 path_commands.as_slice()
             {
@@ -625,6 +615,7 @@ where
                     continue;
                 }
             }
+            */
 
             total += 1;
             zeno::Mask::new(&path_commands)
@@ -665,10 +656,10 @@ where
         }
     }
 
-    println!(
-        "grew {embiggened} out of {total} alignments\taverage length: {}",
-        total_dst / embiggened as f64
-    );
+    // println!(
+    //     "grew {embiggened} out of {total} alignments\taverage length: {}",
+    //     total_dst / embiggened as f64
+    // );
 
     buffer
 }
@@ -861,11 +852,6 @@ impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathStrokeIte
     }
 
     fn emit_next(&mut self) -> Option<zeno::Command> {
-        /*
-        the iterator has to know whether the path is open or not; no way around it
-
-        */
-
         use crate::CigarOp::{Eq, D, I, M, X};
         use zeno::{Command, Vector};
 
@@ -892,12 +878,9 @@ impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathStrokeIte
 
             let op = cg_item.op;
             let len = cg_item.op_count;
-            // let len = cg_item.op_count as f64;
+
             let tgt_r = cg_item.target_seq_range();
             let qry_r = cg_item.query_seq_range();
-
-            let dx = op.target_delta(len) as f64;
-            let dy = op.query_delta(len) as f64;
 
             let mut w_start = {
                 let x = (tgt_r.start as f64) + origin.x;
@@ -914,44 +897,30 @@ impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathStrokeIte
                 std::mem::swap(&mut w_start.y, &mut w_end.y);
             }
 
+            let s_start = self
+                .view
+                .map_world_to_screen(screen_dims, [w_start.x, w_start.y]);
+
             self.last_end = Some(w_end);
-
-            if let Some(path_0) = self.path_open {
-                let diff = path_0 - w_start;
-                let dist_sq = diff.length_squared();
-
-                if dist_sq > scale_sq {
-                    if matches!(op, M | Eq | X) {
-                        self.path_open = Some(w_start);
-                        let s_start = self
-                            .view
-                            .map_world_to_screen(screen_dims, [w_start.x, w_start.y]);
-                        // println!("emitting LineTo({}, {})", s_start.x, s_start.y);
-                        // println!("looped {loop_count} before emitting");
+            if let Some(_path_0) = self.path_open {
+                if matches!(op, I | D) {
+                    if len as f64 > self.bp_per_px {
+                        self.path_open = None;
                         return Some(Command::LineTo(Vector {
                             x: s_start.x,
                             y: s_start.y,
                         }));
-                    } else {
-                        // emit MoveTo(w_end)... maybe?
-                        // or actually just keep going, i guess?
                     }
                 }
             } else {
                 if matches!(op, M | Eq | X) {
                     self.path_open = Some(w_start);
-                    let s_start = self
-                        .view
-                        .map_world_to_screen(screen_dims, [w_start.x, w_start.y]);
                     // println!("emitting MoveTo({}, {})", s_start.x, s_start.y);
                     // println!("looped {loop_count} before emitting");
                     return Some(Command::MoveTo(Vector {
                         x: s_start.x,
                         y: s_start.y,
                     }));
-                } else {
-                    // there's no open path, and we're not going to emit a stroke,
-                    // so... don't do anything
                 }
             }
 
@@ -959,219 +928,3 @@ impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathStrokeIte
         }
     }
 }
-
-// struct CigarPathCommandsIter<I> {
-//     iter: I,
-//     bp_per_px: f64,
-
-//     target_range: std::ops::Range<u64>,
-// }
-
-/*
-rather than working directly with a world view and exact tile dimensions,
-and outputting tile-space (pixel) zeno path commands, as the
-`CigarScreenPathStrokeIter` above,
-
-this iterator only takes the view scale and alignment-local target range
-into account, outputting world-unit (basepair) path commands with a minimum
-size based on the `bp_per_px` scale. these positions must then be offset
-by the alignment location and seq. pair offset before rasterization
-*/
-struct SimpleCigarPathStrokeIter<I> {
-    iter: I,
-    bp_per_px: f64,
-
-    target_range: std::ops::Range<u64>,
-
-    current_item: Option<crate::CigarIterItem>,
-    last_emitted: Option<StrokeCmd>,
-    cursor: DVec2,
-    // cursor: CigarPathCursor,
-    // state: Option<CigarPathState>,
-    // current_op: Option<(crate::CigarOp, u32)>,
-
-    // segment_start: Option<[f64; 2]>,
-}
-
-struct CigarPathCursor {
-    offset: DVec2,
-    stroke_start: Option<DVec2>,
-    // drawing: bool,
-}
-
-impl<I: Iterator<Item = crate::CigarIterItem>> SimpleCigarPathStrokeIter<I> {
-    // target_range must match `iter`'s target range
-    fn new(bp_per_px: f64, target_range: std::ops::Range<u64>, iter: I) -> Self {
-        Self {
-            iter,
-            bp_per_px,
-
-            target_range,
-
-            current_item: None,
-            last_emitted: None,
-            cursor: DVec2::ZERO,
-            /*
-            cursor: CigarPathCursor {
-                offset: DVec2::ZERO,
-                stroke_start: None,
-                // drawing: false,
-            }, // state: None,
-            */
-        }
-    }
-
-    //
-
-    fn process_item(&mut self, item: crate::CigarIterItem) -> Option<StrokeCmd> {
-        todo!();
-    }
-
-    fn emit(&mut self) -> Option<StrokeCmd> {
-        //
-        use crate::CigarOp::{Eq, D, I, M, X};
-        if self.last_emitted.is_none() {
-            // NB: this will get moved by the seq. pair & alignment offset
-            // later... mostly here to help me think
-            let cmd = StrokeCmd::MoveTo(DVec2::ZERO);
-            self.last_emitted = Some(cmd);
-            return Some(cmd);
-        }
-
-        let scale_sq = self.bp_per_px * self.bp_per_px;
-
-        loop {
-            if let Some(item) = self.current_item.take() {
-                if matches!(item.op, M | Eq | X) {
-                    let cmd = StrokeCmd::MoveTo(DVec2::ZERO);
-                    self.last_emitted = Some(cmd);
-                    // return Some()
-                }
-            }
-
-            let Some(item) = self.iter.next() else {
-                todo!();
-                // output final LineTo command if needed
-            };
-
-            let op = item.op;
-            let len = item.op_count;
-            let dx = op.target_delta(len) as f64;
-            let dy = op.query_delta(len) as f64;
-
-            let len_sq = dx * dx + dy * dy;
-
-            if matches!(op, M | Eq | X) {
-                if len_sq >= scale_sq {
-                    // this one's enough to emit by itself
-                }
-            }
-
-            //
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum StrokeCmd {
-    MoveTo(DVec2),
-    LineTo(DVec2),
-}
-
-impl<I: Iterator<Item = crate::CigarIterItem>> Iterator for SimpleCigarPathStrokeIter<I> {
-    type Item = StrokeCmd;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        todo!();
-        /*
-        match self.state.take() {
-            Some(CigarPathState::Done) => None,
-            None => {
-                let Some(item) = self.iter.next() else {
-                    self.state = Some(CigarPathState::Done);
-                    return None;
-                };
-
-                // update state and recurse; won't even happen more than once
-                self.state = Some(CigarPathState::StartOf(item));
-                return self.next();
-            }
-            Some(CigarPathState::StartOf(item)) => {
-                //
-
-                self.state = Some(CigarPathState::EndOf(item));
-                todo!();
-            }
-            Some(CigarPathState::EndOf(item)) => {
-                //
-
-                self.state = Some(CigarPathState::EndOf(item));
-                todo!();
-            }
-        }
-
-        // if self.current_op.is_none() {
-        //     self.current_op = self.iter.next();
-        // }
-        */
-    }
-}
-
-/*
-#[derive(Default, Component)]
-struct TileDebugTimeView {
-    last_params: Option<RenderParams>,
-}
-
-fn setup_tile_debug_time(
-    mut commands: Commands,
-    fg_color: Res<ForegroundColor>,
-    tiles: Query<Entity, With<RenderTile>>,
-) {
-    for tile in tiles.iter() {
-        commands.entity(tile).with_children(|parent| {
-            parent
-                .spawn((
-                    TileDebugTimeView::default(),
-                    RenderLayers::layer(1),
-                    Text2dBundle {
-                        text: Text::from_section(
-                            "",
-                            TextStyle {
-                                color: fg_color.0,
-                                ..default()
-                            },
-                        ),
-                        text_anchor: bevy::sprite::Anchor::BottomLeft,
-                        ..default()
-                    },
-                    // TextBundle::from_section("", TextStyle::default()),
-                ))
-                .insert(Transform::from_xyz(0., 0., 1.0));
-        });
-    }
-}
-
-fn update_tile_debug_time(
-    // mut commands: Commands,
-    tiles: Query<(&Children, &RenderTileTarget)>,
-    mut dbg_text: Query<(&mut Text, &mut TileDebugTimeView)>,
-) {
-    for (children, tile) in tiles.iter() {
-        for child in children.iter() {
-            if let Ok((mut text, mut tile_dbg)) = dbg_text.get_mut(*child) {
-                if tile_dbg.last_params.as_ref() == tile.last_rendered.as_ref() {
-                    continue;
-                }
-                let value = if let Some(time) = tile.last_update.as_ref() {
-                    format!("{}ms", time.elapsed().as_millis())
-                } else {
-                    "".to_string()
-                };
-                text.sections[0].value = value;
-                tile_dbg.last_params = tile.last_rendered.clone();
-            }
-        }
-    }
-}
-*/
