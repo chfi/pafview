@@ -566,30 +566,27 @@ where
                 path_commands.push(cmd);
             }
 
-            /*
-            // use zeno::Command as Cmd;
-            if let [Cmd::MoveTo(start), Cmd::MoveTo(end) | Cmd::LineTo(end)] =
-                path_commands.as_slice()
+            let first = path_commands.first().clone();
+            let last = path_commands.last().clone();
+
+            use zeno::Command as Cmd;
+            if let Some((Cmd::MoveTo(start) | Cmd::LineTo(start), Cmd::LineTo(end))) =
+                first.zip(last)
             {
                 let dist = end.distance_to(*start) as f64;
                 total_dst += dist;
-                if dist < bp_per_px {
-                    let d = dist as f32;
+                if dist < 1.0 {
                     let x = start.x + 0.5 * (end.x - start.x);
                     let y = start.y + 0.5 * (end.y - start.y);
                     draw_dot(&mut mask_buf, x, y, 1.5);
-                    // let i = end.x as usize + end.y as usize * tile_dims.x as usize;
-                    // if i < mask_buf.len() {
-                    //     mask_buf[i] = 255;
-                    // }
 
                     embiggened += 1;
                     total += 1;
 
                     continue;
                 }
+                //
             }
-            */
 
             total += 1;
             zeno::Mask::new(&path_commands)
