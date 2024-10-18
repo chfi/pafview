@@ -41,7 +41,6 @@ fn seq_pair_and_alignment_picking(
     mut output: EventWriter<backend::PointerHits>,
 ) {
     let (camera_ent, _camera) = cameras.single();
-
     let view = alignment_viewport.view;
 
     for (layout_handle, entity_index) in layout_roots.iter() {

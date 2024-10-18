@@ -254,7 +254,10 @@ fn update_annotation_regions(
     let x_axis = &alignment_grid.x_axis;
     let y_axis = &alignment_grid.y_axis;
 
-    let screen_dims = windows.single().size();
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+    let screen_dims = window.size();
 
     for (annot_id, entities) in display_ents.iter() {
         let list = annotations.list_by_id(annot_id.record_list).unwrap();

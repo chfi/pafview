@@ -64,7 +64,10 @@ fn draw_cursor_ruler_gizmos(
         return;
     }
 
-    let res = &windows.single().resolution;
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+    let res = &window.resolution;
 
     let color = fg_color.0;
 
@@ -94,7 +97,10 @@ fn update_cursor_ruler(
         ..default()
     };
 
-    let res = &windows.single().resolution;
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+    let res = &window.resolution;
 
     let cursor_transform = cursor
         .screen_pos
@@ -240,7 +246,9 @@ fn update_measure_display(
         (With<MeasurementSelection>, Without<SelectionComplete>),
     >,
 ) {
-    let window = windows.single();
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
     let win_size = window.resolution.size();
 
     let Ok((_sel_entity, selection)) = selections.get_single() else {

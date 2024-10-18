@@ -187,7 +187,10 @@ fn rectangle_zoom_selection_gizmos(
     >,
     windows: Query<&Window>,
 ) {
-    let res = &windows.single().resolution;
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+    let res = &window.resolution;
     let dims = [res.width(), res.height()];
 
     let view = &app_view.view;

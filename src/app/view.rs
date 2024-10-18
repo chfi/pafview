@@ -68,13 +68,16 @@ pub struct CursorAlignmentPosition {
     pub query_pos: Option<(SeqId, u64)>,
 }
 
+// TODO rewrite to use layouts instead of AlignmentGrid
 pub fn update_cursor_world(
     mut cursor_world: ResMut<CursorAlignmentPosition>,
     grid: Res<crate::AlignmentGrid>,
     view: Res<AlignmentViewport>,
     windows: Query<&Window>,
 ) {
-    let window = windows.single();
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
     let res = &window.resolution;
     let dims = [res.width(), res.height()];
 
@@ -172,7 +175,9 @@ pub(super) fn update_camera_from_viewport(
     alignment_view: Res<AlignmentViewport>,
     mut cameras: Query<(&mut Transform, &mut Projection, &Camera), With<AlignmentCamera>>,
 ) {
-    let (mut transform, mut proj, camera) = cameras.single_mut();
+    let Ok((mut transform, mut proj, camera)) = cameras.get_single_mut() else {
+        return;
+    };
 
     let Projection::Orthographic(proj) = proj.as_mut() else {
         return;
@@ -251,7 +256,9 @@ fn click_drag_pan_viewport(
         return;
     }
 
-    let window = windows.single();
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
     let win_size = window.resolution.size();
     let ptr_pos = window.cursor_position();
 
@@ -327,7 +334,9 @@ fn input_update_viewport(
 ) {
     let egui_using_cursor = egui_contexts.ctx_mut().wants_pointer_input();
 
-    let window = windows.single();
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
 
     if keyboard.just_pressed(KeyCode::Escape) && !region_selection_mode.user_is_selecting {
         view_events.send(ViewEvent {

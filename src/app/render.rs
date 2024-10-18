@@ -426,7 +426,9 @@ fn update_main_alignment_viewer_sprite_transform(
         With<MainAlignmentView>,
     >,
 ) {
-    let window = windows.single();
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
     let win_size = window.resolution.size();
     let dpi_scale = window.resolution.scale_factor();
 
@@ -609,7 +611,9 @@ fn set_main_viewer_image_size(
     windows: Query<&Window>,
     mut viewers: Query<&mut AlignmentViewer, With<MainAlignmentView>>,
 ) {
-    let window = windows.single();
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
 
     for mut viewer in viewers.iter_mut() {
         viewer.image_size = window.resolution.physical_size();

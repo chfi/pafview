@@ -252,7 +252,9 @@ fn update_main_viewport_render_grid(
         (With<MainAlignmentView>, With<RenderTileGrid>),
     >,
 ) {
-    let window = windows.single();
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
     let canvas_size = RenderTileGridCanvasSize {
         pixels: window.physical_size(),
     };
