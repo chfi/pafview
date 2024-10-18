@@ -76,6 +76,10 @@ pub struct SequencePairTile {
     pub query: SeqId,
 }
 
+// NB: same order/indices as a seq. pair tile's alignments in `paf::Alignments`
+#[derive(Debug, Default, Component, Deref, DerefMut)]
+pub struct SequencePairAlignmentEntities(pub Vec<Entity>);
+
 #[derive(Debug, Component, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
 pub struct AlignmentIndex {
     pub query: SeqId,
@@ -230,24 +234,37 @@ pub(super) fn spawn_alignments_in_tiles(
             .filter_map(|&ix| Some((ix, alignments.alignments.get(ix)?)));
 
         let mut count = 0;
-        commands.entity(tile_ent).with_children(|parent| {
-            for (pair_index, alignment) in tile_als {
-                count += 1;
-                parent.spawn((
-                    AlignmentIndex {
-                        target: alignment.target_id,
-                        query: alignment.query_id,
-                        pair_index,
-                    },
-                    Pickable {
-                        should_block_lower: false,
-                        is_hoverable: true,
-                    },
-                    // On::<Pointer<Out>>::send_event::<super::infobar::InfobarAlignmentEvent>(),
-                    // On::<Pointer<Over>>::send_event::<super::infobar::InfobarAlignmentEvent>(),
-                ));
-            }
-        });
+        let mut children = Vec::new();
+        commands
+            .entity(tile_ent)
+            .with_children(|parent| {
+                for (pair_index, alignment) in tile_als {
+                    count += 1;
+                    let al_id =
+                        parent
+                            .spawn((
+                                AlignmentIndex {
+                                    target: alignment.target_id,
+                                    query: alignment.query_id,
+                                    pair_index,
+                                },
+                                Pickable {
+                                    should_block_lower: false,
+                                    is_hoverable: true,
+                                },
+                                On::<Pointer<Out>>::send_event::<
+                                    super::infobar::InfobarAlignmentEvent,
+                                >(),
+                                On::<Pointer<Over>>::send_event::<
+                                    super::infobar::InfobarAlignmentEvent,
+                                >(),
+                            ))
+                            .id();
+
+                    children.push(al_id);
+                }
+            })
+            .insert(SequencePairAlignmentEntities(children));
         println!("spawned {count} alignment entities");
     }
 }

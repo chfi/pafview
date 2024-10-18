@@ -3,31 +3,40 @@ use bevy_mod_picking::prelude::*;
 use picking_core::PickSet;
 
 use super::{
-    alignments::layout::{LayoutEntityIndex, SeqPairLayout},
+    alignments::{
+        layout::{LayoutEntityIndex, SeqPairLayout},
+        SequencePairAlignmentEntities,
+    },
     render::AlignmentViewer,
     view::AlignmentViewport,
+    SequencePairTile,
 };
 
 pub struct PickingPlugin;
 
 impl Plugin for PickingPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(DefaultPickingPlugins)
-            .add_systems(PreUpdate, seq_pair_tile_picking.in_set(PickSet::Backend));
+        app.add_plugins(DefaultPickingPlugins).add_systems(
+            PreUpdate,
+            seq_pair_and_alignment_picking.in_set(PickSet::Backend),
+        );
+        // .add_systems(PreUpdate, seq_pair_tile_picking.in_set(PickSet::Backend));
         // .add_systems(PreUpdate, alignment_picking_grid.in_set(PickSet::Backend));
         //
     }
 }
 
-fn seq_pair_tile_picking(
+fn seq_pair_and_alignment_picking(
     pointers: Query<(&PointerId, &PointerLocation)>,
     cameras: Query<(Entity, &Camera), With<super::AlignmentCamera>>,
     windows: Query<&Window>,
 
     alignment_viewport: Res<AlignmentViewport>,
-    // alignments: Res<crate::Alignments>,
+    alignments: Res<crate::Alignments>,
+
     layouts: Res<Assets<SeqPairLayout>>,
     layout_roots: Query<(&Handle<SeqPairLayout>, &LayoutEntityIndex)>,
+    seq_pair_tiles: Query<&SequencePairAlignmentEntities, With<SequencePairTile>>,
 
     mut output: EventWriter<backend::PointerHits>,
 ) {
@@ -57,175 +66,89 @@ fn seq_pair_tile_picking(
             let size = window.resolution.size();
 
             let cursor = loc.position;
-            // println!("cursor pos: {cursor:?}");
 
             // map pointer screen location to world
             let world_pos = view.map_screen_to_world(size, cursor.to_array());
 
             // find tile under pointer
-            let mut hit_tile = None;
-            layout
-                .layout_qbvh
-                .tiles_at_point_callback(world_pos, |seq_pair| {
-                    hit_tile = Some(seq_pair);
-                    false
+            let hit_tiles = layout.layout_qbvh.tiles_at_point(world_pos);
+
+            for hit_tile in hit_tiles {
+                let Some(seq_entity) = entity_index.get(&hit_tile) else {
+                    continue;
+                };
+                // dbg!();
+
+                let hit_data = backend::HitData::new(
+                    camera_ent,
+                    10.0,
+                    Some(Vec3::new(world_pos.x as f32, world_pos.y as f32, 10.0)),
+                    None,
+                );
+                output.send(backend::PointerHits::new(
+                    *ptr_id,
+                    vec![(*seq_entity, hit_data)],
+                    1.0,
+                ));
+
+                let Some(tile_alignments) =
+                    alignments.pair_alignments((hit_tile.target, hit_tile.query))
+                else {
+                    continue;
+                };
+
+                let Ok(alignment_entities) = seq_pair_tiles.get(*seq_entity) else {
+                    continue;
+                };
+
+                let tile_offset = layout.aabbs.get(&hit_tile).map(|aabb| {
+                    let p = aabb.mins;
+                    bevy::math::DVec2::new(p.x, p.y)
                 });
+                // dbg!();
 
-            let Some(seq_entity) = hit_tile.and_then(|seq_pair| entity_index.get(&seq_pair)) else {
-                continue;
-            };
+                let Some(tile_offset) = tile_offset else {
+                    continue;
+                };
+                let world_pos = bevy::math::DVec2::new(world_pos.x, world_pos.y);
 
-            let hit_data = backend::HitData::new(
-                camera_ent,
-                10.0,
-                Some(Vec3::new(world_pos.x as f32, world_pos.y as f32, 10.0)),
-                None,
-            );
-            output.send(backend::PointerHits::new(
-                *ptr_id,
-                vec![(*seq_entity, hit_data)],
-                1.0,
-            ));
-        }
-    }
-}
+                let pointer_tile = world_pos - tile_offset;
+                let p_dvec = pointer_tile;
+                let px = p_dvec.x as u64;
+                let py = p_dvec.y as u64;
 
-// this is pretty hacky and makes a number of assumptions;
-// it'd be good to have an implementation that works with any number
-// of views (e.g. picture-in-picture using multiple display images)
-fn alignment_picking_grid(
-    pointers: Query<(&PointerId, &PointerLocation)>,
+                let mut al_hits = Vec::new();
 
-    // TODO positions should be taken from the cache associated with the
-    // AlignmentDisplayImage, but that's not quite ready yet
-    alignments: Res<crate::Alignments>,
-    alignment_grid: Res<crate::AlignmentGrid>,
+                // dbg!();
+                for (pair_index, alignment) in tile_alignments.enumerate() {
+                    let loc = &alignment.location;
 
-    seq_pair_entity_index: Res<super::alignments::SequencePairEntityIndex>,
-    alignment_entity_index: Res<super::alignments::AlignmentEntityIndex>,
-
-    // this should be all `super::render::AlignmentDisplayImage`s that
-    // need user interaction w/ alignments... so probably just the
-    // main display image, but maybe some type of splitscreen view later
-    targets: Query<
-        &AlignmentViewer,
-        //
-        With<super::render::MainAlignmentView>,
-    >,
-
-    cameras: Query<(Entity, &Camera), With<super::AlignmentCamera>>,
-    windows: Query<&Window>,
-
-    mut output: EventWriter<backend::PointerHits>,
-) {
-    // let mut seq_pair_hits =
-    let (camera_ent, _camera) = cameras.single();
-
-    for display in targets.iter() {
-        let Some(view) = display.next_view else {
-            continue;
-        };
-
-        for (ptr_id, ptr_loc) in pointers.iter() {
-            let Some(loc) = ptr_loc.location() else {
-                continue;
-            };
-
-            let window = match loc.target {
-                bevy::render::camera::NormalizedRenderTarget::Window(ent) => {
-                    windows.get(ent.entity()).unwrap()
-                }
-                // bevy::render::camera::NormalizedRenderTarget::Image(_) => todo!(),
-                // bevy::render::camera::NormalizedRenderTarget::TextureView(_) => todo!(),
-                _ => continue,
-            };
-
-            let size = window.resolution.size();
-
-            let cursor = loc.position;
-            // println!("cursor pos: {cursor:?}");
-
-            // map cursor to world coordinates
-            let world_pos = view.map_screen_to_world(size, cursor.to_array());
-
-            // check collision w/ AABB in alignment grid
-            // -> get seq pair hit
-            let tile = alignment_grid.tile_at_world_point(world_pos);
-
-            let Some(seq_pair @ (tgt_id, qry_id)) = tile else {
-                continue;
-            };
-
-            let Some(seq_pair_ent) = seq_pair_entity_index.get(&super::SequencePairTile {
-                target: tgt_id,
-                query: qry_id,
-            }) else {
-                continue;
-            };
-            let hit_data = backend::HitData::new(
-                camera_ent,
-                10.0,
-                Some(Vec3::new(world_pos.x as f32, world_pos.y as f32, 10.0)),
-                None,
-            );
-
-            // output seq pair hit
-            let hits = vec![(*seq_pair_ent, hit_data)];
-            let ptr_hits = backend::PointerHits::new(*ptr_id, hits, 10.0);
-            // println!("sending seq pair pointer hits: {ptr_hits:?}");
-            output.send(ptr_hits);
-
-            // if there's a seq pair hit, search alignments associated
-            // w/ that seq pair for alignment hits
-            let Some(mut pair_aligns) = alignments.pair_alignments(seq_pair) else {
-                continue;
-            };
-
-            let seq_x = alignment_grid
-                .x_axis
-                .global_to_axis_exact(world_pos.x as u64);
-            let seq_y = alignment_grid
-                .y_axis
-                .global_to_axis_exact(world_pos.y as u64);
-
-            let Some(((_tgt_id, seq_x), (_qry_id, seq_y))) = seq_x.zip(seq_y) else {
-                continue;
-            };
-
-            // output alignment hits
-            let hits = pair_aligns
-                .enumerate()
-                .filter_map(|(ix, al)| {
-                    let loc = &al.location;
-                    if seq_x >= loc.target_range.start
-                        && seq_x < loc.target_range.end
-                        && seq_y >= loc.query_range.start
-                        && seq_y < loc.query_range.end
+                    if px < loc.target_range.start
+                        || px >= loc.target_range.end
+                        || py < loc.query_range.start
+                        || py >= loc.query_range.end
                     {
-                        let al_ix = super::alignments::AlignmentIndex {
-                            query: qry_id,
-                            target: tgt_id,
-                            pair_index: ix,
-                        };
-                        let al_ent = alignment_entity_index.get(&al_ix)?;
-
-                        let hit_data = backend::HitData::new(
-                            camera_ent,
-                            5.0,
-                            Some(Vec3::new(world_pos.x as f32, world_pos.y as f32, 10.0)),
-                            None,
-                        );
-                        Some((*al_ent, hit_data))
-                    } else {
-                        None
+                        continue;
                     }
-                })
-                .collect::<Vec<_>>();
-            if !hits.is_empty() {
-                let ptr_hits = backend::PointerHits::new(*ptr_id, hits, 5.0);
-                // println!("sending alignment pointer hits: {ptr_hits:?}");
-                output.send(ptr_hits);
+
+                    // TODO actually iterate part of the cigar to find the exact
+                    // position; as it is this will "hit" the entire alignment AABB
+                    let hit_data = backend::HitData::new(
+                        camera_ent,
+                        8.0,
+                        Some(Vec3::new(world_pos.x as f32, world_pos.y as f32, 10.0)),
+                        None,
+                    );
+                    let al_entity = alignment_entities[pair_index];
+                    al_hits.push((al_entity, hit_data));
+                }
+                // println!("sending {} alignment pointer hits", al_hits.len());
+                output.send(backend::PointerHits::new(*ptr_id, al_hits, 2.0));
             }
         }
     }
 }
+
+// fn alignment_in_tile_picking(
+//     tile: In()
+// )
