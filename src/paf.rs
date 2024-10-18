@@ -366,6 +366,7 @@ impl Alignments {
     }
 }
 
+#[derive(Debug)]
 pub struct AlignmentMetadata {
     pub residue_matches: usize,
     pub alignment_block_length: usize,
@@ -374,9 +375,9 @@ pub struct AlignmentMetadata {
     pub optional_fields: FxHashMap<[u8; 2], (char, String)>,
 }
 
-#[derive(bevy::prelude::Resource)]
+#[derive(bevy::prelude::Resource, Debug)]
 pub struct PafMetadata {
-    metadata: FxHashMap<(SeqId, SeqId), Vec<AlignmentMetadata>>,
+    pub metadata: FxHashMap<(SeqId, SeqId), Vec<AlignmentMetadata>>,
 }
 
 impl PafMetadata {

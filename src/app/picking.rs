@@ -77,7 +77,6 @@ fn seq_pair_and_alignment_picking(
                 let Some(seq_entity) = entity_index.get(&hit_tile) else {
                     continue;
                 };
-                // dbg!();
 
                 let hit_data = backend::HitData::new(
                     camera_ent,
@@ -105,7 +104,6 @@ fn seq_pair_and_alignment_picking(
                     let p = aabb.mins;
                     bevy::math::DVec2::new(p.x, p.y)
                 });
-                // dbg!();
 
                 let Some(tile_offset) = tile_offset else {
                     continue;
@@ -119,7 +117,6 @@ fn seq_pair_and_alignment_picking(
 
                 let mut al_hits = Vec::new();
 
-                // dbg!();
                 for (pair_index, alignment) in tile_alignments.enumerate() {
                     let loc = &alignment.location;
 

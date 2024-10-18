@@ -231,7 +231,10 @@ pub(super) fn spawn_alignments_in_tiles(
 
         let tile_als = al_indices
             .iter()
-            .filter_map(|&ix| Some((ix, alignments.alignments.get(ix)?)));
+            .enumerate()
+            .filter_map(|(local_ix, &data_ix)| {
+                Some((local_ix, alignments.alignments.get(data_ix)?))
+            });
 
         let mut count = 0;
         let mut children = Vec::new();
