@@ -29,29 +29,31 @@ impl Plugin for AlignmentsPlugin {
             .add_plugins(layout::AlignmentLayoutPlugin);
 
         // app.add_systems(Startup, initialize_default_layout);
+        app.add_systems(Startup, initialize_grid_material);
         app.add_systems(
             Startup,
             (initialize_default_layout, spawn_default_layout_root).chain(),
         );
 
-        app.add_systems(
-            PreUpdate,
-            (
-                spawn_alignments_in_tiles,
-                spawn_layout_children,
-                update_layout_tile_positions,
-                prepare_alignment_vertices,
+        app.add_systems(PostUpdate, update_grid_material_from_config)
+            .add_systems(
+                PreUpdate,
+                (
+                    spawn_alignments_in_tiles,
+                    spawn_layout_children,
+                    update_layout_tile_positions,
+                    prepare_alignment_vertices,
+                )
+                    .chain(),
             )
-                .chain(),
-        )
-        .add_systems(
-            PreUpdate,
-            (
-                insert_alignment_polyline_materials.after(spawn_layout_children),
-                update_alignment_polyline_materials,
-            )
-                .chain(),
-        );
+            .add_systems(
+                PreUpdate,
+                (
+                    insert_alignment_polyline_materials.after(spawn_layout_children),
+                    update_alignment_polyline_materials,
+                )
+                    .chain(),
+            );
 
         // app.add_systems(
         //     Startup,
@@ -145,7 +147,7 @@ pub(super) fn spawn_default_layout_root(
 // When a layout for a "layout root" (any entity with a Handle<SeqPairLayout>,
 // for now) has been updated, this system spawns a tile for each sequence pair
 // in the layout, as children of the root
-pub(super) fn spawn_layout_children(
+fn spawn_layout_children(
     mut commands: Commands,
 
     layouts: Res<Assets<SeqPairLayout>>,
@@ -158,24 +160,10 @@ pub(super) fn spawn_layout_children(
     )>,
 
     mut meshes: ResMut<Assets<Mesh>>,
-    mut border_rect_materials: ResMut<Assets<super::render::bordered_rect::BorderedRectMaterial>>,
-    // :)
-    mut border_rect_mat: Local<Option<Handle<BorderedRectMaterial>>>,
+
+    grid_mat: Res<GridMaterial>,
 ) {
-    if border_rect_mat.is_none() {
-        let mat =
-            border_rect_materials.add(crate::app::render::bordered_rect::BorderedRectMaterial {
-                fill_color: LinearRgba::new(0.0, 0.0, 0.0, 0.0),
-                border_color: LinearRgba::new(0.0, 0.0, 0.0, 1.0),
-                border_opacities: 0xFFFFFFFF,
-                border_width_px: 1.0,
-                alpha_mode: AlphaMode::Blend,
-            });
-        *border_rect_mat = Some(mat);
-    }
-    let Some(border_rect_mat) = border_rect_mat.as_ref() else {
-        unreachable!();
-    };
+    let border_rect_mat = &grid_mat.material;
 
     for layout_event in layout_events.read() {
         if !layout_event.need_respawn {
@@ -432,6 +420,43 @@ pub(super) fn update_layout_tile_positions(
             transform.translation.y = mid.y as f32;
         }
     }
+}
+
+#[derive(Resource)]
+struct GridMaterial {
+    material: Handle<BorderedRectMaterial>,
+}
+
+fn initialize_grid_material(
+    mut commands: Commands,
+    mut materials: ResMut<Assets<BorderedRectMaterial>>,
+) {
+    let material = materials.add(crate::app::render::bordered_rect::BorderedRectMaterial {
+        fill_color: LinearRgba::new(0.0, 0.0, 0.0, 0.0),
+        border_color: LinearRgba::new(0.0, 0.0, 0.0, 1.0),
+        border_opacities: 0xFFFFFFFF,
+        border_width_px: 2.0,
+        alpha_mode: AlphaMode::Blend,
+    });
+
+    commands.insert_resource(GridMaterial { material });
+}
+
+fn update_grid_material_from_config(
+    config: Res<crate::AppConfig>,
+
+    mut materials: ResMut<Assets<BorderedRectMaterial>>,
+    grid_mat: Res<GridMaterial>,
+) {
+    if !config.is_changed() {
+        return;
+    }
+
+    let Some(mat) = materials.get_mut(&grid_mat.material) else {
+        return;
+    };
+
+    mat.border_width_px = config.grid_line_width;
 }
 
 pub(super) fn prepare_alignments(
