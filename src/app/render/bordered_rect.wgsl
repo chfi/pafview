@@ -28,34 +28,8 @@ fn vertex(vertex: Vertex) -> VertexOutput {
 fn fragment(
     mesh: VertexOutput,
 ) -> @location(0) vec4<f32> {
-    let screen_dims = view.viewport.zw;
-    let screen_width = view.viewport.z;
-    let screen_height = view.viewport.w;
-
-    let fc_px = mesh.position;
-
-    let fw = fwidth(mesh.uv);
-
-    let uv = mesh.uv;
-    let min_x = min(uv.x, 1.0 - uv.x);
-    let min_y = min(uv.y, 1.0 - uv.y);
-
-    let border = fw * border_width_px;
-    let border_px = min(border.x, border.y);
-    let min_px = min(min_x, min_y);
-
-    let t = smoothstep(0.0, border_px, min_px);
-
-    let c_a = fill_color.rgb;
-    let a_a = fill_color.a;
-    let c_b = border_color.rgb;
-    let a_b = border_color.a;
-
-    let c_o = c_a + c_b * (1.0 - t);
-    let a_o = a_a + a_b * (1.0 - t);
-
-    let color = vec4f(c_o, a_o);
-
+    let ts = bordered_rect_util::compute_border_ts(mesh.uv, border_width_px);
+    let t = min(min(ts.x, ts.y), min(ts.z, ts.w));
+    let color = bordered_rect_util::compute_color(fill_color, border_color, t);
     return color;
-
 }

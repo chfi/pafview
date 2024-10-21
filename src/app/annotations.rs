@@ -5,12 +5,15 @@ use crate::{
     grid::AxisRange,
 };
 
-use super::view::AlignmentViewport;
+use super::{
+    render::bordered_rect::{BorderedRectMaterial, BorderedRectMaterial2d},
+    view::AlignmentViewport,
+};
 
 pub(super) struct AnnotationsPlugin;
 
 pub mod gui;
-mod material;
+// mod material;
 
 /*
 
@@ -32,7 +35,7 @@ impl Plugin for AnnotationsPlugin {
             .add_systems(Startup, setup)
             .add_systems(PreUpdate, load_annotation_file.pipe(prepare_annotations))
             .add_systems(
-                Update,
+                PreUpdate,
                 (update_annotation_regions, update_annotation_labels),
             );
         // .add_systems(
@@ -174,7 +177,8 @@ fn load_annotation_file(
 fn prepare_annotations(
     In(labels_to_prepare): In<Vec<crate::annotations::AnnotationId>>,
     mut commands: Commands,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+    mut old_materials: ResMut<Assets<ColorMaterial>>,
+    mut materials: ResMut<Assets<BorderedRectMaterial2d>>,
 
     annotations: Res<Annotations>,
     mut annot_entity_map: ResMut<AnnotationEntityMap>,
@@ -187,9 +191,20 @@ fn prepare_annotations(
         let record = &annotations.list_by_id(list_id).unwrap().records[entry_id];
 
         let color = record.color;
-        let annot_color =
-            Color::srgba_u8(color.r(), color.g(), color.b(), color.a()).with_alpha(0.4);
-        let color_mat = materials.add(ColorMaterial::from_color(annot_color));
+        // let fill_color = LinearRgba { red: color.r() as f32, green: color.g() as f32, blue: color.b() as f32, alpha: () }
+        let annot_color = Color::srgba_u8(color.r(), color.g(), color.b(), color.a());
+
+        let fill_color = LinearRgba::from(annot_color.with_alpha(0.4));
+        // let border_color = LinearRgba::from(annot_color);
+        let border_color = LinearRgba::BLACK;
+        // let color_mat = old_materials.add(ColorMaterial::from_color(annot_color));
+        let mat = materials.add(BorderedRectMaterial2d {
+            fill_color,
+            border_color,
+            border_opacities: 0xFFFFFFFF,
+            border_width_px: 1.0,
+            alpha_mode: AlphaMode::Blend,
+        });
         // let color_mat = materials.add(ColorMaterial::from_color(Color::srgb(0.8, 0.0, 0.0)));
 
         let query_region = commands
@@ -197,7 +212,7 @@ fn prepare_annotations(
                 RenderLayers::layer(1),
                 MaterialMesh2dBundle {
                     mesh: display_handles.mesh.clone(),
-                    material: color_mat.clone(),
+                    material: mat.clone(),
                     ..default()
                 },
             ))
@@ -209,7 +224,7 @@ fn prepare_annotations(
                 RenderLayers::layer(1),
                 MaterialMesh2dBundle {
                     mesh: display_handles.mesh.clone(),
-                    material: color_mat.clone(),
+                    material: mat.clone(),
                     ..default()
                 },
             ))
