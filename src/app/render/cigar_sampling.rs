@@ -475,6 +475,7 @@ where
     let vx_max = tile_bounds.x_max;
 
     let bp_per_px = tile_bounds.width() / tile_dims.x as f64;
+    let px_per_bp = (tile_dims.x as f64 / tile_bounds.width()) as f32;
 
     let mut mask_buf = vec![0u8; pixels.len()];
 
@@ -564,7 +565,11 @@ where
 
             path_commands.clear();
 
-            while let Some(cmd) = cmd_iter.emit_next() {
+            while let Some(mut cmd) = cmd_iter.emit_next() {
+                if let Cmd::MoveTo(p) | Cmd::LineTo(p) = &mut cmd {
+                    p.x += 0.5 * px_per_bp as f32;
+                    p.y += 0.5 * px_per_bp as f32;
+                }
                 path_commands.push(cmd);
             }
 

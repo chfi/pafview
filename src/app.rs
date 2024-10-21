@@ -69,7 +69,7 @@ impl Plugin for PafViewerPlugin {
                     .chain()
                     .after(send_base_level_view_events),
             )
-            .add_systems(PostUpdate, save_app_config);
+            .add_systems(Last, save_app_config);
 
         let args = crate::cli::Cli::parse();
 
@@ -277,6 +277,7 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
                 title: window_title,
                 ..default()
             }),
+            exit_condition: bevy::window::ExitCondition::OnAllClosed,
             ..default()
         }))
         .add_plugins(PolylinePlugin)
