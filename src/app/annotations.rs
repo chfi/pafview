@@ -191,28 +191,34 @@ fn prepare_annotations(
         let record = &annotations.list_by_id(list_id).unwrap().records[entry_id];
 
         let color = record.color;
-        // let fill_color = LinearRgba { red: color.r() as f32, green: color.g() as f32, blue: color.b() as f32, alpha: () }
         let annot_color = Color::srgba_u8(color.r(), color.g(), color.b(), color.a());
 
         let fill_color = LinearRgba::from(annot_color.with_alpha(0.4));
-        // let border_color = LinearRgba::from(annot_color);
         let border_color = LinearRgba::BLACK;
-        // let color_mat = old_materials.add(ColorMaterial::from_color(annot_color));
-        let mat = materials.add(BorderedRectMaterial2d {
+
+        let mat = BorderedRectMaterial2d {
             fill_color,
             border_color,
             border_opacities: 0xFFFFFFFF,
             border_width_px: 1.0,
             alpha_mode: AlphaMode::Blend,
+        };
+
+        let tgt_mat = materials.add(BorderedRectMaterial2d {
+            border_opacities: 0xAA00AA00,
+            ..mat.clone()
         });
-        // let color_mat = materials.add(ColorMaterial::from_color(Color::srgb(0.8, 0.0, 0.0)));
+        let qry_mat = materials.add(BorderedRectMaterial2d {
+            border_opacities: 0x00AA00AA,
+            ..mat
+        });
 
         let query_region = commands
             .spawn((
                 RenderLayers::layer(1),
                 MaterialMesh2dBundle {
                     mesh: display_handles.mesh.clone(),
-                    material: mat.clone(),
+                    material: qry_mat,
                     ..default()
                 },
             ))
@@ -224,7 +230,7 @@ fn prepare_annotations(
                 RenderLayers::layer(1),
                 MaterialMesh2dBundle {
                     mesh: display_handles.mesh.clone(),
-                    material: mat.clone(),
+                    material: tgt_mat,
                     ..default()
                 },
             ))

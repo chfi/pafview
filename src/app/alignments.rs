@@ -507,7 +507,7 @@ pub(super) fn prepare_alignments(
             fill_color: LinearRgba::new(0.0, 0.0, 0.0, 0.0),
             border_color: LinearRgba::new(0.0, 0.0, 0.0, 1.0),
             border_opacities: 0xFFFFFFFF,
-            border_width_px: 0.0,
+            border_width_px: 1.0,
             alpha_mode: AlphaMode::Blend,
         });
 
