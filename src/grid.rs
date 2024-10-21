@@ -425,11 +425,12 @@ impl GridAxis {
             .partition_point(|&v| (v as f64) <= t)
             .checked_sub(1) // 2024-05-29 NB: this is going below 0 w/ the physics calls
             .unwrap_or_default();
-        let offset = self.seq_offsets[i] as f64;
+        let offset = (*self.seq_offsets.get(i)?) as f64;
+        let len = (*self.seq_lens.get(i)?) as f64;
 
-        let v = (t - offset) / self.seq_lens[i] as f64;
+        let v = (t - offset) / len as f64;
 
-        let seq_id = self.seq_order[i];
+        let seq_id = *self.seq_order.get(i)?;
 
         Some((seq_id, v))
     }
@@ -442,11 +443,10 @@ impl GridAxis {
         let i = self
             .seq_offsets
             .partition_point(|&v| v <= t)
-            .checked_sub(1)
-            .unwrap();
-        let offset = self.seq_offsets[i];
+            .checked_sub(1)?;
+        let offset = *self.seq_offsets.get(i)?;
 
-        let seq_id = self.seq_order[i];
+        let seq_id = *self.seq_order.get(i)?;
 
         let v = t.checked_sub(offset).unwrap();
 

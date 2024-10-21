@@ -42,6 +42,7 @@ impl Plugin for AlignmentViewPlugin {
                     update_viewport_for_window_resize,
                     click_drag_pan_viewport,
                     input_update_viewport,
+                    enforce_alignment_viewport_limits,
                     update_camera_from_viewport,
                 )
                     .chain(),
@@ -168,6 +169,35 @@ fn update_viewport_for_window_resize(
 
         view.x_min = center.x - new_width * 0.5;
         view.x_max = center.x + new_width * 0.5;
+    }
+}
+
+// TODO: this is pretty hacky but fine for now
+pub(crate) fn enforce_alignment_viewport_limits(
+    mut alignment_view: ResMut<AlignmentViewport>,
+    windows: Query<&Window>,
+) {
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+
+    const MAX_PIXELS_PER_BP: f64 = 64.0;
+
+    let win_size = window.size().as_dvec2();
+    let px_per_bp = win_size.x / alignment_view.view.width();
+
+    if px_per_bp > MAX_PIXELS_PER_BP {
+        let width = win_size.x / MAX_PIXELS_PER_BP;
+        let height = width * (win_size.y / win_size.x);
+
+        let center = alignment_view.view.center();
+
+        alignment_view.view = crate::view::View {
+            x_min: center.x - 0.5 * width,
+            x_max: center.x + 0.5 * width,
+            y_min: center.y - 0.5 * height,
+            y_max: center.y + 0.5 * height,
+        };
     }
 }
 

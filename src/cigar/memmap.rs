@@ -659,7 +659,7 @@ impl<S: BufRead> Iterator for CigarReaderIter<S> {
                     if target_range.start < start_bound {
                         let clipped = start_bound - target_range.start;
                         target_range.start += clipped;
-                        op_count -= clipped as u32;
+                        op_count -= op_count.min(clipped as u32);
 
                         if op.consumes_query() {
                             query_range.start += clipped;
@@ -670,11 +670,11 @@ impl<S: BufRead> Iterator for CigarReaderIter<S> {
                 if let Some(end_bound) = self.target_end {
                     if target_range.end > end_bound {
                         let clipped = target_range.end - end_bound;
-                        target_range.end -= clipped;
-                        op_count -= clipped as u32;
+                        op_count -= (clipped as u32).min(op_count);
+                        target_range.end -= clipped.min(target_range.end);
 
                         if op.consumes_query() {
-                            query_range.end -= clipped;
+                            query_range.end -= clipped.min(query_range.end);
                         }
                     }
                 }
