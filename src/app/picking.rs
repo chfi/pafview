@@ -7,7 +7,6 @@ use super::{
         layout::{LayoutEntityIndex, SeqPairLayout},
         SequencePairAlignmentEntities,
     },
-    render::AlignmentViewer,
     view::AlignmentViewport,
     SequencePairTile,
 };

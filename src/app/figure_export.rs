@@ -10,8 +10,8 @@ use bevy_egui::{EguiContexts, EguiUserTextures};
 use crate::{grid::AxisRange, sequences::SeqId};
 
 use super::{
-    render::{
-        AlignmentLayoutMaterials, AlignmentPolylineMaterial, AlignmentRenderTarget,
+    render::gpu_lines::{
+        AlignmentLayoutMaterials, AlignmentPolylineMaterial, AlignmentRenderOperation,
         AlignmentViewer, AlignmentViewerImages,
     },
     selection::SelectionActionTrait,
@@ -38,7 +38,7 @@ impl Plugin for FigureExportPlugin {
             .add_systems(
                 Startup,
                 setup_figure_export_window
-                    .after(super::render::prepare_alignment_grid_layout_materials),
+                    .after(super::render::gpu_lines::prepare_alignment_grid_layout_materials),
             )
             .add_systems(
                 PreUpdate,
@@ -48,7 +48,8 @@ impl Plugin for FigureExportPlugin {
             )
             .add_systems(
                 PreUpdate,
-                swap_egui_textures.before(super::render::swap_rendered_alignment_viewer_images),
+                swap_egui_textures
+                    .before(super::render::gpu_lines::swap_rendered_alignment_viewer_images),
             )
             .add_systems(
                 Update,
@@ -85,10 +86,13 @@ fn setup_figure_export_window(
     mut images: ResMut<Assets<Image>>,
 
     clear_color: Res<ClearColor>,
-    grid_layout: Res<super::render::AlignmentGridLayoutMaterials>,
+    grid_layout: Res<super::render::gpu_lines::AlignmentGridLayoutMaterials>,
 ) {
-    let mut viewer =
-        super::render::spawn_alignment_viewer_grid_layout(&mut commands, &mut images, &grid_layout);
+    let mut viewer = super::render::gpu_lines::spawn_alignment_viewer_grid_layout(
+        &mut commands,
+        &mut images,
+        &grid_layout,
+    );
     let viewer = viewer
         .insert((
             FigureExportImage,
@@ -120,7 +124,7 @@ struct FigureExportWindow {
 
 fn swap_egui_textures(
     mut fig_export: ResMut<FigureExportWindow>,
-    sprites: Query<&AlignmentRenderTarget, With<FigureExportImage>>,
+    sprites: Query<&AlignmentRenderOperation, With<FigureExportImage>>,
 ) {
     let Ok(tgt) = sprites.get(fig_export.display_img) else {
         return;
@@ -165,7 +169,7 @@ fn show_figure_export_window(
     alignment_viewport: Res<AlignmentViewport>,
     alignment_grid: Res<crate::AlignmentGrid>,
 
-    active_renders: Query<&AlignmentRenderTarget>,
+    active_renders: Query<&AlignmentRenderOperation>,
     mut img_query: Query<
         (Entity, &mut AlignmentViewer, &AlignmentViewerImages),
         With<FigureExportImage>,
@@ -476,7 +480,7 @@ fn update_figure_export_alignment_layout(
     alignment_store: Res<crate::Alignments>,
     alignment_grid: Res<crate::AlignmentGrid>,
     color_schemes: Res<super::AlignmentColorSchemes>,
-    vertex_buffer_index: Res<super::render::AlignmentVerticesIndex>,
+    vertex_buffer_index: Res<super::render::gpu_lines::AlignmentVerticesIndex>,
 ) {
     let Some(UpdateExportAlignmentLayout {
         alignment_set,
@@ -601,7 +605,7 @@ fn update_figure_export_layout_children(
     mut viewer_query: Query<&mut AlignmentViewer, With<FigureExportImage>>,
 
     fig_export: Res<FigureExportWindow>,
-    grid_layout: Res<super::render::AlignmentGridLayoutMaterials>,
+    grid_layout: Res<super::render::gpu_lines::AlignmentGridLayoutMaterials>,
 ) {
     if update_events.is_empty() {
         return;
@@ -616,13 +620,16 @@ fn update_figure_export_layout_children(
         if let Some(layouts) = fig_export.export_layouts.as_ref() {
             println!("using custom layout");
             parent.spawn(layouts.with_base_level.clone());
-            parent.spawn((layouts.line_only.clone(), super::render::LineOnlyAlignment));
+            parent.spawn((
+                layouts.line_only.clone(),
+                super::render::gpu_lines::LineOnlyAlignment,
+            ));
         } else {
             println!("using default layout");
             parent.spawn(grid_layout.with_base_level.clone());
             parent.spawn((
                 grid_layout.line_only.clone(),
-                super::render::LineOnlyAlignment,
+                super::render::gpu_lines::LineOnlyAlignment,
             ));
         }
     });

@@ -43,13 +43,18 @@ impl Plugin for PafViewerPlugin {
             .add_plugins(annotations::AnnotationsPlugin)
             .add_plugins(rulers::ViewerRulersPlugin)
             .add_plugins(selection::RegionSelectionPlugin)
-            .add_plugins(render::AlignmentRendererPlugin)
             .add_plugins(picking::PickingPlugin)
             .add_plugins(figure_export::FigureExportPlugin)
             .add_plugins(render::bordered_rect::BorderedRectRenderPlugin)
-            .add_systems(Startup, setup_base_level_display_image)
             .add_systems(Startup, (setup, setup_screenspace_camera).chain())
-            .add_systems(PreUpdate, config_update_grid_material)
+            .add_systems(Last, save_app_config);
+
+        // TODO: create a plugin that combines & manages all the render plugins
+        app.add_plugins(render::gpu_lines::AlignmentRendererPlugin);
+
+        // NB: these should all be replaced or are otherwise vestigial
+        app.add_systems(PreUpdate, config_update_grid_material)
+            .add_systems(Startup, setup_base_level_display_image)
             .add_systems(
                 Update,
                 (
@@ -68,8 +73,7 @@ impl Plugin for PafViewerPlugin {
                 )
                     .chain()
                     .after(send_base_level_view_events),
-            )
-            .add_systems(Last, save_app_config);
+            );
 
         let args = crate::cli::Cli::parse();
 

@@ -19,7 +19,7 @@ use crate::{
     math_conv::*,
 };
 
-use super::{AlignmentRenderTarget, AlignmentViewer, MainAlignmentView};
+use super::MainAlignmentView;
 
 pub struct CigarSamplingRenderPlugin;
 
@@ -645,14 +645,6 @@ where
     // );
 
     buffer
-}
-
-#[derive(Debug, Clone, Reflect, PartialEq, Eq)]
-struct RenderParamsOld {
-    query_seq_bounds: std::ops::Range<u64>,
-    target_seq_bounds: std::ops::Range<u64>,
-
-    canvas_size: UVec2,
 }
 
 // run after whatever updates the `AlignmentViewport`

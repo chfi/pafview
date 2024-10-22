@@ -280,15 +280,15 @@ pub(super) fn prepare_alignment_vertices(
     alignments: Res<crate::Alignments>,
     alignment_query: Query<
         (Entity, &AlignmentIndex),
-        Without<Handle<super::render::AlignmentVertices>>,
+        Without<Handle<super::render::gpu_lines::AlignmentVertices>>,
         // (Without<Handle<super::render::AlignmentVertices>>,),
     >,
 
-    mut alignment_vertices_map: ResMut<super::render::AlignmentVerticesIndex>,
-    mut alignment_vertices: ResMut<Assets<super::render::AlignmentVertices>>,
+    mut alignment_vertices_map: ResMut<super::render::gpu_lines::AlignmentVerticesIndex>,
+    mut alignment_vertices: ResMut<Assets<super::render::gpu_lines::AlignmentVertices>>,
 
     // might want to do multiple alignments per task
-    mut tasks: Local<HashMap<AlignmentIndex, Task<super::render::AlignmentVertices>>>,
+    mut tasks: Local<HashMap<AlignmentIndex, Task<super::render::gpu_lines::AlignmentVertices>>>,
     // mut tasks: Local<HashMap<AlignmentIndex, Task<Vec<(Vec2, Vec2, crate::CigarOp)>>>>,
     // processing: Local<HashMap<AlignmentIndex, Arc<AtomicBool>>>,
 ) {
@@ -313,7 +313,7 @@ pub(super) fn prepare_alignment_vertices(
         };
 
         let task = task_pool.spawn(async move {
-            super::render::AlignmentVertices::from_location_and_cigar(&location, &cigar)
+            super::render::gpu_lines::AlignmentVertices::from_location_and_cigar(&location, &cigar)
         });
 
         tasks.insert(*al_ix, task);
@@ -346,8 +346,8 @@ pub(super) fn insert_alignment_polyline_materials(
     mut commands: Commands,
 
     // alignments: Res<crate::Alignments>,
-    vertex_index: Res<super::render::AlignmentVerticesIndex>,
-    mut alignment_materials: ResMut<Assets<super::render::AlignmentPolylineMaterial>>,
+    vertex_index: Res<super::render::gpu_lines::AlignmentVerticesIndex>,
+    mut alignment_materials: ResMut<Assets<super::render::gpu_lines::AlignmentPolylineMaterial>>,
     color_schemes: Res<AlignmentColorSchemes>,
 
     cli_args: Res<crate::cli::Cli>,
@@ -357,8 +357,8 @@ pub(super) fn insert_alignment_polyline_materials(
     alignment_query: Query<
         (Entity, &AlignmentIndex),
         (
-            Without<Handle<super::render::AlignmentPolylineMaterial>>,
-            Without<Handle<super::render::AlignmentVertices>>,
+            Without<Handle<super::render::gpu_lines::AlignmentPolylineMaterial>>,
+            Without<Handle<super::render::gpu_lines::AlignmentVertices>>,
         ),
     >,
 ) {
@@ -373,7 +373,7 @@ pub(super) fn insert_alignment_polyline_materials(
 
         // create the polyline material; place at origin since `update_polyline_materials` should run after
         let color_scheme = color_schemes.get(al_ix);
-        let material = super::render::AlignmentPolylineMaterial::from_offset_and_colors(
+        let material = super::render::gpu_lines::AlignmentPolylineMaterial::from_offset_and_colors(
             [0.0, 0.0],
             color_scheme.clone(),
         );
@@ -386,11 +386,14 @@ pub(super) fn insert_alignment_polyline_materials(
 
 pub(super) fn update_alignment_polyline_materials(
     layouts: Res<Assets<SeqPairLayout>>,
-    mut alignment_materials: ResMut<Assets<super::render::AlignmentPolylineMaterial>>,
+    mut alignment_materials: ResMut<Assets<super::render::gpu_lines::AlignmentPolylineMaterial>>,
 
     layout_roots: Query<(Entity, &Handle<SeqPairLayout>)>,
     seq_pair_tiles: Query<(&SequencePairTile, &Children)>,
-    alignments_query: Query<(Entity, &Handle<super::render::AlignmentPolylineMaterial>)>,
+    alignments_query: Query<(
+        Entity,
+        &Handle<super::render::gpu_lines::AlignmentPolylineMaterial>,
+    )>,
 ) {
     for (root_ent, layout_handle) in layout_roots.iter() {
         let Some(layout) = layouts.get(layout_handle) else {
@@ -479,6 +482,7 @@ fn update_grid_material_from_config(
     mat.border_width_px = config.grid_line_width;
 }
 
+/*
 pub(super) fn prepare_alignments(
     mut commands: Commands,
     alignments: Res<crate::Alignments>,
@@ -616,3 +620,4 @@ pub(super) fn prepare_alignments(
         println!("{exp10:10} - {count}");
     }
 }
+*/
