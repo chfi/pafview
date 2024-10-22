@@ -61,3 +61,9 @@ pub struct MainAlignmentView;
 
 #[derive(Component)]
 pub(super) struct Rendering;
+
+#[derive(Clone, Copy, PartialEq)]
+struct RenderParams {
+    view: crate::view::View,
+    canvas_size: UVec2,
+}

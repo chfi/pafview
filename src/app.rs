@@ -99,6 +99,7 @@ impl Plugin for PafViewerPlugin {
 //     pub app: PafViewerApp,
 // }
 
+#[deprecated]
 #[derive(Resource)]
 pub struct AlignmentRasterizer {
     rasterizer: CpuViewRasterizerEgui,
@@ -106,7 +107,7 @@ pub struct AlignmentRasterizer {
 
 #[derive(Resource)]
 pub struct AlignmentColorSchemes {
-    colors: PafColorSchemes,
+    pub colors: PafColorSchemes,
 }
 
 impl AlignmentColorSchemes {
