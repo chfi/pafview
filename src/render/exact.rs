@@ -3,6 +3,7 @@ use std::sync::Arc;
 use rustc_hash::FxHashMap;
 use ultraviolet::{DVec2, UVec2, Vec2};
 
+use crate::app::alignments::layout::SeqPairLayout;
 use crate::app::alignments::AlignmentIndex;
 use crate::render::color::AlignmentColorScheme;
 use crate::{sequences::SeqId, CigarOp};
@@ -232,7 +233,180 @@ impl TileBufferCache {
     }
 }
 
-pub(crate) fn draw_alignments_with_color_schemes(
+fn draw_alignments_at_offset<'a>(
+    tile_cache: &TileBufferCache,
+    alignment_colors: &PafColorSchemes,
+    sequences: &crate::sequences::Sequences,
+    view: &crate::view::View,
+    canvas_size: impl Into<[u32; 2]>,
+    seq_pair_offset: impl Into<[f64; 2]>,
+    pixel_buffer: &mut PixelBuffer,
+    alignments: impl IntoIterator<Item = (AlignmentIndex, &'a crate::Alignment)>,
+    // alignments: impl IntoIterator<Item = &'a crate::Alignment>,
+) {
+    // let visible_alignments = alignments.into_iter().filter(|al| {
+
+    // })
+
+    let canvas_size = canvas_size.into();
+    let canvas_size: bevy::math::UVec2 = canvas_size.into();
+    let seq_pair_offset = seq_pair_offset.into();
+    let seq_pair_offset: bevy::math::DVec2 = seq_pair_offset.into();
+
+    // this may not be correct
+    fn clamped_range(
+        offset: u64,
+        seq_range: &std::ops::Range<u64>,
+        view_range: std::ops::RangeInclusive<f64>,
+    ) -> Option<std::ops::Range<u64>> {
+        let seq_start = offset + seq_range.start;
+        let seq_end = offset + seq_range.end;
+
+        let start = seq_start.max(*view_range.start() as u64);
+        let end = seq_end.max(*view_range.end() as u64);
+
+        let start = start.checked_sub(seq_range.start)?;
+        let end = end.checked_sub(seq_range.start)?;
+        Some(start..end)
+    }
+
+    let sequence_getter = |t_id: SeqId, q_id: SeqId| {
+        let target_seq = sequences.get_bytes(t_id);
+        let query_seq = sequences.get_bytes(q_id);
+        move |op: CigarOp, target: usize, query: usize| {
+            let t_seq = op.consumes_target().then_some(()).and(
+                target_seq
+                    .and_then(|seq| seq.get(target).copied())
+                    .map(|c| c as char),
+            );
+            let q_seq = op.consumes_query().then_some(()).and(
+                query_seq
+                    .and_then(|seq| seq.get(query).copied())
+                    .map(|c| c as char),
+            );
+            [t_seq, q_seq]
+        }
+    };
+
+    let px_per_bp = canvas_size.x as f64 / view.width();
+
+    for (align_ix, alignment) in alignments {
+        // map clamp alignment bounds to `view` given the `seq_pair_offset`
+        let loc = &alignment.location;
+        let al_x0 = loc.target_range.start as f64 + seq_pair_offset.x;
+        let al_x1 = al_x0 + loc.aligned_target_len() as f64;
+        let al_y0 = loc.query_range.start as f64 + seq_pair_offset.y;
+        let al_y1 = al_y0 + loc.aligned_query_len() as f64;
+
+        // skip if alignment doesn't cover `view`
+        let cl_x0 = al_x0.clamp(view.x_min, view.x_max);
+        let cl_x1 = al_x1.clamp(view.x_min, view.x_max);
+
+        let cl_y0 = al_y0.clamp(view.y_min, view.y_max);
+        let cl_y1 = al_y1.clamp(view.y_min, view.y_max);
+
+        if cl_x0 == cl_x1 || cl_y0 == cl_y1 {
+            continue;
+        }
+
+        let color_scheme = alignment_colors.get(&align_ix);
+        let Some(tile_buffers) = tile_cache.cache.get(&color_scheme) else {
+            log::error!("Did not find tile buffer for alignment");
+            continue;
+        };
+
+        let Some(clamped_target) = clamped_range(
+            seq_pair_offset.x.round() as u64,
+            &loc.target_range,
+            view.x_range(),
+        ) else {
+            continue;
+        };
+
+        let dst_size = Vec2::new(px_per_bp as f32, px_per_bp as f32);
+
+        let seqs = sequence_getter(alignment.target_id, alignment.query_id);
+
+        for item in alignment.iter_target_range(clamped_target) {
+            let op = item.op;
+
+            for [tgt, qry] in item {
+                let nucls = seqs(op, tgt, qry);
+
+                let world_offset = seq_pair_offset + bevy::math::DVec2::new(tgt as f64, qry as f64);
+                let world_offset: [f64; 2] = world_offset.into();
+                let dst_offset = view.map_world_to_screen(canvas_size.as_vec2(), world_offset);
+
+                let Some(tile) = tile_buffers.get(&(op, nucls)) else {
+                    log::error!("Did not find tile for ({op:?}, {nucls:?}");
+                    continue;
+                };
+
+                tile.sample_subimage_nn_into(
+                    pixel_buffer,
+                    dst_offset.into(),
+                    dst_size.into(),
+                    [0, 0],
+                    [TILE_BUFFER_SIZE as u32, TILE_BUFFER_SIZE as u32],
+                );
+            }
+        }
+    }
+}
+
+pub(crate) fn draw_seq_pair_layouts_with_color_schemes<'a>(
+    // tile_buffers: &FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>,
+    tile_cache: &TileBufferCache,
+    alignment_colors: &PafColorSchemes,
+    sequences: &crate::sequences::Sequences,
+    // grid: &crate::AlignmentGrid,
+    alignments: &crate::paf::Alignments,
+    view: &crate::view::View,
+    canvas_size: impl Into<UVec2>,
+    layouts: impl IntoIterator<Item = &'a SeqPairLayout>,
+) -> PixelBuffer {
+    let canvas_size = canvas_size.into();
+    let screen_dims = [canvas_size.x as f32, canvas_size.y as f32];
+
+    let mut dst_pixels =
+        PixelBuffer::new_color(canvas_size.x, canvas_size.y, egui::Color32::TRANSPARENT);
+
+    for layout in layouts {
+        for (tile, aabb) in layout.aabbs.iter() {
+            let offset: [f64; 2] = aabb.mins.into();
+
+            let Some(tile_alignments) = alignments.pair_alignments((tile.target, tile.query))
+            else {
+                continue;
+            };
+
+            let alignments_iter = tile_alignments.enumerate().map(|(ix, al)| {
+                let align_ix = AlignmentIndex {
+                    query: al.query_id,
+                    target: al.target_id,
+                    pair_index: ix,
+                };
+
+                (align_ix, al)
+            });
+
+            draw_alignments_at_offset(
+                tile_cache,
+                alignment_colors,
+                sequences,
+                view,
+                canvas_size,
+                offset,
+                &mut dst_pixels,
+                alignments_iter,
+            );
+        }
+    }
+
+    dst_pixels
+}
+
+pub(crate) fn draw_seq_pair_tiles_with_color_schemes_old(
     // tile_buffers: &FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>,
     tile_cache: &TileBufferCache,
     alignment_colors: &PafColorSchemes,

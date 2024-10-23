@@ -1,6 +1,9 @@
 use bevy::prelude::*;
 
-use crate::{app::view::AlignmentViewport, render::exact::CpuViewRasterizerEgui};
+use crate::{
+    app::{alignments::layout::SeqPairLayout, view::AlignmentViewport},
+    render::exact::CpuViewRasterizerEgui,
+};
 
 use super::RenderParams;
 
@@ -141,9 +144,13 @@ fn render_base_level_views(
     rasterizer: Res<AlignmentRasterizer>,
     color_schemes: Res<crate::app::AlignmentColorSchemes>,
     sequences: Res<crate::Sequences>,
+    // alignment_grid: Res<crate::AlignmentGrid>,
     alignments: Res<crate::Alignments>,
 
     mut images: ResMut<Assets<Image>>,
+
+    layouts: Res<Assets<SeqPairLayout>>,
+    layout_roots: Query<&Handle<SeqPairLayout>>,
 
     viewers: Query<(&BaselevelViewer, &Handle<Image>)>,
     windows: Query<&Window>,
@@ -162,17 +169,18 @@ fn render_base_level_views(
                 continue;
             }
 
-            let Some(pixel_buffer) = crate::render::exact::draw_alignments_with_color_schemes(
+            // let layouts_iter = layout_roots
+            let layouts_iter = layout_roots.iter().filter_map(|handle| layouts.get(handle));
+
+            let pixel_buffer = crate::render::exact::draw_seq_pair_layouts_with_color_schemes(
                 &rasterizer.0.tile_cache,
                 &color_schemes.colors,
                 &sequences,
-                &alignment_grid,
                 &alignments,
                 &view,
                 [canvas_size.x, canvas_size.y],
-            ) else {
-                continue;
-            };
+                layouts_iter,
+            );
 
             if let Some(image) = images.get_mut(viewer_image) {
                 let pixels: &[u8] = bytemuck::cast_slice(&pixel_buffer.pixels);

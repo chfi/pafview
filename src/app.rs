@@ -53,27 +53,27 @@ impl Plugin for PafViewerPlugin {
         app.add_plugins(render::gpu_lines::AlignmentRendererPlugin);
 
         // NB: these should all be replaced or are otherwise vestigial
-        app.add_systems(PreUpdate, config_update_grid_material)
-            .add_systems(Startup, setup_base_level_display_image)
-            .add_systems(
-                Update,
-                (
-                    send_base_level_view_events,
-                    update_base_level_display_visibility,
-                )
-                    .after(view::update_camera_from_viewport),
-            )
-            // .add_systems(PreUpdate, resize_screenspace_camera_target)
-            .add_systems(
-                Update,
-                (
-                    resize_base_level_image_handle,
-                    run_base_level_cpu_rasterizer,
-                    update_base_level_image,
-                )
-                    .chain()
-                    .after(send_base_level_view_events),
-            );
+        // app.add_systems(PreUpdate, config_update_grid_material)
+        //     .add_systems(Startup, setup_base_level_display_image)
+        //     .add_systems(
+        //         Update,
+        //         (
+        //             send_base_level_view_events,
+        //             update_base_level_display_visibility,
+        //         )
+        //             .after(view::update_camera_from_viewport),
+        //     )
+        // .add_systems(PreUpdate, resize_screenspace_camera_target)
+        // .add_systems(
+        //     Update,
+        //     (
+        //         resize_base_level_image_handle,
+        //         run_base_level_cpu_rasterizer,
+        //         update_base_level_image,
+        //     )
+        //         .chain()
+        //         .after(send_base_level_view_events),
+        // );
 
         let args = crate::cli::Cli::parse();
 
@@ -464,7 +464,7 @@ fn run_base_level_cpu_rasterizer(
 
     let rasterizer = &mut rasterizer.rasterizer;
 
-    let pixel_buffer = crate::render::exact::draw_alignments_with_color_schemes(
+    let pixel_buffer = crate::render::exact::draw_seq_pair_tiles_with_color_schemes_old(
         &rasterizer.tile_cache,
         &color_schemes.colors,
         &sequences,
