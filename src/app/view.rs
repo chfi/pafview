@@ -269,7 +269,7 @@ fn click_drag_pan_viewport(
 
     // TODO: this should be handled better; this system shouldn't depend
     // on a specific state/mode in the figure export plugin
-    region_selection_mode: Res<super::figure_export::FigureRegionSelectionMode>,
+    region_selection_mode: Option<Res<super::figure_export::FigureRegionSelectionMode>>,
 
     mut egui_contexts: bevy_egui::EguiContexts,
     menubar_size: Res<super::gui::MenubarSize>,
@@ -281,7 +281,10 @@ fn click_drag_pan_viewport(
     windows: Query<&Window>,
     mut alignment_view: ResMut<AlignmentViewport>,
 ) {
-    if region_selection_mode.user_is_selecting {
+    if region_selection_mode
+        .map(|sel| sel.user_is_selecting)
+        .unwrap_or(false)
+    {
         *click_origin = None;
         return;
     }
@@ -360,7 +363,7 @@ fn input_update_viewport(
 
     // TODO: this should be handled better; this system shouldn't depend
     // on a specific state/mode in the figure export plugin
-    region_selection_mode: Res<super::figure_export::FigureRegionSelectionMode>,
+    region_selection_mode: Option<Res<super::figure_export::FigureRegionSelectionMode>>,
 ) {
     let egui_using_cursor = egui_contexts.ctx_mut().wants_pointer_input();
 
@@ -368,7 +371,11 @@ fn input_update_viewport(
         return;
     };
 
-    if keyboard.just_pressed(KeyCode::Escape) && !region_selection_mode.user_is_selecting {
+    if keyboard.just_pressed(KeyCode::Escape)
+        && !region_selection_mode
+            .map(|sel| sel.user_is_selecting)
+            .unwrap_or(false)
+    {
         view_events.send(ViewEvent {
             view: layout_bounds.bounds,
         });

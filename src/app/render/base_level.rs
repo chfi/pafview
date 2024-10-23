@@ -1,4 +1,4 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, render::view::RenderLayers};
 
 use crate::{
     app::{alignments::layout::SeqPairLayout, view::AlignmentViewport},
@@ -91,19 +91,11 @@ fn setup_base_level_viewer(
     commands
         .spawn((
             BaselevelViewer::default(),
-            SpatialBundle::default(),
             SpriteBundle::default(),
+            RenderLayers::layer(1),
         ))
         .insert(images.add(image));
 }
-
-/*
-fn resize_base_level_viewer_image(//
-    viewers: Query<&Handle<Image>
-) {
-    //
-}
-*/
 
 fn update_base_level_viewer_view(
     viewport: Res<AlignmentViewport>,
@@ -184,6 +176,8 @@ fn render_base_level_views(
 
             if let Some(image) = images.get_mut(viewer_image) {
                 let pixels: &[u8] = bytemuck::cast_slice(&pixel_buffer.pixels);
+                image.texture_descriptor.size.width = canvas_size.x;
+                image.texture_descriptor.size.height = canvas_size.y;
                 image.data = pixels.to_vec();
             }
         }

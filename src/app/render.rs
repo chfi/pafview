@@ -30,9 +30,9 @@ use crate::{
 use super::view::AlignmentViewport;
 
 // pub mod async_render;
-mod base_level;
+pub mod base_level;
 pub mod bordered_rect;
-pub(crate) mod cigar_sampling;
+pub mod cigar_sampling;
 pub mod gpu_lines;
 
 /*

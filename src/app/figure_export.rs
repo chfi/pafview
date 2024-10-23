@@ -88,6 +88,7 @@ fn setup_figure_export_window(
     clear_color: Res<ClearColor>,
     grid_layout: Res<super::render::gpu_lines::AlignmentGridLayoutMaterials>,
 ) {
+    /*
     let mut viewer = super::render::gpu_lines::spawn_alignment_viewer_grid_layout(
         &mut commands,
         &mut images,
@@ -107,6 +108,7 @@ fn setup_figure_export_window(
         export_layout_size: None,
         export_layouts: None,
     });
+    */
 }
 
 #[derive(Component)]

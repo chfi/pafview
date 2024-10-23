@@ -206,7 +206,6 @@ pub(crate) fn prepare_alignment_grid_layout_materials(
 pub(crate) fn spawn_alignment_viewer_grid_layout<'a>(
     commands: &'a mut Commands,
     images: &mut Assets<Image>,
-    grid_layout: &AlignmentGridLayoutMaterials,
 ) -> EntityCommands<'a> {
     let size = wgpu::Extent3d {
         width: 512,
@@ -271,11 +270,11 @@ pub(crate) fn spawn_alignment_viewer_grid_layout<'a>(
         },
     ));
 
-    display_sprite.with_children(|parent| {
-        parent.spawn(grid_layout.with_base_level.clone());
-        parent.spawn((grid_layout.line_only.clone(), LineOnlyAlignment));
-    });
-    //
+    // display_sprite.with_children(|parent| {
+    //     parent.spawn(grid_layout.with_base_level.clone());
+    //     parent.spawn((grid_layout.line_only.clone(), LineOnlyAlignment));
+    // });
+    // //
     display_sprite
 }
 
@@ -320,12 +319,11 @@ fn update_swapped_viewer_sprite(
 fn setup_main_alignment_viewer(
     mut commands: Commands,
     mut images: ResMut<Assets<Image>>,
-
-    grid_layout: Res<AlignmentGridLayoutMaterials>,
+    // grid_layout: Res<AlignmentGridLayoutMaterials>,
 ) {
     use bevy_mod_picking::prelude::*;
 
-    let mut viewer = spawn_alignment_viewer_grid_layout(&mut commands, &mut images, &grid_layout);
+    let mut viewer = spawn_alignment_viewer_grid_layout(&mut commands, &mut images);
 
     viewer.insert((
         MainAlignmentView,

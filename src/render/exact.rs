@@ -242,12 +242,7 @@ fn draw_alignments_at_offset<'a>(
     seq_pair_offset: impl Into<[f64; 2]>,
     pixel_buffer: &mut PixelBuffer,
     alignments: impl IntoIterator<Item = (AlignmentIndex, &'a crate::Alignment)>,
-    // alignments: impl IntoIterator<Item = &'a crate::Alignment>,
 ) {
-    // let visible_alignments = alignments.into_iter().filter(|al| {
-
-    // })
-
     let canvas_size = canvas_size.into();
     let canvas_size: bevy::math::UVec2 = canvas_size.into();
     let seq_pair_offset = seq_pair_offset.into();
@@ -258,16 +253,13 @@ fn draw_alignments_at_offset<'a>(
         offset: u64,
         seq_range: &std::ops::Range<u64>,
         view_range: std::ops::RangeInclusive<f64>,
-    ) -> Option<std::ops::Range<u64>> {
+    ) -> std::ops::Range<u64> {
         let seq_start = offset + seq_range.start;
         let seq_end = offset + seq_range.end;
 
         let start = seq_start.max(*view_range.start() as u64);
         let end = seq_end.max(*view_range.end() as u64);
-
-        let start = start.checked_sub(seq_range.start)?;
-        let end = end.checked_sub(seq_range.start)?;
-        Some(start..end)
+        start..end
     }
 
     let sequence_getter = |t_id: SeqId, q_id: SeqId| {
@@ -289,6 +281,8 @@ fn draw_alignments_at_offset<'a>(
     };
 
     let px_per_bp = canvas_size.x as f64 / view.width();
+
+    let mut count = 0;
 
     for (align_ix, alignment) in alignments {
         // map clamp alignment bounds to `view` given the `seq_pair_offset`
@@ -315,13 +309,11 @@ fn draw_alignments_at_offset<'a>(
             continue;
         };
 
-        let Some(clamped_target) = clamped_range(
+        let clamped_target = clamped_range(
             seq_pair_offset.x.round() as u64,
             &loc.target_range,
             view.x_range(),
-        ) else {
-            continue;
-        };
+        );
 
         let dst_size = Vec2::new(px_per_bp as f32, px_per_bp as f32);
 
@@ -349,9 +341,12 @@ fn draw_alignments_at_offset<'a>(
                     [0, 0],
                     [TILE_BUFFER_SIZE as u32, TILE_BUFFER_SIZE as u32],
                 );
+                count += 1;
             }
         }
     }
+
+    println!("rasterized {count} alignments");
 }
 
 pub(crate) fn draw_seq_pair_layouts_with_color_schemes<'a>(
@@ -404,175 +399,4 @@ pub(crate) fn draw_seq_pair_layouts_with_color_schemes<'a>(
     }
 
     dst_pixels
-}
-
-pub(crate) fn draw_seq_pair_tiles_with_color_schemes_old(
-    // tile_buffers: &FxHashMap<(CigarOp, [Option<char>; 2]), PixelBuffer>,
-    tile_cache: &TileBufferCache,
-    alignment_colors: &PafColorSchemes,
-    sequences: &crate::sequences::Sequences,
-    grid: &crate::AlignmentGrid,
-    alignments: &crate::paf::Alignments,
-    view: &crate::view::View,
-    canvas_size: impl Into<UVec2>,
-) -> Option<PixelBuffer> {
-    let canvas_size = canvas_size.into();
-    let screen_dims = [canvas_size.x as f32, canvas_size.y as f32];
-
-    // using the AlignmentGrid, find the alignments that overlap the view
-    // (in 99% of cases this will only be one, but that 1% still can matter)
-    let x_tiles = grid
-        .x_axis
-        .tiles_covered_by_range(view.x_range())?
-        .collect::<Vec<_>>();
-    let y_tiles = grid
-        .y_axis
-        .tiles_covered_by_range(view.y_range())?
-        .collect::<Vec<_>>();
-
-    // for each overlapping alignment,
-    //   find the local target & query ranges
-    //   compute the corresponding pixel rectangle ("subcanvas") in the output canvas
-    //   step through (using AlignmentIter) the local target range,
-    //     for each op, find the corresponding pixel rectangle in the subcanvas,
-    //       & the source tile using the op type & sequence nucleotides,
-    //       then copy into final canvas using `sample_subimage_into`
-
-    fn clamped_range(
-        axis: &crate::grid::GridAxis,
-        seq_id: SeqId,
-        view_range: std::ops::RangeInclusive<f64>,
-    ) -> Option<std::ops::Range<u64>> {
-        // let clamped_range = |axis: &crate::grid::GridAxis,
-        //                      seq_id: SeqId,
-        //                      view_range: std::ops::RangeInclusive<f64>| {
-        let range = axis.sequence_axis_range(seq_id)?;
-        let start = range.start.max(*view_range.start() as u64);
-        let end = range.end.min(*view_range.end() as u64).max(start);
-
-        let start = start - range.start;
-        let end = end - range.start;
-        Some(start..end)
-    }
-
-    let map_to_point = |target_id: SeqId, query_id: SeqId, target: u64, query: u64| {
-        let x = grid
-            .x_axis
-            .axis_local_to_global_exact(target_id, target)
-            .unwrap();
-        let y = grid
-            .y_axis
-            .axis_local_to_global_exact(query_id, query)
-            .unwrap();
-
-        DVec2::new(x as f64, y as f64)
-    };
-
-    let sequence_getter = |t_id: SeqId, q_id: SeqId| {
-        let target_seq = sequences.get_bytes(t_id);
-        let query_seq = sequences.get_bytes(q_id);
-        move |op: CigarOp, target: usize, query: usize| {
-            let t_seq = op.consumes_target().then_some(()).and(
-                target_seq
-                    .and_then(|seq| seq.get(target).copied())
-                    .map(|c| c as char),
-            );
-            let q_seq = op.consumes_query().then_some(()).and(
-                query_seq
-                    .and_then(|seq| seq.get(query).copied())
-                    .map(|c| c as char),
-            );
-            [t_seq, q_seq]
-        }
-    };
-
-    let mut dst_pixels =
-        PixelBuffer::new_color(canvas_size.x, canvas_size.y, egui::Color32::TRANSPARENT);
-
-    for &target_id in &x_tiles {
-        for &query_id in &y_tiles {
-            let pair_id = (target_id, query_id);
-            let Some(mut pair_alignments) = alignments.pair_alignments((target_id, query_id))
-            else {
-                continue;
-            };
-
-            // clamped ranges + pixel ranges
-            let clamped_target = clamped_range(&grid.x_axis, target_id, view.x_range()).unwrap();
-            let clamped_query = clamped_range(&grid.y_axis, query_id, view.y_range()).unwrap();
-
-            let visible_alignments = pair_alignments.enumerate().filter(|(_ix, al)| {
-                let loc = &al.location.target_range;
-                let screen = &clamped_target;
-                loc.end > screen.start && loc.start < screen.end
-            });
-
-            for (ix, alignment) in visible_alignments {
-                let align_ix = AlignmentIndex {
-                    target: target_id,
-                    query: query_id,
-                    pair_index: ix,
-                };
-                let alignment_color_scheme = alignment_colors.get(&align_ix);
-
-                let Some(tile_buffers) = tile_cache.cache.get(&alignment_color_scheme) else {
-                    log::error!("Did not find tile buffer for alignment");
-                    continue;
-                };
-
-                // world coordinates of the visible screen rectangle corresponding to this alignment
-                let world_min = map_to_point(
-                    target_id,
-                    query_id,
-                    clamped_target.start,
-                    clamped_query.start,
-                );
-                let world_max =
-                    map_to_point(target_id, query_id, clamped_target.end, clamped_query.end);
-
-                let s0 = view.map_world_to_screen(screen_dims, world_min);
-                let s1 = view.map_world_to_screen(screen_dims, world_max);
-
-                let screen_max = s0.max_by_component(s1);
-                let screen_min = s0.min_by_component(s1);
-
-                let screen_size = screen_max - screen_min;
-                let px_per_bp = screen_size.x / (clamped_target.end - clamped_target.start) as f32;
-
-                let dst_size = Vec2::new(px_per_bp, px_per_bp);
-
-                let seqs = sequence_getter(target_id, query_id);
-
-                let x_global_start = grid.x_axis.sequence_offset(target_id).unwrap();
-                let y_global_start = grid.y_axis.sequence_offset(query_id).unwrap();
-                let seq_global_offset = DVec2::new(x_global_start as f64, y_global_start as f64);
-
-                for item in alignment.iter_target_range(clamped_target.clone()) {
-                    let op = item.op;
-
-                    for [tgt, qry] in item {
-                        let nucls = seqs(op, tgt, qry);
-
-                        let world_offset = seq_global_offset + [tgt as f64, qry as f64].into();
-                        let dst_offset = view.map_world_to_screen(screen_dims, world_offset);
-
-                        let Some(tile) = tile_buffers.get(&(op, nucls)) else {
-                            log::error!("Did not find tile for ({op:?}, {nucls:?}");
-                            continue;
-                        };
-
-                        tile.sample_subimage_nn_into(
-                            &mut dst_pixels,
-                            dst_offset.into(),
-                            dst_size.into(),
-                            [0, 0],
-                            [TILE_BUFFER_SIZE as u32, TILE_BUFFER_SIZE as u32],
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    Some(dst_pixels)
 }
