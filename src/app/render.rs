@@ -67,3 +67,6 @@ struct RenderParams {
     view: crate::view::View,
     canvas_size: UVec2,
 }
+
+#[derive(Component)]
+struct ForceRender;

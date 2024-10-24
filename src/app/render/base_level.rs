@@ -144,7 +144,8 @@ fn render_base_level_views(
     layouts: Res<Assets<SeqPairLayout>>,
     layout_roots: Query<&Handle<SeqPairLayout>>,
 
-    viewers: Query<(&BaselevelViewer, &Handle<Image>)>,
+    // NB: not adding `ForceRender` here since this will render every frame
+    mut viewers: Query<(&mut BaselevelViewer, &Handle<Image>)>,
     windows: Query<&Window>,
 ) {
     let Ok(window) = windows.get_single() else {
@@ -153,7 +154,7 @@ fn render_base_level_views(
 
     let canvas_size = window.physical_size();
 
-    for (viewer, viewer_image) in viewers.iter() {
+    for (mut viewer, viewer_image) in viewers.iter_mut() {
         if let Some(view) = viewer.view {
             let bp_per_px = view.width() / canvas_size.x as f64;
 
@@ -179,6 +180,7 @@ fn render_base_level_views(
                 image.texture_descriptor.size.width = canvas_size.x;
                 image.texture_descriptor.size.height = canvas_size.y;
                 image.data = pixels.to_vec();
+                viewer.last_rendered = Some(RenderParams { view, canvas_size });
             }
         }
     }

@@ -564,7 +564,12 @@ fn trigger_alignment_viewer_line_render(
     shader_config: Res<AlignmentShaderConfig>,
 
     viewers: Query<
-        (Entity, &AlignmentViewer, &AlignmentViewerImages),
+        (
+            Entity,
+            &AlignmentViewer,
+            &AlignmentViewerImages,
+            Has<super::ForceRender>,
+        ),
         Without<AlignmentRenderOperation>,
     >,
 ) {
@@ -572,26 +577,27 @@ fn trigger_alignment_viewer_line_render(
         return;
     }
 
-    for (viewer_ent, viewer, viewer_imgs) in viewers.iter() {
+    for (viewer_ent, viewer, viewer_imgs, force_render) in viewers.iter() {
         // this could be handled with a timer...
         // & the delay shouldn't be built-in to every viewer (though it shouldn't matter)
         if let Some(ms_since_last_render) = viewer.last_render_time.map(|t| t.elapsed().as_millis())
         {
-            if ms_since_last_render < 10 {
+            if !force_render && ms_since_last_render < 10 {
                 return;
             }
         }
 
         if let Some(next_view) = viewer.next_view {
             let changed_view = viewer.rendered_view != Some(next_view);
-            if changed_view || shader_config.is_changed() {
+            if force_render || changed_view || shader_config.is_changed() {
                 commands
                     .entity(viewer_ent)
                     .insert(AlignmentRenderOperation {
                         alignment_view: next_view,
                         canvas_size: viewer.image_size,
                         is_ready: Arc::new(false.into()),
-                    });
+                    })
+                    .remove::<super::ForceRender>();
             }
         }
     }

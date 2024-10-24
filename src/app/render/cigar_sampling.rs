@@ -4,7 +4,7 @@ use bevy::{
     prelude::*,
     render::view::RenderLayers,
     tasks::{AsyncComputeTaskPool, Task},
-    utils::HashMap,
+    utils::{HashMap, HashSet},
 };
 use bevy_inspector_egui::{
     inspector_options::ReflectInspectorOptions, quick::ResourceInspectorPlugin, InspectorOptions,
@@ -13,8 +13,9 @@ use bevy_mod_picking::prelude::Pickable;
 
 use crate::{
     app::{
-        alignments::layout::SeqPairLayout, view::AlignmentViewport, ForegroundColor,
-        SequencePairTile,
+        alignments::layout::{LayoutChangedEvent, SeqPairLayout},
+        view::AlignmentViewport,
+        ForegroundColor, SequencePairTile,
     },
     math_conv::*,
 };
@@ -324,9 +325,12 @@ fn spawn_render_tasks_rewrite(
     // alignment_grid: Res<crate::AlignmentGrid>,
     default_layout: Res<crate::app::alignments::layout::DefaultLayout>,
 
+    mut layout_updates: EventReader<LayoutChangedEvent>,
+    mut changed_layouts: Local<HashSet<Entity>>,
+
     layouts: Res<Assets<SeqPairLayout>>,
 
-    layout_roots: Query<(&Transform, &Handle<SeqPairLayout>)>,
+    layout_roots: Query<(Entity, &Transform, &Handle<SeqPairLayout>)>,
     seq_pair_tiles: Query<&SequencePairTile>,
 
     render_tile_grids: Query<(&RenderTileGrid, &Children)>,
@@ -334,9 +338,14 @@ fn spawn_render_tasks_rewrite(
 ) {
     let task_pool = AsyncComputeTaskPool::get();
 
-    /*
+    // changed_layouts.clear();
+    changed_layouts.extend(layout_updates.read().map(|ev| ev.entity));
+
+    // /*
     for (render_grid, children) in render_tile_grids.iter() {
-        for (layout_transform, layout) in layout_roots.iter() {
+        for (root_entity, layout_transform, layout) in layout_roots.iter() {
+            let force_render = changed_layouts.contains(&root_entity);
+
             let Some(layout) = layouts.get(layout) else {
                 continue;
             };
@@ -429,11 +438,13 @@ fn spawn_render_tasks_rewrite(
                     .entity(render_tile_ent)
                     .insert(RenderTask { task, params });
 
+                changed_layouts.remove(&root_entity);
+
                 //
             }
         }
     }
-    */
+    // */
 }
 
 fn spawn_render_tasks(
@@ -445,16 +456,21 @@ fn spawn_render_tasks(
 
     layouts: Res<Assets<SeqPairLayout>>,
 
-    layout_roots: Query<(&Children, &Handle<SeqPairLayout>)>,
+    layout_roots: Query<(Entity, &Children, &Handle<SeqPairLayout>)>,
     seq_pair_tiles: Query<&SequencePairTile>,
 
-    render_tile_grids: Query<(&RenderTileGrid, &Children, Option<&Handle<SeqPairLayout>>)>,
+    render_tile_grids: Query<(
+        &RenderTileGrid,
+        &Children,
+        Option<&Handle<SeqPairLayout>>,
+        Has<super::ForceRender>,
+    )>,
 
     render_tiles: Query<(Entity, &RenderTile), Without<RenderTask>>,
 ) {
     let task_pool = AsyncComputeTaskPool::get();
 
-    for (render_grid, children, layout) in render_tile_grids.iter() {
+    for (render_grid, children, layout, force_render) in render_tile_grids.iter() {
         let layout = layout
             .or(Some(&default_layout.layout))
             .and_then(|h| layouts.get(h));
@@ -470,7 +486,7 @@ fn spawn_render_tasks(
 
             if let Some(last) = render_tile.last_update.as_ref() {
                 let ms = last.elapsed().as_millis();
-                if ms < 100 {
+                if !force_render && ms < 100 {
                     // println!("skipping due to timer");
                     continue;
                 } else {
@@ -485,7 +501,7 @@ fn spawn_render_tasks(
                 canvas_size,
             };
 
-            if Some(&params) == render_tile.last_rendered.as_ref() {
+            if !force_render && Some(&params) == render_tile.last_rendered.as_ref() {
                 continue;
             }
 
@@ -549,7 +565,8 @@ fn spawn_render_tasks(
 
             commands
                 .entity(render_tile_ent)
-                .insert(RenderTask { task, params });
+                .insert(RenderTask { task, params })
+                .remove::<super::ForceRender>();
 
             //
         }
