@@ -395,6 +395,9 @@ pub mod gui {
                             builder.vertical_offset = Some(editor_state.vertical_offset);
                             builder_changed = true;
                         }
+                    } else if builder.vertical_offset.is_some() {
+                        builder.vertical_offset = None;
+                        builder_changed = true;
                     }
 
                     if editor_state.horizontal_offset_on {
@@ -402,6 +405,9 @@ pub mod gui {
                             builder.horizontal_offset = Some(editor_state.horizontal_offset);
                             builder_changed = true;
                         }
+                    } else if builder.horizontal_offset.is_some() {
+                        builder.horizontal_offset = None;
+                        builder_changed = true;
                     }
                 }
             }

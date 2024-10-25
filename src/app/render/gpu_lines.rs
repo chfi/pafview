@@ -1,3 +1,5 @@
+use crate::app::alignments::layout::LayoutChangedEvent;
+
 use super::*;
 
 pub struct AlignmentRendererPlugin;
@@ -563,12 +565,14 @@ fn trigger_alignment_viewer_line_render(
     frame_count: Res<bevy::core::FrameCount>,
     shader_config: Res<AlignmentShaderConfig>,
 
+    mut layout_events: EventReader<LayoutChangedEvent>,
+
     viewers: Query<
         (
             Entity,
             &AlignmentViewer,
             &AlignmentViewerImages,
-            Has<super::ForceRender>,
+            // Has<super::ForceRender>,
         ),
         Without<AlignmentRenderOperation>,
     >,
@@ -577,7 +581,10 @@ fn trigger_alignment_viewer_line_render(
         return;
     }
 
-    for (viewer_ent, viewer, viewer_imgs, force_render) in viewers.iter() {
+    // NB: this will be good enough for now; but it should take the actual visible layouts into account
+    let force_render = layout_events.read().count() > 0;
+
+    for (viewer_ent, viewer, viewer_imgs) in viewers.iter() {
         // this could be handled with a timer...
         // & the delay shouldn't be built-in to every viewer (though it shouldn't matter)
         if let Some(ms_since_last_render) = viewer.last_render_time.map(|t| t.elapsed().as_millis())

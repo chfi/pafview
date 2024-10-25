@@ -318,135 +318,6 @@ fn update_viewport_locked_render_tile_params(
     }
 }
 
-fn spawn_render_tasks_rewrite(
-    mut commands: Commands,
-
-    alignments: Res<crate::Alignments>,
-    // alignment_grid: Res<crate::AlignmentGrid>,
-    default_layout: Res<crate::app::alignments::layout::DefaultLayout>,
-
-    mut layout_updates: EventReader<LayoutChangedEvent>,
-    mut changed_layouts: Local<HashSet<Entity>>,
-
-    layouts: Res<Assets<SeqPairLayout>>,
-
-    layout_roots: Query<(Entity, &Transform, &Handle<SeqPairLayout>)>,
-    seq_pair_tiles: Query<&SequencePairTile>,
-
-    render_tile_grids: Query<(&RenderTileGrid, &Children)>,
-    render_tiles: Query<(Entity, &RenderTile), Without<RenderTask>>,
-) {
-    let task_pool = AsyncComputeTaskPool::get();
-
-    // changed_layouts.clear();
-    changed_layouts.extend(layout_updates.read().map(|ev| ev.entity));
-
-    // /*
-    for (render_grid, children) in render_tile_grids.iter() {
-        for (root_entity, layout_transform, layout) in layout_roots.iter() {
-            let force_render = changed_layouts.contains(&root_entity);
-
-            let Some(layout) = layouts.get(layout) else {
-                continue;
-            };
-
-            for (render_tile_ent, render_tile) in render_tiles.iter_many(children) {
-                let Some(tile_bounds) = render_tile.view else {
-                    continue;
-                };
-
-                if let Some(last) = render_tile.last_update.as_ref() {
-                    let ms = last.elapsed().as_millis();
-                    if ms < 100 {
-                        // println!("skipping due to timer");
-                        continue;
-                    } else {
-                        // println!("timer lapsed; updating");
-                    }
-                }
-
-                let canvas_size = render_tile.size;
-
-                let params = RenderParams {
-                    view: tile_bounds,
-                    canvas_size,
-                };
-
-                if Some(&params) == render_tile.last_rendered.as_ref() {
-                    continue;
-                }
-
-                let tiles = layout
-                    .layout_qbvh
-                    .tiles_in_rect(params.view.center(), params.view.size() * 0.5);
-
-                let tile_aabbs = tiles
-                    .into_iter()
-                    .filter_map(|seq_pair| {
-                        let aabb = layout.aabbs.get(&seq_pair)?;
-                        Some((seq_pair, *aabb))
-                    })
-                    .collect::<Vec<_>>();
-
-                let als = alignments.alignments.clone();
-                let al_pairs = alignments.indices.clone();
-
-                let dbg_bg_color = {
-                    let pos = render_tile.tile_grid_pos;
-                    let i = pos.x + render_grid.columns as u32 * pos.y;
-
-                    let hue = i as f32 / (render_grid.columns * render_grid.rows) as f32;
-                    let lgt = 0.5;
-
-                    let color = Color::hsl(hue * 360.0, 0.8, lgt).to_srgba();
-                    let map = |chn: f32| ((chn * 255.0) as u8).min(160);
-
-                    [map(color.red), map(color.green), map(color.blue), 160]
-                };
-
-                // spawn task
-                let task = task_pool.spawn(async move {
-                    let mut count = 0;
-                    let alignments = tile_aabbs
-                        .into_iter()
-                        .filter_map(|(seq_pair, bounds)| {
-                            let key = (seq_pair.target, seq_pair.query);
-                            let als = al_pairs
-                                .get(&key)?
-                                .into_iter()
-                                .filter_map(|ix| als.get(*ix))
-                                .collect::<Vec<_>>();
-                            count += als.len();
-
-                            // let p0 = bounds.mins;
-                            // let offset = DVec2::new(p0.x, p0.y);
-                            Some((seq_pair, bounds, als))
-                        })
-                        .collect::<Vec<_>>();
-
-                    // println!(" >> {count} alignments to render");
-
-                    rasterize_alignments_in_tile(dbg_bg_color, tile_bounds, canvas_size, alignments)
-                });
-
-                // println!(
-                //     "spawning task for tile [{:?}][{}, {}]\t view: {:?}",
-                //     tile_ent, tile.tile_grid_pos.x, tile.tile_grid_pos.y, tile.view
-                // );
-
-                commands
-                    .entity(render_tile_ent)
-                    .insert(RenderTask { task, params });
-
-                changed_layouts.remove(&root_entity);
-
-                //
-            }
-        }
-    }
-    // */
-}
-
 fn spawn_render_tasks(
     mut commands: Commands,
 
@@ -459,18 +330,22 @@ fn spawn_render_tasks(
     layout_roots: Query<(Entity, &Children, &Handle<SeqPairLayout>)>,
     seq_pair_tiles: Query<&SequencePairTile>,
 
+    mut layout_updates: EventReader<LayoutChangedEvent>,
+
     render_tile_grids: Query<(
         &RenderTileGrid,
         &Children,
         Option<&Handle<SeqPairLayout>>,
-        Has<super::ForceRender>,
+        // Has<super::ForceRender>,
     )>,
 
     render_tiles: Query<(Entity, &RenderTile), Without<RenderTask>>,
 ) {
     let task_pool = AsyncComputeTaskPool::get();
 
-    for (render_grid, children, layout, force_render) in render_tile_grids.iter() {
+    let force_render = layout_updates.read().count() > 0;
+
+    for (render_grid, children, layout) in render_tile_grids.iter() {
         let layout = layout
             .or(Some(&default_layout.layout))
             .and_then(|h| layouts.get(h));
