@@ -119,13 +119,15 @@ fn set_base_level_viewer_visibility(
     mut viewers: Query<(&mut Visibility, &BaselevelViewer)>,
 ) {
     for (mut visibility, viewer) in viewers.iter_mut() {
-        if let Some(params) = viewer.last_rendered {
-            let bp_per_px = params.view.width() / params.canvas_size.x as f64;
+        if let Some(view) = viewer.view {
+            if let Some(params) = viewer.last_rendered {
+                let bp_per_px = view.width() / params.canvas_size.x as f64;
 
-            if bp_per_px > BASE_LEVEL_VIEWER_MIN_BP_PER_PX {
-                *visibility = Visibility::Hidden;
-            } else {
-                *visibility = Visibility::Visible;
+                if bp_per_px > BASE_LEVEL_VIEWER_MIN_BP_PER_PX {
+                    *visibility = Visibility::Hidden;
+                } else {
+                    *visibility = Visibility::Visible;
+                }
             }
         }
     }

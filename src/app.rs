@@ -94,12 +94,6 @@ impl Plugin for PafViewerPlugin {
 //     pub app: PafViewerApp,
 // }
 
-#[deprecated]
-#[derive(Resource)]
-pub struct AlignmentRasterizer {
-    rasterizer: CpuViewRasterizerEgui,
-}
-
 #[derive(Resource)]
 pub struct AlignmentColorSchemes {
     pub colors: PafColorSchemes,
@@ -182,30 +176,6 @@ fn setup_screenspace_camera(
         ScreenspaceCamera,
     ));
 }
-
-#[derive(Resource)]
-struct GridMaterial {
-    handle: Handle<PolylineMaterial>,
-}
-
-fn config_update_grid_material(
-    mut materials: ResMut<Assets<PolylineMaterial>>,
-    app_config: Res<crate::AppConfig>,
-    // viewer: Res<PafViewer>,
-    grid_mat: Option<Res<GridMaterial>>,
-) {
-    let Some(handle) = grid_mat.as_ref().map(|m| &m.handle) else {
-        return;
-    };
-
-    let Some(mat) = materials.get_mut(handle) else {
-        return;
-    };
-
-    mat.width = app_config.grid_line_width;
-}
-
-// #[derive(Resource)]
 
 fn setup(mut commands: Commands) {
     // NB: initial values don't matter here as the camera will be updated

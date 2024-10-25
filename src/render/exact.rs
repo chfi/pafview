@@ -254,11 +254,13 @@ fn draw_alignments_at_offset<'a>(
         seq_range: &std::ops::Range<u64>,
         view_range: std::ops::RangeInclusive<f64>,
     ) -> std::ops::Range<u64> {
-        let seq_start = offset + seq_range.start;
-        let seq_end = offset + seq_range.end;
+        let v_start = (*view_range.start() as u64)
+            .checked_sub(offset)
+            .unwrap_or(0);
+        let v_end = (*view_range.end() as u64).checked_sub(offset).unwrap_or(0);
 
-        let start = seq_start.max(*view_range.start() as u64);
-        let end = seq_end.max(*view_range.end() as u64);
+        let start = seq_range.start.max(v_start);
+        let end = seq_range.end.min(v_end);
         start..end
     }
 
@@ -281,8 +283,6 @@ fn draw_alignments_at_offset<'a>(
     };
 
     let px_per_bp = canvas_size.x as f64 / view.width();
-
-    let mut count = 0;
 
     for (align_ix, alignment) in alignments {
         // map clamp alignment bounds to `view` given the `seq_pair_offset`
@@ -341,12 +341,9 @@ fn draw_alignments_at_offset<'a>(
                     [0, 0],
                     [TILE_BUFFER_SIZE as u32, TILE_BUFFER_SIZE as u32],
                 );
-                count += 1;
             }
         }
     }
-
-    println!("rasterized {count} alignments");
 }
 
 pub(crate) fn draw_seq_pair_layouts_with_color_schemes<'a>(
