@@ -787,7 +787,7 @@ fn cleanup_render_task(
     }
 }
 
-struct CigarScreenPathStrokeIter<I> {
+pub(super) struct CigarScreenPathStrokeIter<I> {
     iter: I,
 
     view: crate::view::View,
@@ -801,7 +801,7 @@ struct CigarScreenPathStrokeIter<I> {
 }
 
 impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathStrokeIter<I> {
-    fn new(
+    pub(super) fn new(
         view: crate::view::View,
         dims: UVec2,
         seq_pair_world_offset: impl Into<[f64; 2]>,
@@ -825,7 +825,7 @@ impl<I: Iterator<Item = crate::paf::AlignmentIterItem>> CigarScreenPathStrokeIte
         }
     }
 
-    fn emit_next(&mut self) -> Option<zeno::Command> {
+    pub(super) fn emit_next(&mut self) -> Option<zeno::Command> {
         use crate::CigarOp::{Eq, D, I, M, X};
         use zeno::{Command, Vector};
 

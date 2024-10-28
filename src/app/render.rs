@@ -34,6 +34,7 @@ pub mod base_level;
 pub mod bordered_rect;
 pub mod cigar_sampling;
 pub mod gpu_lines;
+pub mod sampled_lines;
 
 /*
 

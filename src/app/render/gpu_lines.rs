@@ -649,7 +649,7 @@ impl FromWorld for AlignmentPolylinePipeline {
         );
 
         let model_layout = render_device.create_bind_group_layout(
-            "AlignmentColorScheme",
+            "AlignmentModel",
             &BindGroupLayoutEntries::sequential(
                 ShaderStages::VERTEX,
                 (binding_types::uniform_buffer::<Mat4>(false),),
