@@ -36,7 +36,9 @@ fn compute_border_ts(
         abs((1.0 - uv.y)) - border_width_uv.y,
     );
 
-    let ts = smoothstep(vec4f(0.0), widths, dists);
+    let normed = dists / vec4f(border_width_uv.xx, border_width_uv.yy);
+    let ts = clamp(normed, vec4f(0.0), vec4f(1.0));
+    // let ts = smoothstep(vec4f(0.0), widths, dists);
 
     return ts;
 }
@@ -72,10 +74,11 @@ fn compute_color(
     border_color: vec4f,
     t: f32,
 ) -> vec4f {
-    let c_a = fill_color.rgb;
-    let a_a = fill_color.a;
-    let c_b = border_color.rgb;
-    let a_b = border_color.a;
+// these (a & b) were flipped..
+    let c_a = border_color.rgb;
+    let a_a = border_color.a;
+    let c_b = fill_color.rgb;
+    let a_b = fill_color.a;
 
     let c_o = c_a + c_b * (1.0 - t);
     let a_o = a_a + a_b * (1.0 - t);

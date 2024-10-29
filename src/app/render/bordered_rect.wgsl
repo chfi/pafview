@@ -24,6 +24,21 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     return out;
 }
 
+fn over(
+    a: vec4f,
+    b: vec4f,
+) -> vec4f {
+    let c_a = a.rgb;
+    let a_a = a.a;
+    let c_b = b.rgb;
+    let a_b = b.a;
+
+    let c_o = c_a + c_b * (1.0 - a_a);
+    let a_o = a_a + a_b * (1.0 - a_a);
+
+    return vec4f(c_o, a_o);
+}
+
 @fragment
 fn fragment(
     mesh: VertexOutput,
@@ -34,7 +49,23 @@ fn fragment(
     // return color;
 
     let border_width_uv = bordered_rect_util::compute_border_uv_width(mesh.uv, border_width_px_u);
+
+    var color = vec4f(1.0);
+
     let ts = bordered_rect_util::compute_border_ts(mesh.uv, border_width_uv);
+    let t_ = min(min(ts.x, ts.y), min(ts.z, ts.w));
+    let t = 1.0 - t_;
+
+    color = over(vec4f(vec3f(0.0), t), vec4f(1.0));
+
+    /*
+    let ts = bordered_rect_util::compute_border_ts(mesh.uv, border_width_uv);
+
+    // let border_width_uv = bordered_rect_util::compute_border_uv_width(mesh.uv, border_width_px_u * 10.0);
+    // let ts = bordered_rect_util::compute_border_ts(mesh.uv, border_width_uv * 0.5);
+
+    // let border_width_uv = bordered_rect_util::compute_border_uv_width(mesh.uv, border_width_px_u * 10.0);
+    // let ts = bordered_rect_util::compute_border_ts(mesh.uv, border_width_uv * 0.5);
 
     let border_alpha = bordered_rect_util::compute_alpha_for_border(
         mesh.uv,
@@ -44,7 +75,10 @@ fn fragment(
     let border_color = vec4f(border_color_u.rgb, border_alpha);
     // let border_color = vec4f(border_color_u.rgba);
 
-    let t = min(min(ts.x, ts.y), min(ts.z, ts.w));
+    let t_ = min(min(ts.x, ts.y), min(ts.z, ts.w));
+    let t = border_alpha * t_;
+
     let color = bordered_rect_util::compute_color(fill_color_u, border_color, t);
+    */
     return color;
 }
