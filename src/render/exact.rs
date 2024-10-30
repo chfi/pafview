@@ -261,7 +261,10 @@ fn draw_alignments_at_offset<'a>(
 
         let start = seq_range.start.max(v_start);
         let end = seq_range.end.min(v_end);
-        start..end
+        // might fix a rare crash...
+        let s = start.min(end);
+        let e = start.max(end);
+        s..e
     }
 
     let sequence_getter = |t_id: SeqId, q_id: SeqId| {
