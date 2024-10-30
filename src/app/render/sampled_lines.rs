@@ -1,4 +1,8 @@
-use bevy::{prelude::*, tasks::Task};
+use bevy::{
+    math::DVec2,
+    prelude::*,
+    tasks::{AsyncComputeTaskPool, Task},
+};
 use pipeline::PolylineVertexBuffer;
 
 use crate::app::alignments::layout::SeqPairLayout;
@@ -15,7 +19,7 @@ impl Plugin for SampledAlignmentRendererPlugin {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Default)]
 struct SampledAlignmentViewer {
     view: Option<crate::view::View>,
 
@@ -23,28 +27,190 @@ struct SampledAlignmentViewer {
     last_vertex_params: Option<RenderParams>,
 }
 
+#[derive(Component, Default)]
+struct SampledVertices {
+    buffer_data: Vec<VertexData>,
+    sampling_params: Option<VertexSamplingParams>,
+}
+
+#[derive(Clone, Copy)]
+struct VertexSamplingParams {
+    view: crate::view::View,
+    /// in basepairs per pixel
+    scale: f64,
+}
+
+fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    let size = wgpu::Extent3d {
+        width: 512,
+        height: 512,
+        depth_or_array_layers: 1,
+    };
+
+    let mut image = Image {
+        texture_descriptor: wgpu::TextureDescriptor {
+            label: None,
+            size,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        },
+        ..default()
+    };
+
+    image.resize(size);
+    let front_image = image;
+    let back_image = front_image.clone();
+
+    let front = images.add(front_image);
+    let back = images.add(back_image);
+
+    let mut depth_buffer = Image {
+        texture_descriptor: wgpu::TextureDescriptor {
+            label: None,
+            size,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth16Unorm,
+            mip_level_count: 1,
+            sample_count: 1,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        },
+        ..default()
+    };
+
+    depth_buffer.resize(size);
+    let front_depth = depth_buffer;
+    let back_depth = front_depth.clone();
+
+    let front_depth = images.add(front_depth);
+    let back_depth = images.add(back_depth);
+
+    commands.spawn((
+        SampledAlignmentViewer::default(),
+        SampledVertices::default(),
+    ));
+}
+
+// initialize vertex buffer(s) and uniforms for viewers
 fn setup_gpu_resources(//
+    // viewers: Query<()>,
 ) {
 
     //
 }
 
 #[derive(Component)]
-struct VertexSamplingTask(Task<PolylineVertexBuffer>);
+struct VertexSamplingTask {
+    task: Task<PolylineVertexBuffer>,
+    sampling_params: VertexSamplingParams,
+}
+
+fn update_alignment_viewer_params(
+    viewport: Res<AlignmentViewport>,
+    //
+    mut viewers: Query<&mut SampledAlignmentViewer>,
+) {
+    for mut viewer in viewers.iter_mut() {
+        viewer.view = Some(viewport.view);
+    }
+
+    //
+}
 
 fn spawn_vertex_sampling_tasks(
-    //
+    mut commands: Commands,
+
+    layouts: Res<Assets<SeqPairLayout>>,
+
     layout_roots: Query<(&Transform, &Handle<SeqPairLayout>)>,
+
+    viewers: Query<
+        (Entity, &SampledAlignmentViewer, &SampledVertices),
+        Without<VertexSamplingTask>,
+    >,
+
+    windows: Query<&Window>,
 ) {
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+
+    let task_pool = AsyncComputeTaskPool::get();
+
+    for (viewer_ent, viewer, vertices) in viewers.iter() {
+        let Some(next_view) = viewer.view else {
+            continue;
+        };
+
+        let bp_per_px = next_view.width() / window.physical_size().x as f64;
+
+        // TODO: spawn task if `next_view` has escaped bounds of the sampling
+        // params in `vertices`, or if scale has changed "enough"
+        let need_new_vertices = if let Some(sampled_params) = vertices.sampling_params {
+            let s_view: crate::view::View = sampled_params.view;
+
+            let view_out_of_bounds = s_view.x_min > next_view.x_max
+                || s_view.x_max < next_view.x_min
+                || s_view.y_min > next_view.y_max
+                || s_view.y_max < next_view.y_min;
+
+            let rel_scale = next_view.width() / s_view.width();
+            let beyond_scale_limit = rel_scale < 0.5;
+
+            view_out_of_bounds || beyond_scale_limit
+        } else {
+            true
+        };
+
+        if !need_new_vertices {
+            continue;
+        }
+
+        // this loop won't work; there should only be one task per viewer
+        for (layout_transform, layout_handle) in layout_roots.iter() {
+            let Some(layout) = layouts.get(layout_handle) else {
+                continue;
+            };
+
+            let task: Task<PolylineVertexBuffer> = task_pool.spawn(async move {
+                // TODO build vertices; eventually using rayon
+                todo!();
+            });
+
+            todo!();
+        }
+    }
 
     //
 }
 
-fn update_vertex_buffer(//
-) {
-
+fn finish_vertex_sampling_tasks(
     //
+    mut commands: Commands,
+
+    mut tasks: Query<(Entity, &mut VertexSamplingTask, &mut SampledVertices)>,
+) {
+    // move task buffer data into `SampledVertices` on completion
 }
+
+// copy from `SampledVertices` into GPU buffer...
+// fn copy_vertices_to_gpu(
+// )
+
+// fn render_sampled_vertices(
+//     //
+//     mut commands: Commands,
+// ) {
+//     //
+// }
 
 #[derive(Debug)]
 enum VertexSamplingError {
@@ -178,7 +344,7 @@ struct TriangulatedVertices {
 
 mod pipeline {
     use super::*;
-    use bevy::prelude::*;
+    use bevy::{prelude::*, render::render_resource::RawBufferVec};
 
     pub(super) struct SampledPolylinePipelinePlugin;
 
@@ -188,18 +354,51 @@ mod pipeline {
         }
 
         fn finish(&self, app: &mut App) {
+            // app.init_resource::<PolylinePipeline>();
             let render_app = app.sub_app_mut(RenderApp);
             render_app.init_resource::<PolylinePipeline>();
-            // .add_systems(Render, ())
+            // // .add_systems(Render, ())
 
-            todo!();
+            // todo!();
         }
     }
 
     #[derive(Component)]
-    pub(super) struct PolylineVertexBuffer {
-        vertex_buffer: std::sync::Arc<wgpu::Buffer>,
+    pub(super) struct PolylineVertices {
+        buffer: RawBufferVec<VertexData>,
         instances: std::ops::Range<u32>,
+    }
+
+    #[derive(Component)]
+    pub(super) struct PolylineVertexBuffer {
+        buffer: Buffer,
+        instances: std::ops::Range<u32>,
+    }
+
+    /*
+
+    fn copy_vertices_to_gpu(
+
+    ) {
+
+    }
+
+    */
+
+    fn queue_draw(
+        mut commands: Commands,
+
+        render_device: Res<RenderDevice>,
+        render_queue: Res<RenderQueue>,
+        pipeline_cache: Res<PipelineCache>,
+        pipeline: Res<PolylinePipeline>,
+
+        gpu_images: Res<RenderAssets<GpuImage>>,
+        // gpu_vertices: Res<RenderAssets<GpuAlignmentVertices>>,
+        // gpu_materials: Res<RenderAssets<GpuAlignmentPolylineMaterial>>,
+    ) {
+        // draw the sampled vertices; all that's needed is the vertex buffer and bind group(s)
+        todo!();
     }
 
     #[derive(Resource)]
