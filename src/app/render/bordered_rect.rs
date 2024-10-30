@@ -30,12 +30,12 @@ impl Plugin for BorderedRectRenderPlugin {
             "bordered_rect.wgsl",
             Shader::from_wgsl
         );
-        // load_internal_asset!(
-        //     app,
-        //     BORDERED_RECT_2D_SHADER_HANDLE,
-        //     "bordered_rect_2d.wgsl",
-        //     Shader::from_wgsl
-        // );
+        load_internal_asset!(
+            app,
+            BORDERED_RECT_2D_SHADER_HANDLE,
+            "bordered_rect_2d.wgsl",
+            Shader::from_wgsl
+        );
 
         app.add_plugins(MaterialPlugin::<BorderedRectMaterial>::default())
             .add_plugins(Material2dPlugin::<BorderedRectMaterial2d>::default());

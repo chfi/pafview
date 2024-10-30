@@ -65,9 +65,24 @@ fn compute_alpha_for_border(
         alpha = max(alpha, border_alphas.z);
     }
 
-    return alpha;
+    // return alpha;
+    return clamp(alpha, 0.0, 1.0);
 }
 
+fn over(
+    a: vec4f,
+    b: vec4f,
+) -> vec4f {
+    let c_a = a.rgb;
+    let a_a = a.a;
+    let c_b = b.rgb;
+    let a_b = b.a;
+
+    let c_o = c_a + c_b * (1.0 - a_a);
+    let a_o = a_a + a_b * (1.0 - a_a);
+
+    return vec4f(c_o, a_o);
+}
 
 fn compute_color(
     fill_color: vec4f,

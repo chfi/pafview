@@ -24,20 +24,6 @@ fn vertex(vertex: Vertex) -> VertexOutput {
     return out;
 }
 
-fn over(
-    a: vec4f,
-    b: vec4f,
-) -> vec4f {
-    let c_a = a.rgb;
-    let a_a = a.a;
-    let c_b = b.rgb;
-    let a_b = b.a;
-
-    let c_o = c_a + c_b * (1.0 - a_a);
-    let a_o = a_a + a_b * (1.0 - a_a);
-
-    return vec4f(c_o, a_o);
-}
 
 @fragment
 fn fragment(
@@ -48,17 +34,22 @@ fn fragment(
     // let color = bordered_rect_util::compute_color(fill_color, border_color, t);
     // return color;
 
+    /*
     let border_width_uv = bordered_rect_util::compute_border_uv_width(mesh.uv, border_width_px_u);
 
     var color = vec4f(1.0);
 
     let ts = bordered_rect_util::compute_border_ts(mesh.uv, border_width_uv);
     let t_ = min(min(ts.x, ts.y), min(ts.z, ts.w));
-    let t = 1.0 - t_;
+    // let t = 1.0 - t_;
+    // let t = 1.0 - pow(t_, 2.0);
+    let t = pow(1.0 - t_, 2.0);
 
-    color = over(vec4f(vec3f(0.0), t), vec4f(1.0));
+    // color = over(vec4f(vec3f(0.0), t), vec4f(1.0));
+    color = over(vec4f(vec3f(0.0), t * 0.8), vec4f(1.0));
+    */
 
-    /*
+    let border_width_uv = bordered_rect_util::compute_border_uv_width(mesh.uv, border_width_px_u);
     let ts = bordered_rect_util::compute_border_ts(mesh.uv, border_width_uv);
 
     // let border_width_uv = bordered_rect_util::compute_border_uv_width(mesh.uv, border_width_px_u * 10.0);
@@ -72,13 +63,29 @@ fn fragment(
         unpack4x8unorm(border_opacities_u),
         border_width_uv
     );
-    let border_color = vec4f(border_color_u.rgb, border_alpha);
     // let border_color = vec4f(border_color_u.rgba);
+    // let t = border_alpha * t_;
 
     let t_ = min(min(ts.x, ts.y), min(ts.z, ts.w));
-    let t = border_alpha * t_;
+    let t = pow(1.0 - t_, 2.0);
 
-    let color = bordered_rect_util::compute_color(fill_color_u, border_color, t);
-    */
+    // let alpha = clamp(border_alpha, 0.0, 1.0);
+    // let alpha = 0.5;
+    // let alpha = clamp(t, 0.0, 1.0);
+    let border_color = vec4f(border_color_u.rgb, t);
+    // let border_color = vec4f(border_color_u.rgb, border_alpha * t);
+    // let border_color = vec4f(vec3f(0.0), t * 0.8);
+    // let border_color = vec4f(vec3f(0.0), border_alpha * t);
+
+    // let fill_color = fill_color_u;
+    let fill_color = vec4f(1.0);
+
+    // let color = bordered_rect_util::over(vec4f(vec3f(0.0), t * 0.8), vec4f(1.0));
+
+    let color = bordered_rect_util::over(border_color, fill_color);
+
+    // let color = bordered_rect_util::compute_color(fill_color_u, border_color, t);
+
+
     return color;
 }
