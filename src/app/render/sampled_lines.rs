@@ -15,7 +15,8 @@ pub struct SampledAlignmentRendererPlugin;
 
 impl Plugin for SampledAlignmentRendererPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_main_sampled_alignment_viewer);
+        app.add_plugins(ExtractComponentPlugin::<BackRenderTarget>::default())
+            .add_systems(Startup, spawn_main_sampled_alignment_viewer);
 
         todo!();
 
@@ -31,7 +32,7 @@ struct SampledAlignmentViewer {
     last_vertex_params: Option<RenderParams>,
 }
 
-#[derive(Component, Default)]
+#[derive(Default)]
 struct SampledVertices {
     buffer_data: Vec<VertexData>,
     sampling_params: Option<VertexSamplingParams>,
@@ -132,6 +133,7 @@ fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMu
 #[derive(Component)]
 struct BackVertexBuffer(PolylineVertices);
 
+#[derive(Clone)]
 struct RenderTargetImages {
     color: Handle<Image>,
     depth: Handle<Image>,
@@ -140,12 +142,12 @@ struct RenderTargetImages {
 #[derive(Component)]
 struct FrontRenderTarget(RenderTargetImages);
 
-#[derive(Component)]
+#[derive(Component, ExtractComponent, Clone)]
 struct BackRenderTarget(RenderTargetImages);
 
 #[derive(Component)]
 struct VertexSamplingTask {
-    task: Task<PolylineVertexBuffer>,
+    task: Task<SampledVertices>,
     sampling_params: VertexSamplingParams,
 }
 
@@ -168,10 +170,7 @@ fn spawn_vertex_sampling_tasks(
 
     layout_roots: Query<(&Transform, &Handle<SeqPairLayout>)>,
 
-    viewers: Query<
-        (Entity, &SampledAlignmentViewer, &SampledVertices),
-        Without<VertexSamplingTask>,
-    >,
+    viewers: Query<(Entity, &SampledAlignmentViewer), Without<VertexSamplingTask>>,
 
     windows: Query<&Window>,
 ) {
@@ -181,7 +180,7 @@ fn spawn_vertex_sampling_tasks(
 
     let task_pool = AsyncComputeTaskPool::get();
 
-    for (viewer_ent, viewer, vertices) in viewers.iter() {
+    for (viewer_ent, viewer) in viewers.iter() {
         let Some(next_view) = viewer.view else {
             continue;
         };
@@ -446,7 +445,13 @@ mod pipeline {
     }
 
     #[derive(Component)]
-    pub(super) struct PolylineUniforms {}
+    pub(super) struct PolylineUniforms {
+        config_buffer: UniformBuffer<PolylineConfig>,
+        model_buffer: UniformBuffer<Mat4>,
+
+        config_bind_group: BindGroup,
+        model_bind_group: BindGroup,
+    }
 
     // #[derive(Component)]
     // pub(super) struct PolylineVertexBuffer {
@@ -474,12 +479,74 @@ mod pipeline {
 
         gpu_images: Res<RenderAssets<GpuImage>>,
 
-        polylines: Query<(&PolylineVertices,)>,
+        polylines: Query<
+            (
+                Entity,
+                &PolylineVertices,
+                &PolylineUniforms,
+                &BackRenderTarget,
+            ),
+            Without<Rendering>,
+        >,
         // gpu_vertices: Res<RenderAssets<GpuAlignmentVertices>>,
         // gpu_materials: Res<RenderAssets<GpuAlignmentPolylineMaterial>>,
     ) {
+        let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline) else {
+            return;
+        };
+
         // draw the sampled vertices; all that's needed is the vertex buffer and bind group(s)
-        todo!();
+
+        for (entity, vertices, uniforms, render_tgt) in polylines.iter() {
+            let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Sampled Vertices Renderer".into()),
+            });
+
+            let Some((tgt_img, depth_img)) = gpu_images
+                .get(&render_tgt.0.color)
+                .zip(gpu_images.get(&render_tgt.0.depth))
+            else {
+                continue;
+            };
+
+            {
+                if vertices.instances.len() == 0 {
+                    continue;
+                }
+
+                let Some(vx_buffer) = vertices.buffer.buffer() else {
+                    continue;
+                };
+
+                let mut pass = cmds.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Sampled Vertices Pass".into()),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &tgt_img.texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth_img.texture_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0.0),
+                            store: wgpu::StoreOp::Discard,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    ..default()
+                });
+
+                pass.set_pipeline(pipeline);
+                pass.set_bind_group(0, &uniforms.config_bind_group, &[]);
+                pass.set_bind_group(1, &uniforms.model_bind_group, &[]);
+
+                pass.set_vertex_buffer(0, wgpu::Buffer::slice(vx_buffer, ..));
+                pass.draw(0..6, vertices.instances.clone());
+            }
+        }
     }
 
     #[derive(Resource)]
