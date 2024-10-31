@@ -1,9 +1,11 @@
 use bevy::{
     math::DVec2,
     prelude::*,
+    render::render_resource::RawBufferVec,
     tasks::{AsyncComputeTaskPool, Task},
 };
-use pipeline::PolylineVertexBuffer;
+use pipeline::PolylineVertices;
+use wgpu::BufferUsages;
 
 use crate::app::alignments::layout::SeqPairLayout;
 
@@ -13,6 +15,8 @@ pub struct SampledAlignmentRendererPlugin;
 
 impl Plugin for SampledAlignmentRendererPlugin {
     fn build(&self, app: &mut App) {
+        app.add_systems(Startup, spawn_main_sampled_alignment_viewer);
+
         todo!();
 
         //
@@ -67,8 +71,8 @@ fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMu
     let front_image = image;
     let back_image = front_image.clone();
 
-    let front = images.add(front_image);
-    let back = images.add(back_image);
+    let front_color = images.add(front_image);
+    let back_color = images.add(back_image);
 
     let mut depth_buffer = Image {
         texture_descriptor: wgpu::TextureDescriptor {
@@ -93,19 +97,51 @@ fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMu
     let front_depth = images.add(front_depth);
     let back_depth = images.add(back_depth);
 
-    commands.spawn((
-        SampledAlignmentViewer::default(),
-        SampledVertices::default(),
-    ));
+    let front_vertices = PolylineVertices::new();
+    let back_vertices = BackVertexBuffer(PolylineVertices::new());
+
+    commands
+        .spawn((
+            SampledAlignmentViewer::default(),
+            front_vertices,
+            back_vertices,
+            SpriteBundle::default(),
+            // SampledVertices::default(),
+        ))
+        .insert((
+            front_color.clone(),
+            FrontRenderTarget(RenderTargetImages {
+                color: front_color,
+                depth: front_depth,
+            }),
+            BackRenderTarget(RenderTargetImages {
+                color: back_color,
+                depth: back_depth,
+            }),
+        ));
 }
 
 // initialize vertex buffer(s) and uniforms for viewers
-fn setup_gpu_resources(//
-    // viewers: Query<()>,
-) {
+// fn setup_gpu_resources(//
+//     viewers: Query<(Entity, &)>,
+// ) {
+//     // initialize `PolylineVertices` on viewer... also the back buffer!!
+//     //
+// }
 
-    //
+#[derive(Component)]
+struct BackVertexBuffer(PolylineVertices);
+
+struct RenderTargetImages {
+    color: Handle<Image>,
+    depth: Handle<Image>,
 }
+
+#[derive(Component)]
+struct FrontRenderTarget(RenderTargetImages);
+
+#[derive(Component)]
+struct BackRenderTarget(RenderTargetImages);
 
 #[derive(Component)]
 struct VertexSamplingTask {
@@ -180,7 +216,7 @@ fn spawn_vertex_sampling_tasks(
                 continue;
             };
 
-            let task: Task<PolylineVertexBuffer> = task_pool.spawn(async move {
+            let task: Task<SampledVertices> = task_pool.spawn(async move {
                 // TODO build vertices; eventually using rayon
                 todo!();
             });
@@ -196,9 +232,15 @@ fn finish_vertex_sampling_tasks(
     //
     mut commands: Commands,
 
-    mut tasks: Query<(Entity, &mut VertexSamplingTask, &mut SampledVertices)>,
+    mut tasks: Query<(
+        Entity,
+        &mut VertexSamplingTask,
+        &mut pipeline::PolylineVertices,
+    )>,
 ) {
-    // move task buffer data into `SampledVertices` on completion
+    // move task buffer data into `RawBufferVec`... so not `SampledVertices` here
+    //
+    // the
 }
 
 // copy from `SampledVertices` into GPU buffer...
@@ -350,7 +392,7 @@ mod pipeline {
 
     impl Plugin for SampledPolylinePipelinePlugin {
         fn build(&self, app: &mut App) {
-            todo!()
+            app.add_plugins(ExtractComponentPlugin::<PolylineVertices>::default());
         }
 
         fn finish(&self, app: &mut App) {
@@ -370,10 +412,47 @@ mod pipeline {
     }
 
     #[derive(Component)]
-    pub(super) struct PolylineVertexBuffer {
+    struct ExtractedVertexBuffer {
         buffer: Buffer,
         instances: std::ops::Range<u32>,
     }
+
+    impl ExtractComponent for PolylineVertices {
+        type QueryData = &'static PolylineVertices;
+
+        type QueryFilter = ();
+
+        type Out = ExtractedVertexBuffer;
+
+        fn extract_component(
+            item: bevy::ecs::query::QueryItem<'_, Self::QueryData>,
+        ) -> Option<Self::Out> {
+            let buffer = item.buffer.buffer()?;
+
+            Some(ExtractedVertexBuffer {
+                buffer: buffer.clone(),
+                instances: item.instances.clone(),
+            })
+        }
+    }
+
+    impl PolylineVertices {
+        pub(super) fn new() -> Self {
+            Self {
+                buffer: RawBufferVec::new(BufferUsages::VERTEX | BufferUsages::COPY_DST),
+                instances: 0..0,
+            }
+        }
+    }
+
+    #[derive(Component)]
+    pub(super) struct PolylineUniforms {}
+
+    // #[derive(Component)]
+    // pub(super) struct PolylineVertexBuffer {
+    //     buffer: Buffer,
+    //     instances: std::ops::Range<u32>,
+    // }
 
     /*
 
@@ -394,6 +473,8 @@ mod pipeline {
         pipeline: Res<PolylinePipeline>,
 
         gpu_images: Res<RenderAssets<GpuImage>>,
+
+        polylines: Query<(&PolylineVertices,)>,
         // gpu_vertices: Res<RenderAssets<GpuAlignmentVertices>>,
         // gpu_materials: Res<RenderAssets<GpuAlignmentPolylineMaterial>>,
     ) {
