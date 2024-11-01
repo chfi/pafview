@@ -4,7 +4,7 @@ use bevy::{
     render::render_resource::RawBufferVec,
     tasks::{AsyncComputeTaskPool, Task},
 };
-use pipeline::PolylineVertices;
+use pipeline::{PolylineConfig, PolylineModel, PolylineProjection, PolylineVertices};
 use wgpu::BufferUsages;
 
 use crate::app::alignments::layout::SeqPairLayout;
@@ -107,7 +107,13 @@ fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMu
             front_vertices,
             back_vertices,
             SpriteBundle::default(),
-            // SampledVertices::default(),
+            PolylineProjection {
+                proj: Mat4::IDENTITY,
+            },
+            PolylineConfig::new(5.0),
+            PolylineModel {
+                model: Mat4::IDENTITY,
+            }, // SampledVertices::default(),
         ))
         .insert((
             front_color.clone(),
@@ -180,7 +186,8 @@ fn spawn_vertex_sampling_tasks(
 
     let task_pool = AsyncComputeTaskPool::get();
 
-    for (viewer_ent, viewer) in viewers.iter() {
+    /*
+    for (viewer_ent, viewer, vertices) in viewers.iter() {
         let Some(next_view) = viewer.view else {
             continue;
         };
@@ -223,6 +230,7 @@ fn spawn_vertex_sampling_tasks(
             todo!();
         }
     }
+    */
 
     //
 }
@@ -231,15 +239,52 @@ fn finish_vertex_sampling_tasks(
     //
     mut commands: Commands,
 
-    mut tasks: Query<(
+    mut viewers: Query<(
         Entity,
         &mut VertexSamplingTask,
         &mut pipeline::PolylineVertices,
+        &mut PolylineModel,
     )>,
 ) {
     // move task buffer data into `RawBufferVec`... so not `SampledVertices` here
     //
     // the
+
+    for (viewer, mut task, mut vertices, mut model) in viewers.iter_mut() {
+        if !task.task.is_finished() {
+            continue;
+        }
+
+        //
+
+        // model.model = Mat4::IDENTITY;
+    }
+}
+
+fn update_projection(
+    mut viewers: Query<(
+        // Entity,
+        // &VertexSamplingTask,
+        &SampledAlignmentViewer,
+        // &mut pipeline::PolylineVertices,
+        &mut PolylineProjection,
+    )>,
+
+    windows: Query<&Window>,
+) {
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+
+    let size = window.physical_size().as_vec2();
+
+    for (_viewer, mut proj) in viewers.iter_mut() {
+        // if let Some(view) = viewer.view {
+        let proj_uv =
+            ultraviolet::projection::orthographic_wgpu_dx(0.0, size.x, 0.0, size.y, 0.1, 10.0);
+        let mat = Mat4::from_cols_array(proj_uv.as_array());
+        proj.proj = mat;
+    }
 }
 
 // copy from `SampledVertices` into GPU buffer...
@@ -385,13 +430,31 @@ struct TriangulatedVertices {
 
 mod pipeline {
     use super::*;
-    use bevy::{prelude::*, render::render_resource::RawBufferVec};
+    use bevy::{
+        prelude::*,
+        render::{
+            extract_component::{ComponentUniforms, DynamicUniformIndex, UniformComponentPlugin},
+            render_resource::RawBufferVec,
+        },
+    };
 
     pub(super) struct SampledPolylinePipelinePlugin;
 
     impl Plugin for SampledPolylinePipelinePlugin {
         fn build(&self, app: &mut App) {
-            app.add_plugins(ExtractComponentPlugin::<PolylineVertices>::default());
+            app.add_plugins(ExtractComponentPlugin::<PolylineVertices>::default())
+                .add_plugins((
+                    ExtractComponentPlugin::<PolylineModel>::default(),
+                    UniformComponentPlugin::<PolylineModel>::default(),
+                ))
+                .add_plugins((
+                    ExtractComponentPlugin::<PolylineConfig>::default(),
+                    UniformComponentPlugin::<PolylineConfig>::default(),
+                ))
+                .add_plugins((
+                    ExtractComponentPlugin::<PolylineProjection>::default(),
+                    UniformComponentPlugin::<PolylineProjection>::default(),
+                ));
         }
 
         fn finish(&self, app: &mut App) {
@@ -411,7 +474,7 @@ mod pipeline {
     }
 
     #[derive(Component)]
-    struct ExtractedVertexBuffer {
+    pub struct ExtractedVertexBuffer {
         buffer: Buffer,
         instances: std::ops::Range<u32>,
     }
@@ -444,14 +507,14 @@ mod pipeline {
         }
     }
 
-    #[derive(Component)]
-    pub(super) struct PolylineUniforms {
-        config_buffer: UniformBuffer<PolylineConfig>,
-        model_buffer: UniformBuffer<Mat4>,
+    // #[derive(Component)]
+    // pub(super) struct PolylineBindGroups {
+    //     config_buffer: UniformBuffer<PolylineConfig>,
+    //     model_buffer: UniformBuffer<Mat4>,
 
-        config_bind_group: BindGroup,
-        model_bind_group: BindGroup,
-    }
+    //     config_bind_group: BindGroup,
+    //     model_bind_group: BindGroup,
+    // }
 
     // #[derive(Component)]
     // pub(super) struct PolylineVertexBuffer {
@@ -469,86 +532,6 @@ mod pipeline {
 
     */
 
-    fn queue_draw(
-        mut commands: Commands,
-
-        render_device: Res<RenderDevice>,
-        render_queue: Res<RenderQueue>,
-        pipeline_cache: Res<PipelineCache>,
-        pipeline: Res<PolylinePipeline>,
-
-        gpu_images: Res<RenderAssets<GpuImage>>,
-
-        polylines: Query<
-            (
-                Entity,
-                &PolylineVertices,
-                &PolylineUniforms,
-                &BackRenderTarget,
-            ),
-            Without<Rendering>,
-        >,
-        // gpu_vertices: Res<RenderAssets<GpuAlignmentVertices>>,
-        // gpu_materials: Res<RenderAssets<GpuAlignmentPolylineMaterial>>,
-    ) {
-        let Some(pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline) else {
-            return;
-        };
-
-        // draw the sampled vertices; all that's needed is the vertex buffer and bind group(s)
-
-        for (entity, vertices, uniforms, render_tgt) in polylines.iter() {
-            let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Sampled Vertices Renderer".into()),
-            });
-
-            let Some((tgt_img, depth_img)) = gpu_images
-                .get(&render_tgt.0.color)
-                .zip(gpu_images.get(&render_tgt.0.depth))
-            else {
-                continue;
-            };
-
-            {
-                if vertices.instances.len() == 0 {
-                    continue;
-                }
-
-                let Some(vx_buffer) = vertices.buffer.buffer() else {
-                    continue;
-                };
-
-                let mut pass = cmds.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Sampled Vertices Pass".into()),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &tgt_img.texture_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &depth_img.texture_view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(0.0),
-                            store: wgpu::StoreOp::Discard,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    ..default()
-                });
-
-                pass.set_pipeline(pipeline);
-                pass.set_bind_group(0, &uniforms.config_bind_group, &[]);
-                pass.set_bind_group(1, &uniforms.model_bind_group, &[]);
-
-                pass.set_vertex_buffer(0, wgpu::Buffer::slice(vx_buffer, ..));
-                pass.draw(0..6, vertices.instances.clone());
-            }
-        }
-    }
-
     #[derive(Resource)]
     pub(super) struct PolylinePipeline {
         proj_config_layout: BindGroupLayout,
@@ -560,12 +543,33 @@ mod pipeline {
         shader: Handle<Shader>,
     }
 
-    #[derive(ShaderType, Clone, Copy)]
-    struct PolylineConfig {
+    #[derive(ShaderType, Clone, Copy, Component, ExtractComponent)]
+    pub(super) struct PolylineModel {
+        pub(super) model: Mat4,
+    }
+
+    #[derive(ShaderType, Clone, Copy, Component, ExtractComponent)]
+    pub(super) struct PolylineConfig {
         line_width: f32,
         _pad0: u32,
         _pad1: u32,
         _pad2: u32,
+    }
+
+    impl PolylineConfig {
+        pub(super) fn new(line_width: f32) -> Self {
+            Self {
+                line_width,
+                _pad0: 0,
+                _pad1: 0,
+                _pad2: 0,
+            }
+        }
+    }
+
+    #[derive(ShaderType, Clone, Copy, Component, ExtractComponent)]
+    pub(super) struct PolylineProjection {
+        pub(super) proj: Mat4,
     }
 
     impl FromWorld for PolylinePipeline {
@@ -579,8 +583,8 @@ mod pipeline {
                 &BindGroupLayoutEntries::sequential(
                     ShaderStages::VERTEX,
                     (
-                        binding_types::uniform_buffer::<Mat4>(false),
-                        binding_types::uniform_buffer::<PolylineConfig>(false),
+                        binding_types::uniform_buffer::<PolylineModel>(true),
+                        binding_types::uniform_buffer::<PolylineConfig>(true),
                     ),
                 ),
             );
@@ -599,7 +603,7 @@ mod pipeline {
                 "SampledAlignmentModel",
                 &BindGroupLayoutEntries::sequential(
                     ShaderStages::VERTEX,
-                    (binding_types::uniform_buffer::<Mat4>(false),),
+                    (binding_types::uniform_buffer::<PolylineProjection>(true),),
                 ),
             );
 
@@ -679,6 +683,124 @@ mod pipeline {
                 model_layout,
                 pipeline,
                 shader,
+            }
+        }
+    }
+
+    fn queue_draw(
+        mut commands: Commands,
+
+        render_device: Res<RenderDevice>,
+        render_queue: Res<RenderQueue>,
+        pipeline_cache: Res<PipelineCache>,
+        pipeline: Res<PolylinePipeline>,
+
+        gpu_images: Res<RenderAssets<GpuImage>>,
+
+        projections: Res<ComponentUniforms<PolylineProjection>>,
+        configs: Res<ComponentUniforms<PolylineConfig>>,
+        models: Res<ComponentUniforms<PolylineModel>>,
+
+        polylines: Query<
+            (
+                Entity,
+                &PolylineVertices,
+                (
+                    &DynamicUniformIndex<PolylineProjection>,
+                    &DynamicUniformIndex<PolylineConfig>,
+                    &DynamicUniformIndex<PolylineModel>,
+                ),
+                // &PolylineModel,
+                // &PolylineConfi
+                // &PolylineBindGroups,
+                &BackRenderTarget,
+            ),
+            Without<Rendering>,
+        >,
+        // gpu_vertices: Res<RenderAssets<GpuAlignmentVertices>>,
+        // gpu_materials: Res<RenderAssets<GpuAlignmentPolylineMaterial>>,
+    ) {
+        let Some(render_pipeline) = pipeline_cache.get_render_pipeline(pipeline.pipeline) else {
+            return;
+        };
+
+        // draw the sampled vertices; all that's needed is the vertex buffer and bind group(s)
+
+        for (entity, vertices, uniform_indices, render_tgt) in polylines.iter() {
+            let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Sampled Vertices Renderer".into()),
+            });
+
+            let Some((tgt_img, depth_img)) = gpu_images
+                .get(&render_tgt.0.color)
+                .zip(gpu_images.get(&render_tgt.0.depth))
+            else {
+                continue;
+            };
+
+            if vertices.instances.len() == 0 {
+                continue;
+            }
+
+            let Some(vx_buffer) = vertices.buffer.buffer() else {
+                continue;
+            };
+
+            // create bind groups
+
+            let Some((proj_binding, cfg_binding)) = projections
+                .uniforms()
+                .binding()
+                .zip(configs.uniforms().binding())
+            else {
+                continue;
+            };
+
+            let Some(model_binding) = models.uniforms().binding() else {
+                continue;
+            };
+
+            let group_0 = render_device.create_bind_group(
+                None,
+                &pipeline.proj_config_layout,
+                &BindGroupEntries::sequential((proj_binding, cfg_binding)),
+            );
+            let group_1 = render_device.create_bind_group(
+                None,
+                &pipeline.model_layout,
+                &BindGroupEntries::sequential((model_binding,)),
+            );
+
+            let (proj_ix, cfg_ix, model_ix) = uniform_indices;
+
+            {
+                let mut pass = cmds.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Sampled Vertices Pass".into()),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &tgt_img.texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth_img.texture_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(0.0),
+                            store: wgpu::StoreOp::Discard,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    ..default()
+                });
+
+                pass.set_pipeline(render_pipeline);
+                pass.set_bind_group(0, &group_0, &[proj_ix.index(), cfg_ix.index()]);
+                pass.set_bind_group(1, &group_1, &[model_ix.index()]);
+
+                pass.set_vertex_buffer(0, wgpu::Buffer::slice(vx_buffer, ..));
+                pass.draw(0..6, vertices.instances.clone());
             }
         }
     }
