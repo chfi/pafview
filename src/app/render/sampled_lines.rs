@@ -32,13 +32,12 @@ struct SampledAlignmentViewer {
     last_vertex_params: Option<RenderParams>,
 }
 
-#[derive(Default)]
 struct SampledVertices {
     buffer_data: Vec<VertexData>,
-    sampling_params: Option<VertexSamplingParams>,
+    sampling_params: VertexSamplingParams,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Component, Clone, Copy)]
 struct VertexSamplingParams {
     view: crate::view::View,
     /// in basepairs per pixel
@@ -172,11 +171,19 @@ fn update_alignment_viewer_params(
 fn spawn_vertex_sampling_tasks(
     mut commands: Commands,
 
+    alignments: Res<crate::Alignments>,
     layouts: Res<Assets<SeqPairLayout>>,
 
     layout_roots: Query<(&Transform, &Handle<SeqPairLayout>)>,
 
-    viewers: Query<(Entity, &SampledAlignmentViewer), Without<VertexSamplingTask>>,
+    viewers: Query<
+        (
+            Entity,
+            &SampledAlignmentViewer,
+            Option<&VertexSamplingParams>,
+        ),
+        Without<VertexSamplingTask>,
+    >,
 
     windows: Query<&Window>,
 ) {
@@ -186,8 +193,7 @@ fn spawn_vertex_sampling_tasks(
 
     let task_pool = AsyncComputeTaskPool::get();
 
-    /*
-    for (viewer_ent, viewer, vertices) in viewers.iter() {
+    for (viewer_ent, viewer, last_params) in viewers.iter() {
         let Some(next_view) = viewer.view else {
             continue;
         };
@@ -196,7 +202,7 @@ fn spawn_vertex_sampling_tasks(
 
         // TODO: spawn task if `next_view` has escaped bounds of the sampling
         // params in `vertices`, or if scale has changed "enough"
-        let need_new_vertices = if let Some(sampled_params) = vertices.sampling_params {
+        let need_new_vertices = if let Some(sampled_params) = last_params.as_ref() {
             let s_view: crate::view::View = sampled_params.view;
 
             let view_out_of_bounds = s_view.x_min > next_view.x_max
@@ -216,21 +222,60 @@ fn spawn_vertex_sampling_tasks(
             continue;
         }
 
-        // this loop won't work; there should only be one task per viewer
-        for (layout_transform, layout_handle) in layout_roots.iter() {
-            let Some(layout) = layouts.get(layout_handle) else {
-                continue;
-            };
+        // TODO collect (seq_pair_offset, [alignments]) for each layout based
+        // on view coverage
+        let placed_layouts = layout_roots
+            .iter()
+            .filter_map(|(tform, handle)| {
+                let layout = layouts.get(handle)?.clone();
+                Some((*tform, layout))
+            })
+            .collect::<Vec<_>>();
 
-            let task: Task<SampledVertices> = task_pool.spawn(async move {
-                // TODO build vertices; eventually using rayon
-                todo!();
-            });
+        let alignments_vec = alignments.alignments.clone();
+        let alignment_ixs = alignments.indices.clone();
 
-            todo!();
-        }
+        let params = VertexSamplingParams {
+            view: next_view,
+            scale: bp_per_px,
+        };
+
+        let task = task_pool.spawn(async move {
+            // TODO use rayon
+
+            let mut vertex_data: Vec<VertexData> = Vec::new();
+
+            for (_transform, layout) in placed_layouts {
+                let tiles = layout
+                    .layout_qbvh
+                    .tiles_in_rect(params.view.center(), params.view.size() * 0.5);
+
+                // let tile_aabbs = tiles.into_ite
+
+                for seq_pair in tiles {
+                    let Some(aabb) = layout.aabbs.get(&seq_pair) else {
+                        continue;
+                    };
+
+                    // TODO derive offset, run `sample_segments_from_alignment`
+                    todo!();
+                }
+            }
+
+            SampledVertices {
+                buffer_data: vertex_data,
+                sampling_params: params,
+            }
+        });
+
+        commands.entity(viewer_ent).insert((
+            params,
+            VertexSamplingTask {
+                task,
+                sampling_params: params,
+            },
+        ));
     }
-    */
 
     //
 }
@@ -243,19 +288,29 @@ fn finish_vertex_sampling_tasks(
         Entity,
         &mut VertexSamplingTask,
         &mut pipeline::PolylineVertices,
-        &mut PolylineModel,
+        // &mut PolylineModel,
     )>,
 ) {
     // move task buffer data into `RawBufferVec`... so not `SampledVertices` here
     //
     // the
 
-    for (viewer, mut task, mut vertices, mut model) in viewers.iter_mut() {
+    for (viewer, mut task, mut vertices) in viewers.iter_mut() {
         if !task.task.is_finished() {
             continue;
         }
 
-        //
+        let Some(mut result) = bevy::tasks::block_on(bevy::tasks::poll_once(&mut task.task)) else {
+            commands.entity(viewer).remove::<VertexSamplingTask>();
+            continue;
+        };
+
+        std::mem::swap(vertices.buffer.values_mut(), &mut result.buffer_data);
+
+        commands
+            .entity(viewer)
+            .insert(result.sampling_params)
+            .remove::<VertexSamplingTask>();
 
         // model.model = Mat4::IDENTITY;
     }
@@ -469,8 +524,8 @@ mod pipeline {
 
     #[derive(Component)]
     pub(super) struct PolylineVertices {
-        buffer: RawBufferVec<VertexData>,
-        instances: std::ops::Range<u32>,
+        pub(super) buffer: RawBufferVec<VertexData>,
+        pub(super) instances: std::ops::Range<u32>,
     }
 
     #[derive(Component)]
