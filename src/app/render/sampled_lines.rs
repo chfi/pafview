@@ -1,3 +1,5 @@
+use std::sync::atomic::AtomicBool;
+
 use bevy::{
     math::DVec2,
     prelude::*,
@@ -98,13 +100,13 @@ fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMu
     let back_depth = images.add(back_depth);
 
     let front_vertices = PolylineVertices::new();
-    let back_vertices = BackVertexBuffer(PolylineVertices::new());
+    // let back_vertices = BackVertexBuffer(PolylineVertices::new());
 
     commands
         .spawn((
             SampledAlignmentViewer::default(),
             front_vertices,
-            back_vertices,
+            // back_vertices,
             SpriteBundle::default(),
             PolylineProjection {
                 proj: Mat4::IDENTITY,
@@ -191,6 +193,8 @@ fn spawn_vertex_sampling_tasks(
         return;
     };
 
+    let canvas_size = window.physical_size().as_vec2();
+
     let task_pool = AsyncComputeTaskPool::get();
 
     for (viewer_ent, viewer, last_params) in viewers.iter() {
@@ -250,15 +254,34 @@ fn spawn_vertex_sampling_tasks(
                     .layout_qbvh
                     .tiles_in_rect(params.view.center(), params.view.size() * 0.5);
 
-                // let tile_aabbs = tiles.into_ite
-
                 for seq_pair in tiles {
                     let Some(aabb) = layout.aabbs.get(&seq_pair) else {
                         continue;
                     };
 
+                    let Some(al_ixs) = alignment_ixs.get(&(seq_pair.target, seq_pair.query)) else {
+                        continue;
+                    };
+
+                    let seq_pair_offset = [aabb.mins.x, aabb.mins.y];
+                    // let seq_pair_offset: DVec2 = todo!();
                     // TODO derive offset, run `sample_segments_from_alignment`
-                    todo!();
+
+                    for &pair_index in al_ixs {
+                        let Some(alignment) = alignments_vec.get(pair_index) else {
+                            continue;
+                        };
+
+                        if let Err(err) = sample_segments_from_alignment(
+                            seq_pair_offset,
+                            alignment,
+                            &next_view,
+                            canvas_size,
+                            &mut vertex_data,
+                        ) {
+                            // log
+                        }
+                    }
                 }
             }
 
@@ -342,6 +365,62 @@ fn update_projection(
     }
 }
 
+#[derive(Debug, Clone, Component, ExtractComponent)]
+struct RenderOperation {
+    view: crate::view::View,
+    canvas_size: UVec2,
+    finished: Arc<AtomicBool>,
+}
+
+fn trigger_render_operation(
+    mut commands: Commands,
+
+    viewers: Query<(Entity, &SampledAlignmentViewer), Without<RenderOperation>>,
+    windows: Query<&Window>,
+) {
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+    let canvas_size = window.physical_size();
+
+    for (viewer_ent, viewer) in viewers.iter() {
+        let Some(view) = viewer.view else {
+            continue;
+        };
+
+        let need_render = Some(view) != viewer.last_rendered.map(|p| p.view);
+
+        commands.entity(viewer_ent).insert(RenderOperation {
+            view,
+            canvas_size,
+            finished: Arc::new(false.into()),
+        });
+    }
+}
+
+fn finish_render_operation(
+    mut commands: Commands,
+    mut viewers: Query<(
+        Entity,
+        &RenderOperation,
+        &mut Handle<Image>,
+        &mut FrontRenderTarget,
+        &mut BackRenderTarget,
+    )>,
+) {
+    for (viewer, render_op, mut sprite_img, mut front_tgts, mut back_tgts) in viewers.iter_mut() {
+        if !render_op
+            .finished
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            continue;
+        }
+
+        std::mem::swap(&mut front_tgts.0, &mut back_tgts.0);
+        *sprite_img = front_tgts.0.color.clone_weak();
+    }
+}
+
 // copy from `SampledVertices` into GPU buffer...
 // fn copy_vertices_to_gpu(
 // )
@@ -391,7 +470,8 @@ fn sample_segments_from_alignment(
     alignment: &crate::Alignment,
     view: &crate::view::View,
     canvas_size: impl Into<[f32; 2]>,
-    buffer: &mut [VertexData],
+    buffer: &mut Vec<VertexData>,
+    // buffer: &mut [VertexData],
 ) -> Result<usize, VertexSamplingError> {
     let [o_x0, o_y0] = seq_pair_offset.into();
     let [c_width, c_height] = canvas_size.into();
@@ -477,12 +557,6 @@ fn sample_segments_from_alignment(
     Ok(buffer_offset)
 }
 
-// vertex buffer for the screen-space triangulated alignment vertices
-#[derive(Component)]
-struct TriangulatedVertices {
-    buffer: wgpu::Buffer,
-}
-
 mod pipeline {
     use super::*;
     use bevy::{
@@ -561,31 +635,6 @@ mod pipeline {
             }
         }
     }
-
-    // #[derive(Component)]
-    // pub(super) struct PolylineBindGroups {
-    //     config_buffer: UniformBuffer<PolylineConfig>,
-    //     model_buffer: UniformBuffer<Mat4>,
-
-    //     config_bind_group: BindGroup,
-    //     model_bind_group: BindGroup,
-    // }
-
-    // #[derive(Component)]
-    // pub(super) struct PolylineVertexBuffer {
-    //     buffer: Buffer,
-    //     instances: std::ops::Range<u32>,
-    // }
-
-    /*
-
-    fn copy_vertices_to_gpu(
-
-    ) {
-
-    }
-
-    */
 
     #[derive(Resource)]
     pub(super) struct PolylinePipeline {
