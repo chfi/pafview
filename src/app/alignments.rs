@@ -42,18 +42,18 @@ impl Plugin for AlignmentsPlugin {
                     spawn_alignments_in_tiles,
                     spawn_layout_children,
                     update_layout_tile_positions,
-                    prepare_alignment_vertices,
-                )
-                    .chain(),
-            )
-            .add_systems(
-                PreUpdate,
-                (
-                    insert_alignment_polyline_materials.after(spawn_layout_children),
-                    update_alignment_polyline_materials,
+                    // prepare_alignment_vertices,
                 )
                     .chain(),
             );
+        // .add_systems(
+        //     PreUpdate,
+        //     (
+        //         insert_alignment_polyline_materials.after(spawn_layout_children),
+        //         update_alignment_polyline_materials,
+        //     )
+        //         .chain(),
+        // );
 
         // app.add_systems(
         //     Startup,

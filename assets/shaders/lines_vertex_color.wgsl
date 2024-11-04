@@ -1,6 +1,8 @@
 struct VertConfig {
   line_width: f32,
-  _pad: vec3f,
+  _pad0: u32,
+  _pad1: u32,
+  _pad2: u32,
 }
 
 struct VertexOut {
@@ -20,7 +22,7 @@ fn vs_main(
     @location(0) p0: vec2f,
     @location(1) p1: vec2f,
     @location(2) z: f32,
-    @location(3) color: u32,
+    @location(3) color_packed: u32,
 ) -> VertexOut {
     var result: VertexOut;
 
@@ -59,9 +61,12 @@ fn vs_main(
     let transform = projection * model;
 
     result.position = transform * vec4(pp, 0.0, 1.0);
+    result.position.z = z;
 
-    let color_ix = color % 5;
+    // let color_ix = color % 5;
+    result.color = unpack4x8unorm(color_packed);
 
+    /*
     switch color_ix {
         case 0u: {
         result.color = color_scheme.m_bg;
@@ -88,6 +93,7 @@ fn vs_main(
         result.position.z = 0.5;
         }
     }
+    */
 
     return result;
 }

@@ -44,7 +44,8 @@ impl Plugin for PafViewerPlugin {
 
         // TODO: create a plugin that combines & manages all the render plugins
 
-        app.add_plugins(render::gpu_lines::AlignmentRendererPlugin)
+        app.add_plugins(render::sampled_lines::SampledAlignmentRendererPlugin)
+            // app.add_plugins(render::gpu_lines::AlignmentRendererPlugin)
             .add_plugins(render::base_level::BaselevelCigarRenderPlugin);
 
         // NB: these should all be replaced or are otherwise vestigial

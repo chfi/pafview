@@ -18,9 +18,23 @@ pub struct SampledAlignmentRendererPlugin;
 impl Plugin for SampledAlignmentRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ExtractComponentPlugin::<BackRenderTarget>::default())
-            .add_systems(Startup, spawn_main_sampled_alignment_viewer);
-
-        todo!();
+            .add_plugins(ExtractComponentPlugin::<RenderOperation>::default())
+            .add_plugins(pipeline::SampledPolylinePipelinePlugin)
+            .add_systems(Startup, spawn_main_sampled_alignment_viewer)
+            .add_systems(
+                Update,
+                (
+                    update_alignment_viewer_params,
+                    spawn_vertex_sampling_tasks,
+                    update_projection,
+                )
+                    .chain(),
+            )
+            .add_systems(
+                PreUpdate,
+                (finish_vertex_sampling_tasks, finish_render_operation).chain(),
+            )
+            .add_systems(PostUpdate, (trigger_render_operation,).chain());
 
         //
     }
@@ -272,7 +286,7 @@ fn spawn_vertex_sampling_tasks(
                             continue;
                         };
 
-                        if let Err(err) = sample_segments_from_alignment(
+                        if let Err(_err) = sample_segments_from_alignment(
                             seq_pair_offset,
                             alignment,
                             &next_view,
@@ -284,6 +298,7 @@ fn spawn_vertex_sampling_tasks(
                     }
                 }
             }
+            println!("spawned vertex sampling task");
 
             SampledVertices {
                 buffer_data: vertex_data,
@@ -304,6 +319,8 @@ fn spawn_vertex_sampling_tasks(
 }
 
 fn finish_vertex_sampling_tasks(
+    render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
     //
     mut commands: Commands,
 
@@ -330,10 +347,17 @@ fn finish_vertex_sampling_tasks(
 
         std::mem::swap(vertices.buffer.values_mut(), &mut result.buffer_data);
 
+        let inst_count = vertices.buffer.values().len();
+
+        println!("sampled {} vertices", vertices.buffer.values().len());
+        println!("{:#?}", vertices.buffer.values());
         commands
             .entity(viewer)
             .insert(result.sampling_params)
             .remove::<VertexSamplingTask>();
+
+        vertices.instances = 0..inst_count as u32;
+        vertices.buffer.write_buffer(&render_device, &render_queue);
 
         // model.model = Mat4::IDENTITY;
     }
@@ -390,6 +414,11 @@ fn trigger_render_operation(
 
         let need_render = Some(view) != viewer.last_rendered.map(|p| p.view);
 
+        // if !need_render {
+        //     continue;
+        // }
+        println!("triggering re-render");
+
         commands.entity(viewer_ent).insert(RenderOperation {
             view,
             canvas_size,
@@ -418,6 +447,9 @@ fn finish_render_operation(
 
         std::mem::swap(&mut front_tgts.0, &mut back_tgts.0);
         *sprite_img = front_tgts.0.color.clone_weak();
+        println!("rendering complete");
+
+        commands.entity(viewer).remove::<RenderOperation>();
     }
 }
 
@@ -502,8 +534,6 @@ fn sample_segments_from_alignment(
     let vis_target_range = loc_min..loc_max;
     let target_start = vis_target_range.start;
 
-    let mut buffer_offset = 0;
-
     let cg_iter = alignment.iter_target_range(vis_target_range);
     let mut cmd_iter = cigar_sampling::CigarScreenPathStrokeIter::new(
         *view,
@@ -516,6 +546,8 @@ fn sample_segments_from_alignment(
     // let mut path_start: Option<[u64; 2]> = None;
     let mut path_start = None;
 
+    let mut buffer_offset = 0;
+
     while let Some(path_cmd) = cmd_iter.emit_next() {
         match path_cmd {
             zeno::Command::MoveTo(p0) => {
@@ -523,12 +555,15 @@ fn sample_segments_from_alignment(
             }
             zeno::Command::LineTo(p1) => {
                 if let Some(p0) = path_start.as_mut() {
-                    buffer[buffer_offset] = VertexData {
-                        p0: [p0.x, p0.y],
-                        p1: [p1.x, p1.y],
-                        z: 0.0,
-                        color: 0xFF0000FF,
-                    };
+                    buffer.push(
+                        // buffer[buffer_offset] =
+                        VertexData {
+                            p0: [p0.x, p0.y],
+                            p1: [p1.x, p1.y],
+                            z: 0.5,
+                            color: 0xFF0000FF,
+                        },
+                    );
                     buffer_offset += 1;
                 }
             }
@@ -587,12 +622,11 @@ mod pipeline {
         }
 
         fn finish(&self, app: &mut App) {
-            // app.init_resource::<PolylinePipeline>();
             let render_app = app.sub_app_mut(RenderApp);
-            render_app.init_resource::<PolylinePipeline>();
-            // // .add_systems(Render, ())
 
-            // todo!();
+            render_app
+                .init_resource::<PolylinePipeline>()
+                .add_systems(Render, queue_draw.in_set(RenderSet::Render));
         }
     }
 
@@ -687,7 +721,7 @@ mod pipeline {
                 &BindGroupLayoutEntries::sequential(
                     ShaderStages::VERTEX,
                     (
-                        binding_types::uniform_buffer::<PolylineModel>(true),
+                        binding_types::uniform_buffer::<Mat4>(true),
                         binding_types::uniform_buffer::<PolylineConfig>(true),
                     ),
                 ),
@@ -707,7 +741,7 @@ mod pipeline {
                 "SampledAlignmentModel",
                 &BindGroupLayoutEntries::sequential(
                     ShaderStages::VERTEX,
-                    (binding_types::uniform_buffer::<PolylineProjection>(true),),
+                    (binding_types::uniform_buffer::<Mat4>(true),),
                 ),
             );
 
@@ -731,7 +765,8 @@ mod pipeline {
                     shader_defs: vec![],
                     entry_point: "vs_main".into(),
                     buffers: vec![render_resource::VertexBufferLayout {
-                        array_stride: 5 * std::mem::size_of::<u32>() as u64,
+                        array_stride: std::mem::size_of::<VertexData>() as u64,
+                        // array_stride: 6 * std::mem::size_of::<u32>() as u64,
                         step_mode: VertexStepMode::Instance,
                         attributes: vec![
                             render_resource::VertexAttribute {
@@ -808,7 +843,8 @@ mod pipeline {
         polylines: Query<
             (
                 Entity,
-                &PolylineVertices,
+                &ExtractedVertexBuffer,
+                // &PolylineVertices,
                 (
                     &DynamicUniformIndex<PolylineProjection>,
                     &DynamicUniformIndex<PolylineConfig>,
@@ -817,6 +853,7 @@ mod pipeline {
                 // &PolylineModel,
                 // &PolylineConfi
                 // &PolylineBindGroups,
+                &RenderOperation,
                 &BackRenderTarget,
             ),
             Without<Rendering>,
@@ -829,8 +866,13 @@ mod pipeline {
         };
 
         // draw the sampled vertices; all that's needed is the vertex buffer and bind group(s)
+        // dbg!();
 
-        for (entity, vertices, uniform_indices, render_tgt) in polylines.iter() {
+        if polylines.is_empty() {
+            println!("nothing to render!");
+        }
+
+        for (entity, vertices, uniform_indices, render_op, render_tgt) in polylines.iter() {
             let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Sampled Vertices Renderer".into()),
             });
@@ -839,16 +881,20 @@ mod pipeline {
                 .get(&render_tgt.0.color)
                 .zip(gpu_images.get(&render_tgt.0.depth))
             else {
+                dbg!();
                 continue;
             };
 
             if vertices.instances.len() == 0 {
+                dbg!();
                 continue;
             }
 
-            let Some(vx_buffer) = vertices.buffer.buffer() else {
-                continue;
-            };
+            let vx_buffer = &vertices.buffer;
+            // let Some(vx_buffer) = vertices.buffer.buffer() else {
+            //     dbg!();
+            //     continue;
+            // };
 
             // create bind groups
 
@@ -857,10 +903,12 @@ mod pipeline {
                 .binding()
                 .zip(configs.uniforms().binding())
             else {
+                dbg!();
                 continue;
             };
 
             let Some(model_binding) = models.uniforms().binding() else {
+                dbg!();
                 continue;
             };
 
@@ -906,6 +954,15 @@ mod pipeline {
                 pass.set_vertex_buffer(0, wgpu::Buffer::slice(vx_buffer, ..));
                 pass.draw(0..6, vertices.instances.clone());
             }
+
+            render_queue.0.submit([cmds.finish()]);
+            // dbg!();
+
+            let finished = render_op.finished.clone();
+            render_queue.0.on_submitted_work_done(move || {
+                finished.store(true, std::sync::atomic::Ordering::Relaxed);
+            });
+            commands.entity(entity).insert(Rendering);
         }
     }
 }
