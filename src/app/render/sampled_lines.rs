@@ -32,7 +32,12 @@ impl Plugin for SampledAlignmentRendererPlugin {
             )
             .add_systems(
                 PreUpdate,
-                (finish_vertex_sampling_tasks, finish_render_operation).chain(),
+                (
+                    finish_vertex_sampling_tasks,
+                    finish_render_operation,
+                    resize_alignment_viewer_back_image,
+                )
+                    .chain(),
             )
             .add_systems(PostUpdate, (trigger_render_operation,).chain());
 
@@ -69,7 +74,7 @@ fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMu
 
     let mut image = Image {
         texture_descriptor: wgpu::TextureDescriptor {
-            label: None,
+            label: "SampledViewer Color 1".into(),
             size,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
@@ -85,7 +90,8 @@ fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMu
 
     image.resize(size);
     let front_image = image;
-    let back_image = front_image.clone();
+    let mut back_image = front_image.clone();
+    back_image.texture_descriptor.label = "SampledView Color 2".into();
 
     let front_color = images.add(front_image);
     let back_color = images.add(back_image);
@@ -129,6 +135,7 @@ fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMu
             PolylineModel {
                 model: Mat4::IDENTITY,
             }, // SampledVertices::default(),
+            RenderLayers::layer(1),
         ))
         .insert((
             front_color.clone(),
@@ -170,6 +177,36 @@ struct BackRenderTarget(RenderTargetImages);
 struct VertexSamplingTask {
     task: Task<SampledVertices>,
     sampling_params: VertexSamplingParams,
+}
+
+fn resize_alignment_viewer_back_image(
+    mut images: ResMut<Assets<Image>>,
+    // mut viewers: Query<&mut BackRenderTarget, (With<SampledAlignmentViewer>, Without<RenderOperation>)>,
+    viewers: Query<&BackRenderTarget, (With<SampledAlignmentViewer>, Without<RenderOperation>)>,
+
+    windows: Query<&Window>,
+) {
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+
+    let win_size = window.physical_size();
+
+    let extent = wgpu::Extent3d {
+        width: win_size.x,
+        height: win_size.y,
+        depth_or_array_layers: 1,
+    };
+
+    for render_tgt in viewers.iter() {
+        for img_handle in [&render_tgt.0.color, &render_tgt.0.depth] {
+            if let Some(img) = images.get_mut(img_handle) {
+                if img.size() != win_size {
+                    img.resize(extent);
+                }
+            }
+        }
+    }
 }
 
 fn update_alignment_viewer_params(
@@ -417,7 +454,7 @@ fn trigger_render_operation(
         // if !need_render {
         //     continue;
         // }
-        println!("triggering re-render");
+        // println!("triggering re-render");
 
         commands.entity(viewer_ent).insert(RenderOperation {
             view,
@@ -447,7 +484,7 @@ fn finish_render_operation(
 
         std::mem::swap(&mut front_tgts.0, &mut back_tgts.0);
         *sprite_img = front_tgts.0.color.clone_weak();
-        println!("rendering complete");
+        // println!("rendering complete");
 
         commands.entity(viewer).remove::<RenderOperation>();
     }

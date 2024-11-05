@@ -779,7 +779,7 @@ fn cleanup_render_task(
 ) {
     for (ent, mut tile, task) in tiles.iter_mut() {
         if task.task.is_finished() {
-            println!("render task finished");
+            // println!("render task finished");
             tile.last_rendered = Some(task.params.clone());
             tile.last_update = Some(std::time::Instant::now());
             commands.entity(ent).remove::<RenderTask>();
