@@ -9,7 +9,7 @@ use bevy::{
 use pipeline::{PolylineConfig, PolylineModel, PolylineProjection, PolylineVertices};
 use wgpu::BufferUsages;
 
-use crate::app::alignments::layout::SeqPairLayout;
+use crate::app::{alignments::layout::SeqPairLayout, AlignmentIndex};
 
 use super::*;
 
@@ -58,7 +58,7 @@ struct SampledVertices {
     sampling_params: VertexSamplingParams,
 }
 
-#[derive(Component, Clone, Copy)]
+#[derive(Component, Clone, Copy, Debug)]
 struct VertexSamplingParams {
     view: crate::view::View,
     /// in basepairs per pixel
@@ -260,6 +260,9 @@ fn spawn_vertex_sampling_tasks(
         let need_new_vertices = if let Some(sampled_params) = last_params.as_ref() {
             let s_view: crate::view::View = sampled_params.view;
 
+            s_view != next_view || bp_per_px != sampled_params.scale
+
+            /*
             let view_out_of_bounds = s_view.x_min > next_view.x_max
                 || s_view.x_max < next_view.x_min
                 || s_view.y_min > next_view.y_max
@@ -268,7 +271,11 @@ fn spawn_vertex_sampling_tasks(
             let rel_scale = next_view.width() / s_view.width();
             let beyond_scale_limit = rel_scale < 0.5;
 
+            dbg!((view_out_of_bounds, beyond_scale_limit));
+
+
             view_out_of_bounds || beyond_scale_limit
+            */
         } else {
             true
         };
@@ -277,8 +284,6 @@ fn spawn_vertex_sampling_tasks(
             continue;
         }
 
-        // TODO collect (seq_pair_offset, [alignments]) for each layout based
-        // on view coverage
         let placed_layouts = layout_roots
             .iter()
             .filter_map(|(tform, handle)| {
@@ -300,6 +305,7 @@ fn spawn_vertex_sampling_tasks(
 
             let mut vertex_data: Vec<VertexData> = Vec::new();
 
+            let t0 = std::time::Instant::now();
             for (_transform, layout) in placed_layouts {
                 let tiles = layout
                     .layout_qbvh
@@ -323,6 +329,14 @@ fn spawn_vertex_sampling_tasks(
                             continue;
                         };
 
+                        let key = AlignmentIndex {
+                            target: seq_pair.target,
+                            query: seq_pair.query,
+                            pair_index,
+                        };
+
+                        // println!("{key:?} - {seq_pair_offset:?}");
+
                         if let Err(_err) = sample_segments_from_alignment(
                             seq_pair_offset,
                             alignment,
@@ -335,13 +349,14 @@ fn spawn_vertex_sampling_tasks(
                     }
                 }
             }
-            println!("spawned vertex sampling task");
+            println!("sampled vertices in {} ms", t0.elapsed().as_millis());
 
             SampledVertices {
                 buffer_data: vertex_data,
                 sampling_params: params,
             }
         });
+        println!("spawned vertex sampling task: {params:?}");
 
         commands.entity(viewer_ent).insert((
             params,
@@ -386,8 +401,8 @@ fn finish_vertex_sampling_tasks(
 
         let inst_count = vertices.buffer.values().len();
 
-        println!("sampled {} vertices", vertices.buffer.values().len());
-        println!("{:#?}", vertices.buffer.values());
+        // println!("sampled {} vertices", vertices.buffer.values().len());
+        // println!("{:#?}", vertices.buffer.values());
         commands
             .entity(viewer)
             .insert(result.sampling_params)
@@ -419,8 +434,12 @@ fn update_projection(
 
     for (_viewer, mut proj) in viewers.iter_mut() {
         // if let Some(view) = viewer.view {
+        // let hw = size.x * 0.5;
+        // let hh = size.y * 0.5;
+        // println!("updating projection with {size:?}");
         let proj_uv =
-            ultraviolet::projection::orthographic_wgpu_dx(0.0, size.x, 0.0, size.y, 0.1, 10.0);
+            ultraviolet::projection::orthographic_wgpu_dx(0.0, size.x, size.y, 0.0, 0.1, 10.0);
+        // ultraviolet::projection::orthographic_wgpu_dx(0.0, size.x, 0.0, size.y, 0.1, 10.0);
         let mat = Mat4::from_cols_array(proj_uv.as_array());
         proj.proj = mat;
     }
@@ -592,14 +611,18 @@ fn sample_segments_from_alignment(
             }
             zeno::Command::LineTo(p1) => {
                 if let Some(p0) = path_start.as_mut() {
+                    let vertex = VertexData {
+                        p0: [p0.x, p0.y],
+                        p1: [p1.x, p1.y],
+                        z: 0.5,
+                        color: 0xFF0000FF,
+                    };
+                    // if buffer_offset == 0 {
+                    //     println!("{vertex:?}");
+                    // }
                     buffer.push(
                         // buffer[buffer_offset] =
-                        VertexData {
-                            p0: [p0.x, p0.y],
-                            p1: [p1.x, p1.y],
-                            z: 0.5,
-                            color: 0xFF0000FF,
-                        },
+                        vertex,
                     );
                     buffer_offset += 1;
                 }
@@ -921,6 +944,8 @@ mod pipeline {
                 dbg!();
                 continue;
             };
+
+            println!("rendering to image size {:?}", tgt_img.size);
 
             if vertices.instances.len() == 0 {
                 dbg!();

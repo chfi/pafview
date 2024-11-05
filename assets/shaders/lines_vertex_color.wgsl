@@ -55,8 +55,8 @@ fn vs_main(
     let y_basis = normalize(vec2(-x_basis.y, x_basis.x));
 
     let view_width = 2.0 * projection[0][0];
-
-    let pp = p0 + x_basis * pos.x + y_basis * (config.line_width / view_width) * pos.y;
+    // let pp = p0 + x_basis * pos.x + y_basis * (config.line_width / view_width) * pos.y;
+    let pp = p0 + x_basis * pos.x + y_basis * config.line_width * pos.y;
 
     let transform = projection * model;
 
