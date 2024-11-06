@@ -510,9 +510,47 @@ fn update_vertex_transform(
 
 fn update_viewer_sprite_transform(
     mut viewers: Query<(&SampledAlignmentViewer, &mut Transform, &mut Sprite)>,
+
+    windows: Query<&Window>,
 ) {
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+    let win_size = window.resolution.size();
+    let dpi_scale = window.resolution.scale_factor();
+
     for (viewer, mut transform, mut sprite) in viewers.iter_mut() {
-        //
+        let Some(rendered) = viewer.last_rendered else {
+            continue;
+        };
+        let Some(next_view) = viewer.view else {
+            continue;
+        };
+
+        let last_view = rendered.view;
+
+        let img_size = rendered.canvas_size.as_vec2();
+        sprite.custom_size = Some(img_size / dpi_scale);
+
+        let old_mid = last_view.center();
+        if last_view == next_view {
+            *transform = Transform::IDENTITY;
+        } else {
+            let new_mid = next_view.center();
+
+            let world_delta = new_mid - old_mid;
+            let norm_delta = world_delta / next_view.size();
+
+            let w_rat = last_view.width() / next_view.width();
+            let h_rat = last_view.height() / next_view.height();
+
+            let screen_delta = norm_delta.to_f32() * [win_size.x, win_size.y].as_uv();
+
+            *transform =
+                Transform::from_translation(Vec3::new(-screen_delta.x, -screen_delta.y, 0.0))
+                    .with_scale(Vec3::new(w_rat as f32, h_rat as f32, 1.0));
+        }
+
     }
 }
 
