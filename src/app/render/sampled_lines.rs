@@ -26,7 +26,11 @@ impl Plugin for SampledAlignmentRendererPlugin {
                 (
                     update_alignment_viewer_params,
                     spawn_vertex_sampling_tasks,
-                    update_projection,
+                    (
+                        update_vertex_transform,
+                        update_viewer_sprite_transform,
+                        update_projection,
+                    ),
                 )
                     .chain(),
             )
@@ -50,7 +54,6 @@ struct SampledAlignmentViewer {
     view: Option<crate::view::View>,
 
     last_rendered: Option<RenderParams>,
-    last_vertex_params: Option<RenderParams>,
 }
 
 struct SampledVertices {
@@ -58,11 +61,18 @@ struct SampledVertices {
     sampling_params: VertexSamplingParams,
 }
 
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
 struct VertexSamplingParams {
     view: crate::view::View,
     /// in basepairs per pixel
-    scale: f64,
+    canvas_size: UVec2,
+    // scale: f64,
+}
+
+impl VertexSamplingParams {
+    fn scale(&self) -> f64 {
+        self.view.width() / self.canvas_size.x as f64
+    }
 }
 
 fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
@@ -239,14 +249,19 @@ fn spawn_vertex_sampling_tasks(
     >,
 
     windows: Query<&Window>,
+
+    keyboard: Res<ButtonInput<KeyCode>>,
 ) {
     let Ok(window) = windows.get_single() else {
         return;
     };
 
-    let canvas_size = window.physical_size().as_vec2();
+    let canvas_size_u = window.physical_size();
+    let canvas_size = canvas_size_u.as_vec2();
 
     let task_pool = AsyncComputeTaskPool::get();
+
+    let need_new_vertices = keyboard.just_pressed(KeyCode::Enter);
 
     for (viewer_ent, viewer, last_params) in viewers.iter() {
         let Some(next_view) = viewer.view else {
@@ -257,10 +272,11 @@ fn spawn_vertex_sampling_tasks(
 
         // TODO: spawn task if `next_view` has escaped bounds of the sampling
         // params in `vertices`, or if scale has changed "enough"
+        /*
         let need_new_vertices = if let Some(sampled_params) = last_params.as_ref() {
             let s_view: crate::view::View = sampled_params.view;
 
-            s_view != next_view || bp_per_px != sampled_params.scale
+            s_view != next_view || bp_per_px != sampled_params.scale()
 
             /*
             let view_out_of_bounds = s_view.x_min > next_view.x_max
@@ -279,6 +295,7 @@ fn spawn_vertex_sampling_tasks(
         } else {
             true
         };
+        */
 
         if !need_new_vertices {
             continue;
@@ -297,7 +314,8 @@ fn spawn_vertex_sampling_tasks(
 
         let params = VertexSamplingParams {
             view: next_view,
-            scale: bp_per_px,
+            canvas_size: canvas_size_u,
+            // scale: bp_per_px,
         };
 
         let task = task_pool.spawn(async move {
@@ -378,6 +396,7 @@ fn finish_vertex_sampling_tasks(
 
     mut viewers: Query<(
         Entity,
+        &mut SampledAlignmentViewer,
         &mut VertexSamplingTask,
         &mut pipeline::PolylineVertices,
         // &mut PolylineModel,
@@ -387,13 +406,13 @@ fn finish_vertex_sampling_tasks(
     //
     // the
 
-    for (viewer, mut task, mut vertices) in viewers.iter_mut() {
+    for (viewer_ent, viewer, mut task, mut vertices) in viewers.iter_mut() {
         if !task.task.is_finished() {
             continue;
         }
 
         let Some(mut result) = bevy::tasks::block_on(bevy::tasks::poll_once(&mut task.task)) else {
-            commands.entity(viewer).remove::<VertexSamplingTask>();
+            commands.entity(viewer_ent).remove::<VertexSamplingTask>();
             continue;
         };
 
@@ -404,12 +423,14 @@ fn finish_vertex_sampling_tasks(
         // println!("sampled {} vertices", vertices.buffer.values().len());
         // println!("{:#?}", vertices.buffer.values());
         commands
-            .entity(viewer)
+            .entity(viewer_ent)
             .insert(result.sampling_params)
             .remove::<VertexSamplingTask>();
 
         vertices.instances = 0..inst_count as u32;
         vertices.buffer.write_buffer(&render_device, &render_queue);
+
+        // viewer.last_vertex_params =
 
         // model.model = Mat4::IDENTITY;
     }
@@ -442,6 +463,56 @@ fn update_projection(
         // ultraviolet::projection::orthographic_wgpu_dx(0.0, size.x, 0.0, size.y, 0.1, 10.0);
         let mat = Mat4::from_cols_array(proj_uv.as_array());
         proj.proj = mat;
+    }
+}
+
+fn update_vertex_transform(
+    mut viewers: Query<(
+        &SampledAlignmentViewer,
+        &VertexSamplingParams,
+        // &PolylineVertices,
+        &mut PolylineModel,
+    )>,
+) {
+    for (viewer, sampled, mut model) in viewers.iter_mut() {
+        let Some(next_view) = viewer.view else {
+            continue;
+        };
+
+        let win_size = sampled.canvas_size.as_vec2();
+        let last_view = sampled.view;
+        let old_mid = last_view.center();
+        let new_mid = next_view.center();
+
+        let world_delta = new_mid - old_mid;
+        let norm_delta = world_delta / next_view.size();
+
+        let w_rat = last_view.width() / next_view.width();
+        let h_rat = last_view.height() / next_view.height();
+
+        let w_rat_ = next_view.width() / last_view.width();
+        let h_rat_ = next_view.height() / last_view.height();
+        let screen_delta =
+            norm_delta.to_f32() * [w_rat_ as f32 * win_size.x, h_rat_ as f32 * win_size.y].as_uv();
+        let mut center = Transform::from_translation(Vec3::new(win_size.x, win_size.y, 0.0) * 0.5);
+        let translate =
+            Transform::from_translation(Vec3::new(-screen_delta.x, screen_delta.y, 0.0));
+        let scale = Transform::from_scale(Vec3::new(w_rat as f32, h_rat as f32, 1.0));
+
+        let mut transform = center.mul_transform(scale);
+        center.translation *= -1.0;
+        transform = transform.mul_transform(center);
+        transform = transform.mul_transform(translate);
+
+        model.model = transform.compute_matrix();
+    }
+}
+
+fn update_viewer_sprite_transform(
+    mut viewers: Query<(&SampledAlignmentViewer, &mut Transform, &mut Sprite)>,
+) {
+    for (viewer, mut transform, mut sprite) in viewers.iter_mut() {
+        //
     }
 }
 
