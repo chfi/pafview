@@ -726,15 +726,9 @@ fn sample_segments_from_alignment(
                         p0: [p0.x, p0.y],
                         p1: [p1.x, p1.y],
                         z: 0.5,
-                        color: 0xFF0000FF,
+                        color: 0xFF000000, // ABGR
                     };
-                    // if buffer_offset == 0 {
-                    //     println!("{vertex:?}");
-                    // }
-                    buffer.push(
-                        // buffer[buffer_offset] =
-                        vertex,
-                    );
+                    buffer.push(vertex);
                     buffer_offset += 1;
                 }
             }
