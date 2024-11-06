@@ -69,5 +69,11 @@ struct RenderParams {
     canvas_size: UVec2,
 }
 
+impl RenderParams {
+    fn scale(&self) -> f64 {
+        self.view.width() / self.canvas_size.x as f64
+    }
+}
+
 #[derive(Component)]
 struct ForceRender;

@@ -1,15 +1,13 @@
 use std::sync::atomic::AtomicBool;
 
 use bevy::{
-    math::DVec2,
     prelude::*,
-    render::render_resource::RawBufferVec,
     tasks::{AsyncComputeTaskPool, Task},
 };
 use pipeline::{PolylineConfig, PolylineModel, PolylineProjection, PolylineVertices};
 use wgpu::BufferUsages;
 
-use crate::app::{alignments::layout::SeqPairLayout, AlignmentIndex};
+use crate::app::alignments::layout::SeqPairLayout;
 
 use super::*;
 
@@ -28,6 +26,7 @@ impl Plugin for SampledAlignmentRendererPlugin {
                     spawn_vertex_sampling_tasks,
                     (
                         update_vertex_transform,
+                        update_viewer_sprite_visibility,
                         update_viewer_sprite_transform,
                         update_projection,
                     ),
@@ -64,15 +63,7 @@ struct SampledVertices {
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 struct VertexSamplingParams {
     view: crate::view::View,
-    /// in basepairs per pixel
     canvas_size: UVec2,
-    // scale: f64,
-}
-
-impl VertexSamplingParams {
-    fn scale(&self) -> f64 {
-        self.view.width() / self.canvas_size.x as f64
-    }
 }
 
 fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
@@ -168,8 +159,8 @@ fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMu
 //     //
 // }
 
-#[derive(Component)]
-struct BackVertexBuffer(PolylineVertices);
+// #[derive(Component)]
+// struct BackVertexBuffer(PolylineVertices);
 
 #[derive(Clone)]
 struct RenderTargetImages {
@@ -186,13 +177,15 @@ struct BackRenderTarget(RenderTargetImages);
 #[derive(Component)]
 struct VertexSamplingTask {
     task: Task<SampledVertices>,
-    sampling_params: VertexSamplingParams,
 }
 
 fn resize_alignment_viewer_back_image(
     mut images: ResMut<Assets<Image>>,
     // mut viewers: Query<&mut BackRenderTarget, (With<SampledAlignmentViewer>, Without<RenderOperation>)>,
-    viewers: Query<&BackRenderTarget, (With<SampledAlignmentViewer>, Without<RenderOperation>)>,
+    mut viewers: Query<
+        (&mut SampledAlignmentViewer, &BackRenderTarget),
+        (Without<RenderOperation>),
+    >,
 
     windows: Query<&Window>,
 ) {
@@ -208,13 +201,18 @@ fn resize_alignment_viewer_back_image(
         depth_or_array_layers: 1,
     };
 
-    for render_tgt in viewers.iter() {
+    for (mut viewer, render_tgt) in viewers.iter_mut() {
+        let mut resized = false;
         for img_handle in [&render_tgt.0.color, &render_tgt.0.depth] {
             if let Some(img) = images.get_mut(img_handle) {
                 if img.size() != win_size {
                     img.resize(extent);
+                    resized = true;
                 }
             }
+        }
+        if resized {
+            viewer.last_rendered = None;
         }
     }
 }
@@ -272,8 +270,6 @@ fn spawn_vertex_sampling_tasks(
         let Some(next_view) = viewer.view else {
             continue;
         };
-
-        let bp_per_px = next_view.width() / window.physical_size().x as f64;
 
         // TODO: spawn task if `next_view` has escaped bounds of the sampling
         // params in `vertices`, or if scale has changed "enough"
@@ -350,14 +346,6 @@ fn spawn_vertex_sampling_tasks(
                             continue;
                         };
 
-                        let key = AlignmentIndex {
-                            target: seq_pair.target,
-                            query: seq_pair.query,
-                            pair_index,
-                        };
-
-                        // println!("{key:?} - {seq_pair_offset:?}");
-
                         if let Err(_err) = sample_segments_from_alignment(
                             seq_pair_offset,
                             alignment,
@@ -379,13 +367,9 @@ fn spawn_vertex_sampling_tasks(
         });
         println!("spawned vertex sampling task: {params:?}");
 
-        commands.entity(viewer_ent).insert((
-            params,
-            VertexSamplingTask {
-                task,
-                sampling_params: params,
-            },
-        ));
+        commands
+            .entity(viewer_ent)
+            .insert((params, VertexSamplingTask { task }));
     }
 
     //
@@ -511,8 +495,28 @@ fn update_vertex_transform(
     }
 }
 
+fn update_viewer_sprite_visibility(mut viewers: Query<(&mut Visibility, &SampledAlignmentViewer)>) {
+    for (mut vis, viewer) in viewers.iter_mut() {
+        let Some(bp_per_px) = viewer.last_rendered.map(|p| p.scale()) else {
+            continue;
+        };
+
+        // println!("setting visibility");
+        if bp_per_px < 1.0 {
+            *vis = Visibility::Hidden;
+        } else {
+            *vis = Visibility::Inherited;
+        }
+    }
+}
+
 fn update_viewer_sprite_transform(
-    mut viewers: Query<(&SampledAlignmentViewer, &mut Transform, &mut Sprite)>,
+    mut viewers: Query<(
+        &SampledAlignmentViewer,
+        &VertexSamplingParams,
+        &mut Transform,
+        &mut Sprite,
+    )>,
 
     windows: Query<&Window>,
 ) {
@@ -522,19 +526,22 @@ fn update_viewer_sprite_transform(
     let win_size = window.resolution.size();
     let dpi_scale = window.resolution.scale_factor();
 
-    for (viewer, mut transform, mut sprite) in viewers.iter_mut() {
+    for (viewer, _vertex_params, mut transform, mut sprite) in viewers.iter_mut() {
         let Some(rendered) = viewer.last_rendered else {
             continue;
         };
-        let Some(next_view) = viewer.view else {
+        let Some(_next_view) = viewer.view else {
             continue;
         };
 
-        let last_view = rendered.view;
+        // let last_view = rendered.view;
 
         let img_size = rendered.canvas_size.as_vec2();
         sprite.custom_size = Some(img_size / dpi_scale);
 
+        // NB: sprite transform disabled as it makes things jumpy right now
+
+        /*
         let old_mid = last_view.center();
         if last_view == next_view {
             *transform = Transform::IDENTITY;
@@ -553,6 +560,7 @@ fn update_viewer_sprite_transform(
                 Transform::from_translation(Vec3::new(-screen_delta.x, -screen_delta.y, 0.0))
                     .with_scale(Vec3::new(w_rat as f32, h_rat as f32, 1.0));
         }
+        */
     }
 }
 
@@ -598,13 +606,16 @@ fn finish_render_operation(
     mut commands: Commands,
     mut viewers: Query<(
         Entity,
+        &mut SampledAlignmentViewer,
         &RenderOperation,
         &mut Handle<Image>,
         &mut FrontRenderTarget,
         &mut BackRenderTarget,
     )>,
 ) {
-    for (viewer, render_op, mut sprite_img, mut front_tgts, mut back_tgts) in viewers.iter_mut() {
+    for (viewer_ent, mut viewer, render_op, mut sprite_img, mut front_tgts, mut back_tgts) in
+        viewers.iter_mut()
+    {
         if !render_op
             .finished
             .load(std::sync::atomic::Ordering::Relaxed)
@@ -612,24 +623,17 @@ fn finish_render_operation(
             continue;
         }
 
+        viewer.last_rendered = Some(RenderParams {
+            view: render_op.view,
+            canvas_size: render_op.canvas_size,
+        });
         std::mem::swap(&mut front_tgts.0, &mut back_tgts.0);
         *sprite_img = front_tgts.0.color.clone_weak();
         // println!("rendering complete");
 
-        commands.entity(viewer).remove::<RenderOperation>();
+        commands.entity(viewer_ent).remove::<RenderOperation>();
     }
 }
-
-// copy from `SampledVertices` into GPU buffer...
-// fn copy_vertices_to_gpu(
-// )
-
-// fn render_sampled_vertices(
-//     //
-//     mut commands: Commands,
-// ) {
-//     //
-// }
 
 #[derive(Debug)]
 enum VertexSamplingError {
@@ -699,7 +703,6 @@ fn sample_segments_from_alignment(
 
     // let vis_target_range: std::ops::Range<u64> = todo!();
     let vis_target_range = loc_min..loc_max;
-    let target_start = vis_target_range.start;
 
     let cg_iter = alignment.iter_target_range(vis_target_range);
     let mut cmd_iter = cigar_sampling::CigarScreenPathStrokeIter::new(
@@ -722,9 +725,10 @@ fn sample_segments_from_alignment(
             }
             zeno::Command::LineTo(p1) => {
                 if let Some(p0) = path_start.as_mut() {
+                    let half_bp = (0.5 / bp_per_px) as f32;
                     let vertex = VertexData {
-                        p0: [p0.x, p0.y],
-                        p1: [p1.x, p1.y],
+                        p0: [p0.x + half_bp, p0.y + half_bp],
+                        p1: [p1.x + half_bp, p1.y + half_bp],
                         z: 0.5,
                         color: 0xFF000000, // ABGR
                     };
@@ -736,35 +740,14 @@ fn sample_segments_from_alignment(
         }
     }
 
-    /*
-    // TODO then iterate the cigar...
-    for item in alignment.iter_target_range(vis_target_range) {
-
-        // map to screenspace
-
-        // need to track start of each line to emit the whole segment
-
-        // emit solid line for each consecutive non-indel op
-        // - merge/skip indels depending on scale and state
-
-        // if it's a mismatch, and the scale is appropriate, emit a red line at
-        // a higher z-level
-
-        // emit into `buffer[buffer_offset]` & increment offset
-    }
-    */
-
     Ok(buffer_offset)
 }
 
 mod pipeline {
     use super::*;
-    use bevy::{
-        prelude::*,
-        render::{
-            extract_component::{ComponentUniforms, DynamicUniformIndex, UniformComponentPlugin},
-            render_resource::RawBufferVec,
-        },
+    use bevy::render::{
+        extract_component::{ComponentUniforms, DynamicUniformIndex, UniformComponentPlugin},
+        render_resource::RawBufferVec,
     };
 
     pub(super) struct SampledPolylinePipelinePlugin;
@@ -838,11 +821,9 @@ mod pipeline {
     #[derive(Resource)]
     pub(super) struct PolylinePipeline {
         proj_config_layout: BindGroupLayout,
-        // color_scheme_layout: BindGroupLayout,
         model_layout: BindGroupLayout,
 
         pipeline: CachedRenderPipelineId,
-
         shader: Handle<Shader>,
     }
 
