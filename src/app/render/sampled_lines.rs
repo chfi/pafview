@@ -249,9 +249,14 @@ fn spawn_vertex_sampling_tasks(
     >,
 
     windows: Query<&Window>,
-
-    keyboard: Res<ButtonInput<KeyCode>>,
+    frame_count: Res<bevy::core::FrameCount>,
+    // keyboard: Res<ButtonInput<KeyCode>>,
 ) {
+    // to give the window time to resize etc.
+    if frame_count.0 < 3 {
+        return;
+    }
+
     let Ok(window) = windows.get_single() else {
         return;
     };
@@ -261,7 +266,7 @@ fn spawn_vertex_sampling_tasks(
 
     let task_pool = AsyncComputeTaskPool::get();
 
-    let need_new_vertices = keyboard.just_pressed(KeyCode::Enter);
+    // let need_new_vertices = keyboard.just_pressed(KeyCode::Enter);
 
     for (viewer_ent, viewer, last_params) in viewers.iter() {
         let Some(next_view) = viewer.view else {
@@ -272,30 +277,28 @@ fn spawn_vertex_sampling_tasks(
 
         // TODO: spawn task if `next_view` has escaped bounds of the sampling
         // params in `vertices`, or if scale has changed "enough"
-        /*
         let need_new_vertices = if let Some(sampled_params) = last_params.as_ref() {
             let s_view: crate::view::View = sampled_params.view;
 
-            s_view != next_view || bp_per_px != sampled_params.scale()
+            // s_view != next_view || canvas_size_u != sampled_params.canvas_size
+            // || bp_per_px != sampled_params.scale()
 
-            /*
             let view_out_of_bounds = s_view.x_min > next_view.x_max
                 || s_view.x_max < next_view.x_min
                 || s_view.y_min > next_view.y_max
                 || s_view.y_max < next_view.y_min;
 
             let rel_scale = next_view.width() / s_view.width();
-            let beyond_scale_limit = rel_scale < 0.5;
+            let beyond_scale_limit = rel_scale < 0.5 || rel_scale > 2.0;
 
-            dbg!((view_out_of_bounds, beyond_scale_limit));
-
+            if view_out_of_bounds || beyond_scale_limit {
+                dbg!((view_out_of_bounds, beyond_scale_limit));
+            }
 
             view_out_of_bounds || beyond_scale_limit
-            */
         } else {
             true
         };
-        */
 
         if !need_new_vertices {
             continue;
@@ -550,7 +553,6 @@ fn update_viewer_sprite_transform(
                 Transform::from_translation(Vec3::new(-screen_delta.x, -screen_delta.y, 0.0))
                     .with_scale(Vec3::new(w_rat as f32, h_rat as f32, 1.0));
         }
-
     }
 }
 
@@ -1054,7 +1056,7 @@ mod pipeline {
                 continue;
             };
 
-            println!("rendering to image size {:?}", tgt_img.size);
+            // println!("rendering to image size {:?}", tgt_img.size);
 
             if vertices.instances.len() == 0 {
                 dbg!();
