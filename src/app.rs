@@ -44,8 +44,7 @@ impl Plugin for PafViewerPlugin {
 
         // TODO: create a plugin that combines & manages all the render plugins
 
-        app.add_plugins(render::sampled_lines::SampledAlignmentRendererPlugin)
-            // app.add_plugins(render::gpu_lines::AlignmentRendererPlugin)
+        app.add_plugins(render::gpu_lines::AlignmentRendererPlugin)
             .add_plugins(render::base_level::BaselevelCigarRenderPlugin);
 
         // NB: these should all be replaced or are otherwise vestigial
@@ -74,7 +73,8 @@ impl Plugin for PafViewerPlugin {
         let args = crate::cli::Cli::parse();
 
         if args.low_mem {
-            app.add_plugins(render::cigar_sampling::CigarSamplingRenderPlugin);
+            app.add_plugins(render::sampled_lines::SampledAlignmentRendererPlugin);
+            // app.add_plugins(render::cigar_sampling::CigarSamplingRenderPlugin);
         }
 
         #[cfg(debug_assertions)]
