@@ -4230,6 +4230,7 @@ dependencies = [
  "proptest",
  "rand",
  "rapier2d",
+ "rayon",
  "ron",
  "rustc-hash",
  "serde",

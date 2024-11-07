@@ -319,46 +319,54 @@ fn spawn_vertex_sampling_tasks(
         };
 
         let task = task_pool.spawn(async move {
-            // TODO use rayon
+            use rayon::prelude::*;
 
-            let mut vertex_data: Vec<VertexData> = Vec::new();
+            let (data_send, data_recv) = crossbeam::channel::unbounded::<VertexData>();
 
             let t0 = std::time::Instant::now();
-            for (_transform, layout) in placed_layouts {
-                let tiles = layout
+            let alignments = placed_layouts.par_iter().flat_map(|(_tform, layout)| {
+                layout
                     .layout_qbvh
-                    .tiles_in_rect(params.view.center(), params.view.size() * 0.5);
+                    .tiles_in_rect(params.view.center(), params.view.size() * 0.5)
+                    .into_par_iter()
+                    .filter_map(|seq_pair| {
+                        let aabb = layout.aabbs.get(&seq_pair)?;
+                        let al_ixs = alignment_ixs.get(&(seq_pair.target, seq_pair.query))?;
+                        let seq_pair_offset = [aabb.mins.x, aabb.mins.y];
 
-                for seq_pair in tiles {
-                    let Some(aabb) = layout.aabbs.get(&seq_pair) else {
-                        continue;
-                    };
+                        Some((seq_pair_offset, al_ixs))
+                    })
+                    .flat_map(|(offset, al_indices)| {
+                        let al_vec = &alignments_vec;
+                        al_indices.par_iter().filter_map(move |ix| {
+                            let al = al_vec.get(*ix)?;
+                            Some((offset, al))
+                        })
+                    })
+            });
 
-                    let Some(al_ixs) = alignment_ixs.get(&(seq_pair.target, seq_pair.query)) else {
-                        continue;
-                    };
-
-                    let seq_pair_offset = [aabb.mins.x, aabb.mins.y];
-                    // let seq_pair_offset: DVec2 = todo!();
-                    // TODO derive offset, run `sample_segments_from_alignment`
-
-                    for &pair_index in al_ixs {
-                        let Some(alignment) = alignments_vec.get(pair_index) else {
-                            continue;
-                        };
-
-                        if let Err(_err) = sample_segments_from_alignment(
-                            seq_pair_offset,
-                            alignment,
-                            &next_view,
-                            canvas_size,
-                            &mut vertex_data,
-                        ) {
-                            // log
-                        }
+            alignments.for_each_with(
+                (data_send, Vec::<VertexData>::new()),
+                |(send, ref mut vx_data), (seq_pair_offset, alignment)| {
+                    vx_data.clear();
+                    if let Err(_err) = sample_segments_from_alignment(
+                        seq_pair_offset,
+                        alignment,
+                        &next_view,
+                        canvas_size,
+                        vx_data,
+                    ) {
+                        // log
+                    } else {
+                        vx_data.iter().for_each(|&data| {
+                            send.send(data).unwrap();
+                        });
                     }
-                }
-            }
+                },
+            );
+
+            let vertex_data = data_recv.iter().collect::<Vec<_>>();
+
             println!("sampled vertices in {} ms", t0.elapsed().as_millis());
 
             SampledVertices {
@@ -426,11 +434,7 @@ fn finish_vertex_sampling_tasks(
 
 fn update_line_width(
     app_config: Res<crate::AppConfig>,
-    mut viewers: Query<(
-        &SampledAlignmentViewer,
-        // &VertexSamplingParams,
-        &mut PolylineConfig,
-    )>,
+    mut viewers: Query<&mut PolylineConfig, With<SampledAlignmentViewer>>,
 
     windows: Query<&Window>,
 ) {
@@ -439,7 +443,7 @@ fn update_line_width(
     };
     let win_size = window.physical_size().as_vec2();
 
-    for (viewer, mut config) in viewers.iter_mut() {
+    for mut config in viewers.iter_mut() {
         let width = app_config.alignment_line_width / win_size.x;
         config.line_width = width;
     }
@@ -545,25 +549,25 @@ fn update_viewer_sprite_transform(
     let Ok(window) = windows.get_single() else {
         return;
     };
-    let win_size = window.resolution.size();
+    // let win_size = window.resolution.size();
     let dpi_scale = window.resolution.scale_factor();
 
-    for (viewer, _vertex_params, mut transform, mut sprite) in viewers.iter_mut() {
+    for (viewer, _vertex_params, _transform, mut sprite) in viewers.iter_mut() {
         let Some(rendered) = viewer.last_rendered else {
             continue;
         };
-        let Some(_next_view) = viewer.view else {
-            continue;
-        };
-
-        // let last_view = rendered.view;
 
         let img_size = rendered.canvas_size.as_vec2();
         sprite.custom_size = Some(img_size / dpi_scale);
 
         // NB: sprite transform disabled as it makes things jumpy right now
-
         /*
+        let Some(next_view) = viewer.view else {
+            continue;
+        };
+
+        let last_view = rendered.view;
+
         let old_mid = last_view.center();
         if last_view == next_view {
             *transform = Transform::IDENTITY;
@@ -1036,9 +1040,9 @@ mod pipeline {
         // draw the sampled vertices; all that's needed is the vertex buffer and bind group(s)
         // dbg!();
 
-        if polylines.is_empty() {
-            println!("nothing to render!");
-        }
+        // if polylines.is_empty() {
+        // println!("nothing to render!");
+        // }
 
         for (entity, vertices, uniform_indices, render_op, render_tgt) in polylines.iter() {
             let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
