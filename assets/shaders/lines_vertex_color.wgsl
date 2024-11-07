@@ -51,16 +51,18 @@ fn vs_main(
         }
     }
 
-    let x_basis = p1 - p0;
+    let view_width = 2.0 * projection[0][0];
+
+    let s0 = model * vec4(p0, 0.0, 1.0);
+    let s1 = model * vec4(p1, 0.0, 1.0);
+
+    let x_basis = s1.xy - s0.xy;
     let y_basis = normalize(vec2(-x_basis.y, x_basis.x));
 
-    let view_width = 2.0 * projection[0][0];
-    // let pp = p0 + x_basis * pos.x + y_basis * (config.line_width / view_width) * pos.y;
-    let pp = p0 + x_basis * pos.x + y_basis * config.line_width * pos.y;
+    let sp = s0.xy + x_basis * pos.x + y_basis * (config.line_width / view_width) * pos.y;
+    let transform = projection;
 
-    let transform = projection * model;
-
-    result.position = transform * vec4(pp, 0.0, 1.0);
+    result.position = projection * vec4(sp, 0.0, 1.0);
     result.position.z = z;
 
     // let color_ix = color % 5;

@@ -25,6 +25,7 @@ impl Plugin for SampledAlignmentRendererPlugin {
                     update_alignment_viewer_params,
                     spawn_vertex_sampling_tasks,
                     (
+                        update_line_width,
                         update_vertex_transform,
                         update_viewer_sprite_visibility,
                         update_viewer_sprite_transform,
@@ -420,6 +421,27 @@ fn finish_vertex_sampling_tasks(
         // viewer.last_vertex_params =
 
         // model.model = Mat4::IDENTITY;
+    }
+}
+
+fn update_line_width(
+    app_config: Res<crate::AppConfig>,
+    mut viewers: Query<(
+        &SampledAlignmentViewer,
+        // &VertexSamplingParams,
+        &mut PolylineConfig,
+    )>,
+
+    windows: Query<&Window>,
+) {
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+    let win_size = window.physical_size().as_vec2();
+
+    for (viewer, mut config) in viewers.iter_mut() {
+        let width = app_config.alignment_line_width / win_size.x;
+        config.line_width = width;
     }
 }
 
@@ -834,7 +856,7 @@ mod pipeline {
 
     #[derive(ShaderType, Clone, Copy, Component, ExtractComponent)]
     pub(super) struct PolylineConfig {
-        line_width: f32,
+        pub(super) line_width: f32,
         _pad0: u32,
         _pad1: u32,
         _pad2: u32,
