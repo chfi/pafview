@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicBool;
 use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task},
+    utils::tracing,
 };
 use pipeline::{PolylineConfig, PolylineModel, PolylineProjection, PolylineVertices};
 use wgpu::BufferUsages;
@@ -37,13 +38,14 @@ impl Plugin for SampledAlignmentRendererPlugin {
             .add_systems(
                 PreUpdate,
                 (
-                    finish_vertex_sampling_tasks,
                     finish_render_operation,
+                    finish_vertex_sampling_tasks,
+                    trigger_render_operation,
                     resize_alignment_viewer_back_image,
                 )
                     .chain(),
-            )
-            .add_systems(PostUpdate, (trigger_render_operation,).chain());
+            );
+        // .add_systems(PostUpdate, (trigger_render_operation,).chain());
 
         //
     }
@@ -54,6 +56,9 @@ struct SampledAlignmentViewer {
     view: Option<crate::view::View>,
 
     last_rendered: Option<RenderParams>,
+
+    last_sampled_at: Option<std::time::Instant>,
+    last_rendered_at: Option<std::time::Instant>,
 }
 
 struct SampledVertices {
@@ -230,6 +235,7 @@ fn update_alignment_viewer_params(
     //
 }
 
+#[tracing::instrument(skip_all)]
 fn spawn_vertex_sampling_tasks(
     mut commands: Commands,
 
@@ -271,6 +277,12 @@ fn spawn_vertex_sampling_tasks(
         let Some(next_view) = viewer.view else {
             continue;
         };
+
+        if let Some(last_time) = viewer.last_sampled_at {
+            if last_time.elapsed().as_millis() < 100 {
+                continue;
+            }
+        }
 
         // TODO: spawn task if `next_view` has escaped bounds of the sampling
         // params in `vertices`, or if scale has changed "enough"
@@ -374,7 +386,9 @@ fn spawn_vertex_sampling_tasks(
                 sampling_params: params,
             }
         });
-        println!("spawned vertex sampling task: {params:?}");
+
+        tracing::info!("spawning vertex sampling task");
+        // println!("spawned vertex sampling task: {params:?}");
 
         commands
             .entity(viewer_ent)
@@ -384,25 +398,30 @@ fn spawn_vertex_sampling_tasks(
     //
 }
 
+#[tracing::instrument(skip_all)]
 fn finish_vertex_sampling_tasks(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     //
     mut commands: Commands,
 
-    mut viewers: Query<(
-        Entity,
-        &mut SampledAlignmentViewer,
-        &mut VertexSamplingTask,
-        &mut pipeline::PolylineVertices,
-        // &mut PolylineModel,
-    )>,
+    mut viewers: Query<
+        (
+            Entity,
+            &mut SampledAlignmentViewer,
+            &mut VertexSamplingTask,
+            &mut pipeline::PolylineVertices,
+            Has<RenderOperation>,
+            // &mut PolylineModel,
+        ),
+        // Without<RenderOperation>,
+    >,
 ) {
     // move task buffer data into `RawBufferVec`... so not `SampledVertices` here
     //
     // the
 
-    for (viewer_ent, viewer, mut task, mut vertices) in viewers.iter_mut() {
+    for (viewer_ent, mut viewer, mut task, mut vertices, has_render_op) in viewers.iter_mut() {
         if !task.task.is_finished() {
             continue;
         }
@@ -416,12 +435,16 @@ fn finish_vertex_sampling_tasks(
 
         let inst_count = vertices.buffer.values().len();
 
+        dbg!(has_render_op);
+
         // println!("sampled {} vertices", vertices.buffer.values().len());
         // println!("{:#?}", vertices.buffer.values());
         commands
             .entity(viewer_ent)
             .insert(result.sampling_params)
             .remove::<VertexSamplingTask>();
+
+        viewer.last_sampled_at = Some(std::time::Instant::now());
 
         vertices.instances = 0..inst_count as u32;
         vertices.buffer.write_buffer(&render_device, &render_queue);
@@ -479,6 +502,7 @@ fn update_projection(
     }
 }
 
+#[tracing::instrument(skip_all)]
 fn update_vertex_transform(
     mut viewers: Query<(
         &SampledAlignmentViewer,
@@ -486,6 +510,7 @@ fn update_vertex_transform(
         // &PolylineVertices,
         &mut PolylineModel,
     )>,
+    mut last_scale: Local<Vec3>,
 ) {
     for (viewer, sampled, mut model) in viewers.iter_mut() {
         let Some(next_view) = viewer.view else {
@@ -510,7 +535,10 @@ fn update_vertex_transform(
         let mut center = Transform::from_translation(Vec3::new(win_size.x, win_size.y, 0.0) * 0.5);
         let translate =
             Transform::from_translation(Vec3::new(-screen_delta.x, screen_delta.y, 0.0));
-        let scale = Transform::from_scale(Vec3::new(w_rat as f32, h_rat as f32, 1.0));
+        let scale_vec = Vec3::new(w_rat as f32, h_rat as f32, 1.0);
+        let scale = Transform::from_scale(scale_vec);
+        println!("{scale_vec:?} vs {last_scale:?}");
+        *last_scale = scale_vec;
 
         let mut transform = center.mul_transform(scale);
         center.translation *= -1.0;
@@ -597,10 +625,14 @@ struct RenderOperation {
     finished: Arc<AtomicBool>,
 }
 
+#[tracing::instrument(skip_all)]
 fn trigger_render_operation(
     mut commands: Commands,
 
-    viewers: Query<(Entity, &SampledAlignmentViewer), Without<RenderOperation>>,
+    viewers: Query<
+        (Entity, &SampledAlignmentViewer),
+        (Without<RenderOperation>, With<VertexSamplingParams>),
+    >,
     windows: Query<&Window>,
 ) {
     let Ok(window) = windows.get_single() else {
@@ -613,11 +645,17 @@ fn trigger_render_operation(
             continue;
         };
 
+        // if let Some(last_time) = viewer.last_rendered_at {
+        //     if last_time.elapsed().as_millis() < 20 {
+        //         continue;
+        //     }
+        // }
+
         let need_render = Some(view) != viewer.last_rendered.map(|p| p.view);
 
-        // if !need_render {
-        //     continue;
-        // }
+        if !need_render {
+            continue;
+        }
         // println!("triggering re-render");
 
         commands.entity(viewer_ent).insert(RenderOperation {
@@ -628,6 +666,7 @@ fn trigger_render_operation(
     }
 }
 
+#[tracing::instrument(skip_all)]
 fn finish_render_operation(
     mut commands: Commands,
     mut viewers: Query<(
@@ -653,6 +692,7 @@ fn finish_render_operation(
             view: render_op.view,
             canvas_size: render_op.canvas_size,
         });
+        viewer.last_rendered_at = Some(std::time::Instant::now());
         std::mem::swap(&mut front_tgts.0, &mut back_tgts.0);
         *sprite_img = front_tgts.0.color.clone_weak();
         // println!("rendering complete");
@@ -694,6 +734,7 @@ struct VertexData {
 
 // samples the `alignment` to produce screen-space
 // line segments in `buffer`
+#[tracing::instrument(skip_all)]
 fn sample_segments_from_alignment(
     seq_pair_offset: impl Into<[f64; 2]>,
     alignment: &crate::Alignment,
@@ -1054,6 +1095,9 @@ mod pipeline {
                 .zip(gpu_images.get(&render_tgt.0.depth))
             else {
                 dbg!();
+                render_op
+                    .finished
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
                 continue;
             };
 
@@ -1061,6 +1105,9 @@ mod pipeline {
 
             if vertices.instances.len() == 0 {
                 dbg!();
+                render_op
+                    .finished
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
                 continue;
             }
 
@@ -1078,11 +1125,17 @@ mod pipeline {
                 .zip(configs.uniforms().binding())
             else {
                 dbg!();
+                render_op
+                    .finished
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
                 continue;
             };
 
             let Some(model_binding) = models.uniforms().binding() else {
                 dbg!();
+                render_op
+                    .finished
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
                 continue;
             };
 
