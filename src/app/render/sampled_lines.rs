@@ -1,4 +1,4 @@
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU8};
 
 use bevy::{
     prelude::*,
@@ -447,7 +447,14 @@ fn finish_vertex_sampling_tasks(
         viewer.last_sampled_at = Some(std::time::Instant::now());
 
         vertices.instances = 0..inst_count as u32;
-        vertices.buffer.write_buffer(&render_device, &render_queue);
+        {
+            let span = info_span!("Vertex buffer write");
+            let _guard = span.enter();
+            info!("vertices.buffer.reserve({inst_count})");
+            vertices.buffer.reserve(inst_count, &render_device);
+            info!("vertices.buffer.write_buffer({inst_count})");
+            vertices.buffer.write_buffer(&render_device, &render_queue);
+        }
 
         // viewer.last_vertex_params =
 
@@ -622,7 +629,14 @@ fn update_viewer_sprite_transform(
 struct RenderOperation {
     view: crate::view::View,
     canvas_size: UVec2,
-    finished: Arc<AtomicBool>,
+    finished: Arc<AtomicU8>,
+}
+
+impl RenderOperation {
+    const STATE_READY: u8 = 0;
+    const STATE_SUBMITTED: u8 = 1;
+    const STATE_FINISHED: u8 = 2;
+    const STATE_ERROR: u8 = 3;
 }
 
 #[tracing::instrument(skip_all)]
@@ -661,7 +675,8 @@ fn trigger_render_operation(
         commands.entity(viewer_ent).insert(RenderOperation {
             view,
             canvas_size,
-            finished: Arc::new(false.into()),
+            finished: Arc::new(0.into()),
+            // finished: Arc::new(false.into()),
         });
     }
 }
@@ -681,12 +696,24 @@ fn finish_render_operation(
     for (viewer_ent, mut viewer, render_op, mut sprite_img, mut front_tgts, mut back_tgts) in
         viewers.iter_mut()
     {
+        let render_state = render_op
+            .finished
+            .load(std::sync::atomic::Ordering::Relaxed);
+        if render_state < RenderOperation::STATE_FINISHED {
+            continue;
+        } else if render_state == RenderOperation::STATE_ERROR {
+            // TODO: maybe want to do something more here, but not sure
+            commands.entity(viewer_ent).remove::<RenderOperation>();
+            continue;
+        }
+        /*
         if !render_op
             .finished
             .load(std::sync::atomic::Ordering::Relaxed)
         {
             continue;
         }
+        */
 
         viewer.last_rendered = Some(RenderParams {
             view: render_op.view,
@@ -1053,24 +1080,21 @@ mod pipeline {
         configs: Res<ComponentUniforms<PolylineConfig>>,
         models: Res<ComponentUniforms<PolylineModel>>,
 
-        polylines: Query<
+        polylines: Query<(
+            Entity,
+            &ExtractedVertexBuffer,
+            // &PolylineVertices,
             (
-                Entity,
-                &ExtractedVertexBuffer,
-                // &PolylineVertices,
-                (
-                    &DynamicUniformIndex<PolylineProjection>,
-                    &DynamicUniformIndex<PolylineConfig>,
-                    &DynamicUniformIndex<PolylineModel>,
-                ),
-                // &PolylineModel,
-                // &PolylineConfi
-                // &PolylineBindGroups,
-                &RenderOperation,
-                &BackRenderTarget,
+                &DynamicUniformIndex<PolylineProjection>,
+                &DynamicUniformIndex<PolylineConfig>,
+                &DynamicUniformIndex<PolylineModel>,
             ),
-            Without<Rendering>,
-        >,
+            // &PolylineModel,
+            // &PolylineConfi
+            // &PolylineBindGroups,
+            &RenderOperation,
+            &BackRenderTarget,
+        )>,
         // gpu_vertices: Res<RenderAssets<GpuAlignmentVertices>>,
         // gpu_materials: Res<RenderAssets<GpuAlignmentPolylineMaterial>>,
     ) {
@@ -1086,6 +1110,15 @@ mod pipeline {
         // }
 
         for (entity, vertices, uniform_indices, render_op, render_tgt) in polylines.iter() {
+            let render_state = render_op
+                .finished
+                .load(std::sync::atomic::Ordering::Relaxed);
+
+            if render_state != RenderOperation::STATE_READY {
+                // skip as rendering has already begun
+                continue;
+            }
+
             let mut cmds = render_device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Sampled Vertices Renderer".into()),
             });
@@ -1095,9 +1128,10 @@ mod pipeline {
                 .zip(gpu_images.get(&render_tgt.0.depth))
             else {
                 dbg!();
-                render_op
-                    .finished
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                render_op.finished.store(
+                    RenderOperation::STATE_ERROR,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
                 continue;
             };
 
@@ -1105,9 +1139,10 @@ mod pipeline {
 
             if vertices.instances.len() == 0 {
                 dbg!();
-                render_op
-                    .finished
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                render_op.finished.store(
+                    RenderOperation::STATE_ERROR,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
                 continue;
             }
 
@@ -1125,19 +1160,26 @@ mod pipeline {
                 .zip(configs.uniforms().binding())
             else {
                 dbg!();
-                render_op
-                    .finished
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                render_op.finished.store(
+                    RenderOperation::STATE_ERROR,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
                 continue;
             };
 
             let Some(model_binding) = models.uniforms().binding() else {
                 dbg!();
-                render_op
-                    .finished
-                    .store(true, std::sync::atomic::Ordering::Relaxed);
+                render_op.finished.store(
+                    RenderOperation::STATE_ERROR,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
                 continue;
             };
+
+            render_op.finished.store(
+                RenderOperation::STATE_SUBMITTED,
+                std::sync::atomic::Ordering::Relaxed,
+            );
 
             let group_0 = render_device.create_bind_group(
                 None,
@@ -1185,11 +1227,16 @@ mod pipeline {
             render_queue.0.submit([cmds.finish()]);
             // dbg!();
 
+            // start render
+
             let finished = render_op.finished.clone();
             render_queue.0.on_submitted_work_done(move || {
-                finished.store(true, std::sync::atomic::Ordering::Relaxed);
+                // finished.store(true, std::sync::atomic::Ordering::Relaxed);
+                finished.store(
+                    RenderOperation::STATE_FINISHED,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
             });
-            commands.entity(entity).insert(Rendering);
         }
     }
 }
