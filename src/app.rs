@@ -47,6 +47,17 @@ impl Plugin for PafViewerPlugin {
         app.add_plugins(render::gpu_lines::AlignmentRendererPlugin)
             .add_plugins(render::base_level::BaselevelCigarRenderPlugin);
 
+        #[cfg(feature = "tracy")]
+        {
+            app.sub_app_mut(bevy::render::RenderApp).add_systems(
+                bevy::render::Render,
+                (|| {
+                    tracing_tracy::client::frame_mark();
+                })
+                .after(bevy::render::renderer::render_system),
+            );
+        }
+
         // NB: these should all be replaced or are otherwise vestigial
         // app.add_systems(PreUpdate, config_update_grid_material)
         //     .add_systems(Startup, setup_base_level_display_image)

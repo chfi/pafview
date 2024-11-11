@@ -21,6 +21,17 @@ pub struct AlignedSeq {
 }
 
 pub fn main() -> anyhow::Result<()> {
+    #[cfg(feature = "tracy")]
+    {
+        eprintln!("setting up tracy layer");
+        use tracing_subscriber::layer::SubscriberExt;
+
+        bevy::utils::tracing::subscriber::set_global_default(
+            tracing_subscriber::registry().with(tracing_tracy::TracyLayer::default()),
+        )
+        .expect("error during tracy layer setup");
+    }
+
     let args = pafview::cli::Cli::parse();
 
     // Load PAF and optional FASTA
