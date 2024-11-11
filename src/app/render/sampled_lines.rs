@@ -5,7 +5,9 @@ use bevy::{
     tasks::{AsyncComputeTaskPool, Task},
     utils::tracing,
 };
-use pipeline::{PolylineConfig, PolylineModel, PolylineProjection, PolylineVertices};
+use pipeline::{
+    BackPolylineVertices, PolylineConfig, PolylineModel, PolylineProjection, PolylineVertices,
+};
 use wgpu::BufferUsages;
 
 use crate::app::alignments::layout::SeqPairLayout;
@@ -16,6 +18,10 @@ pub struct SampledAlignmentRendererPlugin;
 
 impl Plugin for SampledAlignmentRendererPlugin {
     fn build(&self, app: &mut App) {
+        app.register_type::<SampledAlignmentViewer>()
+            .register_type::<RenderParams>()
+            .register_type::<RenderOperation>();
+
         app.add_plugins(ExtractComponentPlugin::<BackRenderTarget>::default())
             .add_plugins(ExtractComponentPlugin::<RenderOperation>::default())
             .add_plugins(pipeline::SampledPolylinePipelinePlugin)
@@ -38,6 +44,8 @@ impl Plugin for SampledAlignmentRendererPlugin {
             .add_systems(
                 PreUpdate,
                 (
+                    // finish_vertex_sampling_tasks,
+                    // spawn_vertex_sampling_tasks,
                     finish_render_operation,
                     finish_vertex_sampling_tasks,
                     trigger_render_operation,
@@ -45,13 +53,18 @@ impl Plugin for SampledAlignmentRendererPlugin {
                 )
                     .chain(),
             );
+
+        app.add_plugins(debug::DebugPlugin);
+
+        app.add_systems(Update, viz_image_handle);
+        // .add_systems(PostUpdate, finish_vertex_sampling_tasks);
         // .add_systems(PostUpdate, (trigger_render_operation,).chain());
 
         //
     }
 }
 
-#[derive(Component, Default)]
+#[derive(Component, Default, Reflect)]
 struct SampledAlignmentViewer {
     view: Option<crate::view::View>,
 
@@ -66,7 +79,7 @@ struct SampledVertices {
     sampling_params: VertexSamplingParams,
 }
 
-#[derive(Component, Clone, Copy, Debug, PartialEq)]
+#[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
 struct VertexSamplingParams {
     view: crate::view::View,
     canvas_size: UVec2,
@@ -127,7 +140,7 @@ fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMu
     let back_depth = images.add(back_depth);
 
     let front_vertices = PolylineVertices::new();
-    // let back_vertices = BackVertexBuffer(PolylineVertices::new());
+    let back_vertices = BackPolylineVertices(PolylineVertices::new());
 
     commands
         .spawn((
@@ -625,10 +638,11 @@ fn update_viewer_sprite_transform(
     }
 }
 
-#[derive(Debug, Clone, Component, ExtractComponent)]
+#[derive(Debug, Clone, Component, ExtractComponent, Reflect)]
 struct RenderOperation {
     view: crate::view::View,
     canvas_size: UVec2,
+    #[reflect(ignore)]
     finished: Arc<AtomicU8>,
 }
 
@@ -722,9 +736,29 @@ fn finish_render_operation(
         viewer.last_rendered_at = Some(std::time::Instant::now());
         std::mem::swap(&mut front_tgts.0, &mut back_tgts.0);
         *sprite_img = front_tgts.0.color.clone_weak();
+
         // println!("rendering complete");
 
         commands.entity(viewer_ent).remove::<RenderOperation>();
+    }
+}
+
+fn viz_image_handle(
+    viewers: Query<(&Handle<Image>, &FrontRenderTarget, &BackRenderTarget)>,
+    mut gizmos: Gizmos,
+) {
+    for (img, front, back) in viewers.iter() {
+        let f = &front.0.color;
+        let b = &back.0.color;
+        let min = f.min(b);
+        let color = if img == min {
+            Color::linear_rgba(1.0, 0.0, 0.0, 1.0)
+        } else {
+            Color::linear_rgba(0.0, 0.0, 1.0, 1.0)
+        };
+
+        println!("drawing circle");
+        gizmos.circle_2d(Vec2::new(100.0, 100.0), 40.0, color);
     }
 }
 
@@ -879,6 +913,9 @@ mod pipeline {
     }
 
     #[derive(Component)]
+    pub(super) struct BackPolylineVertices(pub(super) PolylineVertices);
+
+    #[derive(Component)]
     pub struct ExtractedVertexBuffer {
         buffer: Buffer,
         instances: std::ops::Range<u32>,
@@ -905,8 +942,10 @@ mod pipeline {
 
     impl PolylineVertices {
         pub(super) fn new() -> Self {
+            let mut buffer = RawBufferVec::new(BufferUsages::VERTEX | BufferUsages::COPY_DST);
+            buffer.set_label(Some("PolylineVertices Buffer"));
             Self {
-                buffer: RawBufferVec::new(BufferUsages::VERTEX | BufferUsages::COPY_DST),
+                buffer,
                 instances: 0..0,
             }
         }
@@ -921,12 +960,12 @@ mod pipeline {
         shader: Handle<Shader>,
     }
 
-    #[derive(ShaderType, Clone, Copy, Component, ExtractComponent)]
+    #[derive(ShaderType, Clone, Copy, Component, ExtractComponent, Reflect)]
     pub(super) struct PolylineModel {
         pub(super) model: Mat4,
     }
 
-    #[derive(ShaderType, Clone, Copy, Component, ExtractComponent)]
+    #[derive(ShaderType, Clone, Copy, Component, ExtractComponent, Reflect)]
     pub(super) struct PolylineConfig {
         pub(super) line_width: f32,
         _pad0: u32,
@@ -945,7 +984,7 @@ mod pipeline {
         }
     }
 
-    #[derive(ShaderType, Clone, Copy, Component, ExtractComponent)]
+    #[derive(ShaderType, Clone, Copy, Component, ExtractComponent, Reflect)]
     pub(super) struct PolylineProjection {
         pub(super) proj: Mat4,
     }
@@ -1237,6 +1276,73 @@ mod pipeline {
                     std::sync::atomic::Ordering::Relaxed,
                 );
             });
+        }
+    }
+}
+
+mod debug {
+    use super::*;
+
+    pub(super) struct DebugPlugin;
+
+    impl Plugin for DebugPlugin {
+        fn build(&self, app: &mut App) {
+            app.add_systems(Startup, setup_debug_display)
+                .add_systems(Update, update_debug_display);
+        }
+    }
+
+    #[derive(Resource)]
+    struct DebugRootNode(Entity);
+
+    fn setup_debug_display(mut commands: Commands) {
+        let id = commands
+            .spawn(NodeBundle {
+                style: Style {
+                    position_type: PositionType::Absolute,
+                    bottom: Val::Px(10.0),
+                    ..default()
+                },
+                background_color: Color::srgb(0.65, 0.65, 0.65).into(),
+                ..default()
+            })
+            .with_children(|parent| {
+                // left vertical fill (border)
+                parent.spawn(NodeBundle {
+                    style: Style {
+                        width: Val::Px(200.0),
+                        height: Val::Px(200.0),
+                        // border: UiRect::all(Val::Px(2.)),
+                        ..default()
+                    },
+                    // background_color: Color::srgb(0.65, 0.65, 0.65).into(),
+                    ..default()
+                });
+            })
+            .id();
+        commands.insert_resource(DebugRootNode(id));
+    }
+
+    fn update_debug_display(
+        debug_root: Res<DebugRootNode>,
+        viewers: Query<(&Handle<Image>, &FrontRenderTarget, &BackRenderTarget)>,
+        mut ui: Query<&mut BackgroundColor, With<Node>>,
+    ) {
+        let Ok(mut bg) = ui.get_mut(debug_root.0) else {
+            return;
+        };
+
+        for (img, front, back) in viewers.iter() {
+            let f = &front.0.color;
+            let b = &back.0.color;
+            let min = f.min(b);
+            let color = if img == min {
+                Color::linear_rgba(1.0, 0.0, 0.0, 1.0)
+            } else {
+                Color::linear_rgba(0.0, 0.0, 1.0, 1.0)
+            };
+
+            bg.0 = color;
         }
     }
 }

@@ -170,7 +170,7 @@ impl Viewport {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, bevy::reflect::Reflect)]
 // #[deprecated]
 pub struct View {
     pub x_min: f64,

@@ -186,6 +186,7 @@ fn setup_screenspace_camera(
         },
         bevy::render::view::RenderLayers::layer(1),
         ScreenspaceCamera,
+        IsDefaultUiCamera,
     ));
 }
 
