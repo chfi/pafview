@@ -13,6 +13,7 @@ path = "src/bin/paf_stress_test.rs"
 
 [features]
 tracy = ["bevy/trace_tracy"]
+renderdoc = ["dep:renderdoc"]
 # tracy = ["dep:tracing-tracy", "tracing-tracy/enable", "tracing-subscriber"]
 
 [dependencies]
@@ -88,6 +89,8 @@ rayon = "1.10.0"
 # tracing-tracy = { version = "0.11.3", optional = true }
 # tracing-subscriber = { version = "0.3.18", optional = true }
 # revy = "0.17"
+
+renderdoc = { version = "0.12.1", optional = true }
 
 [dev-dependencies]
 float-cmp = "0.9.0"

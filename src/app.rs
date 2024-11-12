@@ -57,6 +57,37 @@ impl Plugin for PafViewerPlugin {
                 .after(bevy::render::renderer::render_system),
             );
         }
+        #[cfg(feature = "renderdoc")]
+        {
+            use renderdoc::{RenderDoc as RenderDocApi, V141};
+            #[derive(Resource, Deref)]
+            struct RenderDoc(RenderDocApi<V141>);
+
+            let rd = RenderDoc(RenderDocApi::new().unwrap());
+
+            app.sub_app_mut(bevy::render::RenderApp)
+                .insert_resource(rd)
+                .add_systems(
+                    bevy::render::Render,
+                    (|rd: Res<RenderDoc>,
+                      mut capturing: Local<Bool>,
+                      keys: Res<ButtonInput<KeyCode>>| {
+                        if keys.just_pressed(KeyCode::F12) {
+                            *capturing = !*capturing;
+                            if *capturing {
+                                println!("renderdoc capture enabled");
+                            } else {
+                                println!("renderdoc capture disabled");
+                            }
+                        }
+
+                        if *capturing {
+                            rd.trigger_capture();
+                        }
+                    })
+                    .after(bevy::render::renderer::render_system),
+                )
+        }
 
         // NB: these should all be replaced or are otherwise vestigial
         // app.add_systems(PreUpdate, config_update_grid_material)
