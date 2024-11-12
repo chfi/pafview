@@ -406,7 +406,8 @@ fn spawn_vertex_sampling_tasks(
 
         commands
             .entity(viewer_ent)
-            .insert((params, VertexSamplingTask { task }));
+            .insert(VertexSamplingTask { task });
+        // .insert((params, VertexSamplingTask { task }));
     }
 
     //

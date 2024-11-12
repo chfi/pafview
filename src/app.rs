@@ -47,16 +47,16 @@ impl Plugin for PafViewerPlugin {
         app.add_plugins(render::gpu_lines::AlignmentRendererPlugin)
             .add_plugins(render::base_level::BaselevelCigarRenderPlugin);
 
-        #[cfg(feature = "tracy")]
-        {
-            app.sub_app_mut(bevy::render::RenderApp).add_systems(
-                bevy::render::Render,
-                (|| {
-                    tracing_tracy::client::frame_mark();
-                })
-                .after(bevy::render::renderer::render_system),
-            );
-        }
+        // #[cfg(feature = "tracy")]
+        // {
+        //     app.sub_app_mut(bevy::render::RenderApp).add_systems(
+        //         bevy::render::Render,
+        //         (|| {
+        //             tracing_tracy::client::frame_mark();
+        //         })
+        //         .after(bevy::render::renderer::render_system),
+        //     );
+        // }
         #[cfg(feature = "renderdoc")]
         {
             use renderdoc::{RenderDoc as RenderDocApi, V141};
