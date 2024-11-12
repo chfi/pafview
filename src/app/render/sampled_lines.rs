@@ -29,8 +29,8 @@ impl Plugin for SampledAlignmentRendererPlugin {
             .add_systems(
                 Update,
                 (
+                    finish_vertex_sampling_tasks,
                     update_alignment_viewer_params,
-                    spawn_vertex_sampling_tasks,
                     (
                         update_line_width,
                         update_vertex_transform,
@@ -47,8 +47,8 @@ impl Plugin for SampledAlignmentRendererPlugin {
                     // finish_vertex_sampling_tasks,
                     // spawn_vertex_sampling_tasks,
                     finish_render_operation,
-                    finish_vertex_sampling_tasks,
-                    trigger_render_operation,
+                    spawn_vertex_sampling_tasks,
+                    // trigger_render_operation,
                     resize_alignment_viewer_back_image,
                 )
                     .chain(),
@@ -56,9 +56,9 @@ impl Plugin for SampledAlignmentRendererPlugin {
 
         app.add_plugins(debug::DebugPlugin);
 
-        app.add_systems(Update, viz_image_handle);
+        // app.add_systems(Update, viz_image_handle);
         // .add_systems(PostUpdate, finish_vertex_sampling_tasks);
-        // .add_systems(PostUpdate, (trigger_render_operation,).chain());
+        app.add_systems(PostUpdate, trigger_render_operation);
 
         //
     }
@@ -391,6 +391,7 @@ fn spawn_vertex_sampling_tasks(
             );
 
             let vertex_data = data_recv.iter().collect::<Vec<_>>();
+            futures_time::task::sleep(futures_time::time::Duration::from_millis(500)).await;
 
             println!("sampled vertices in {} ms", t0.elapsed().as_millis());
 
@@ -424,7 +425,8 @@ fn finish_vertex_sampling_tasks(
             &mut SampledAlignmentViewer,
             &mut VertexSamplingTask,
             &mut pipeline::PolylineVertices,
-            Has<RenderOperation>,
+            Option<&RenderOperation>,
+            // Has<RenderOperation>,
             // &mut PolylineModel,
         ),
         // Without<RenderOperation>,
@@ -434,7 +436,20 @@ fn finish_vertex_sampling_tasks(
     //
     // the
 
-    for (viewer_ent, mut viewer, mut task, mut vertices, has_render_op) in viewers.iter_mut() {
+    for (viewer_ent, mut viewer, mut task, mut vertices, render_op) in viewers.iter_mut() {
+        /*
+        if let Some(state) =
+            render_op.map(|s| s.finished.load(std::sync::atomic::Ordering::Relaxed))
+        {
+            if state == RenderOperation::STATE_READY {
+                continue;
+            }
+            // if state < RenderOperation::STATE_FINISHED {
+            //     continue;
+            // }
+        }
+        */
+
         if !task.task.is_finished() {
             continue;
         }
@@ -448,7 +463,7 @@ fn finish_vertex_sampling_tasks(
 
         let inst_count = vertices.buffer.values().len();
 
-        dbg!(has_render_op);
+        // dbg!(has_render_op);
 
         // println!("sampled {} vertices", vertices.buffer.values().len());
         // println!("{:#?}", vertices.buffer.values());
@@ -467,6 +482,7 @@ fn finish_vertex_sampling_tasks(
             vertices.buffer.reserve(inst_count, &render_device);
             info!("vertices.buffer.write_buffer({inst_count})");
             vertices.buffer.write_buffer(&render_device, &render_queue);
+            dbg!();
         }
 
         // viewer.last_vertex_params =
@@ -524,12 +540,15 @@ fn update_projection(
 
 #[tracing::instrument(skip_all)]
 fn update_vertex_transform(
-    mut viewers: Query<(
-        &SampledAlignmentViewer,
-        &VertexSamplingParams,
-        // &PolylineVertices,
-        &mut PolylineModel,
-    )>,
+    mut viewers: Query<
+        (
+            &SampledAlignmentViewer,
+            &VertexSamplingParams,
+            // &PolylineVertices,
+            &mut PolylineModel,
+        ),
+        // Without<RenderOperation>,
+    >,
     mut last_scale: Local<Vec3>,
 ) {
     for (viewer, sampled, mut model) in viewers.iter_mut() {
@@ -670,18 +689,20 @@ fn trigger_render_operation(
 
     for (viewer_ent, viewer) in viewers.iter() {
         let Some(view) = viewer.view else {
+            dbg!();
             continue;
         };
 
-        // if let Some(last_time) = viewer.last_rendered_at {
-        //     if last_time.elapsed().as_millis() < 20 {
-        //         continue;
-        //     }
-        // }
+        if let Some(last_time) = viewer.last_rendered_at {
+            if last_time.elapsed().as_millis() < 20 {
+                continue;
+            }
+        }
 
         let need_render = Some(view) != viewer.last_rendered.map(|p| p.view);
 
         if !need_render {
+            dbg!();
             continue;
         }
         // println!("triggering re-render");
@@ -692,6 +713,7 @@ fn trigger_render_operation(
             finished: Arc::new(0.into()),
             // finished: Arc::new(false.into()),
         });
+        dbg!();
     }
 }
 
@@ -713,6 +735,7 @@ fn finish_render_operation(
         let render_state = render_op
             .finished
             .load(std::sync::atomic::Ordering::Relaxed);
+        println!("render_state: {render_state}");
         if render_state < RenderOperation::STATE_FINISHED {
             continue;
         } else if render_state == RenderOperation::STATE_ERROR {
@@ -737,28 +760,9 @@ fn finish_render_operation(
         std::mem::swap(&mut front_tgts.0, &mut back_tgts.0);
         *sprite_img = front_tgts.0.color.clone_weak();
 
-        // println!("rendering complete");
+        println!("rendering complete");
 
         commands.entity(viewer_ent).remove::<RenderOperation>();
-    }
-}
-
-fn viz_image_handle(
-    viewers: Query<(&Handle<Image>, &FrontRenderTarget, &BackRenderTarget)>,
-    mut gizmos: Gizmos,
-) {
-    for (img, front, back) in viewers.iter() {
-        let f = &front.0.color;
-        let b = &back.0.color;
-        let min = f.min(b);
-        let color = if img == min {
-            Color::linear_rgba(1.0, 0.0, 0.0, 1.0)
-        } else {
-            Color::linear_rgba(0.0, 0.0, 1.0, 1.0)
-        };
-
-        println!("drawing circle");
-        gizmos.circle_2d(Vec2::new(100.0, 100.0), 40.0, color);
     }
 }
 
@@ -1121,7 +1125,7 @@ mod pipeline {
 
         polylines: Query<(
             Entity,
-            &ExtractedVertexBuffer,
+            Option<&ExtractedVertexBuffer>,
             // &PolylineVertices,
             (
                 &DynamicUniformIndex<PolylineProjection>,
@@ -1148,7 +1152,13 @@ mod pipeline {
         // println!("nothing to render!");
         // }
 
+        dbg!(polylines.is_empty());
         for (entity, vertices, uniform_indices, render_op, render_tgt) in polylines.iter() {
+            let Some(vertices) = vertices.as_ref() else {
+                dbg!();
+                continue;
+            };
+            dbg!();
             let render_state = render_op
                 .finished
                 .load(std::sync::atomic::Ordering::Relaxed);
@@ -1288,19 +1298,24 @@ mod debug {
     impl Plugin for DebugPlugin {
         fn build(&self, app: &mut App) {
             app.add_systems(Startup, setup_debug_display)
-                .add_systems(Update, update_debug_display);
+                .add_systems(Update, update_debug_display.after(super::update_projection));
         }
     }
 
     #[derive(Resource)]
-    struct DebugRootNode(Entity);
+    struct DebugRootNode {
+        root: Entity,
+        model_text: Entity,
+    }
 
     fn setup_debug_display(mut commands: Commands) {
-        let id = commands
+        let mut model = Entity::PLACEHOLDER;
+
+        let root = commands
             .spawn(NodeBundle {
                 style: Style {
                     position_type: PositionType::Absolute,
-                    bottom: Val::Px(10.0),
+                    bottom: Val::Px(100.0),
                     ..default()
                 },
                 background_color: Color::srgb(0.65, 0.65, 0.65).into(),
@@ -1308,31 +1323,56 @@ mod debug {
             })
             .with_children(|parent| {
                 // left vertical fill (border)
-                parent.spawn(NodeBundle {
-                    style: Style {
-                        width: Val::Px(200.0),
-                        height: Val::Px(200.0),
-                        // border: UiRect::all(Val::Px(2.)),
+
+                parent
+                    .spawn(NodeBundle {
+                        style: Style {
+                            width: Val::Px(300.0),
+                            height: Val::Px(200.0),
+                            // border: UiRect::all(Val::Px(2.)),
+                            ..default()
+                        },
+                        // background_color: Color::srgb(0.65, 0.65, 0.65).into(),
                         ..default()
-                    },
-                    // background_color: Color::srgb(0.65, 0.65, 0.65).into(),
-                    ..default()
-                });
+                    })
+                    .with_children(|parent| {
+                        model = parent
+                            .spawn(TextBundle {
+                                text: Text::from_section(
+                                    "",
+                                    TextStyle {
+                                        // font_size: 10.0,
+                                        ..default()
+                                    },
+                                ),
+                                ..default()
+                            })
+                            .id();
+                    });
             })
             .id();
-        commands.insert_resource(DebugRootNode(id));
+        commands.insert_resource(DebugRootNode {
+            root,
+            model_text: model,
+        });
     }
 
     fn update_debug_display(
         debug_root: Res<DebugRootNode>,
-        viewers: Query<(&Handle<Image>, &FrontRenderTarget, &BackRenderTarget)>,
-        mut ui: Query<&mut BackgroundColor, With<Node>>,
+        viewers: Query<(
+            &Handle<Image>,
+            &FrontRenderTarget,
+            &BackRenderTarget,
+            &PolylineModel,
+        )>,
+        mut ui_bg: Query<&mut BackgroundColor, With<Node>>,
+        mut ui_text: Query<&mut Text>,
     ) {
-        let Ok(mut bg) = ui.get_mut(debug_root.0) else {
+        let Ok(mut bg) = ui_bg.get_mut(debug_root.root) else {
             return;
         };
 
-        for (img, front, back) in viewers.iter() {
+        for (img, front, back, model) in viewers.iter() {
             let f = &front.0.color;
             let b = &back.0.color;
             let min = f.min(b);
@@ -1343,6 +1383,17 @@ mod debug {
             };
 
             bg.0 = color;
+
+            if let Ok(mut ui_text) = ui_text.get_mut(debug_root.model_text) {
+                let mat = &model.model;
+                let x0 = mat.x_axis.x;
+                let y1 = mat.y_axis.y;
+                let wxy = mat.w_axis.xy();
+                let wx = wxy.x;
+                let wy = wxy.y;
+
+                ui_text.sections[0].value = format!("x: {x0}\ny: {y1}\nw_xy: [{wx}, {wy}]");
+            }
         }
     }
 }
