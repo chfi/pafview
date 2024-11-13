@@ -64,7 +64,7 @@ coitrees = "0.4.0"
 
 bevy = { version = "0.14.2", features = [
     # "dynamic_linking",
-    # "bevy_dev_tools",
+    "bevy_dev_tools",
     "bevy_asset",
     "bevy_color",
     "bevy_core_pipeline", # Provides cameras and other basic render pipeline features
