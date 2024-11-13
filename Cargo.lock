@@ -473,7 +473,6 @@ version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "043c9ad4b6fc4ca52d779873a8ca792a4e37842d07fce95363c9e17e36a1d8a0"
 dependencies = [
- "bevy_dylib",
  "bevy_internal",
 ]
 
@@ -662,34 +661,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bevy_dev_tools"
-version = "0.14.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0abf99960653c5b0827c562e75fd7a6c74ffa517d2c138519c31375f17f12ce8"
-dependencies = [
- "bevy_app",
- "bevy_asset",
- "bevy_color",
- "bevy_core",
- "bevy_core_pipeline",
- "bevy_diagnostic",
- "bevy_ecs",
- "bevy_gizmos",
- "bevy_hierarchy",
- "bevy_input",
- "bevy_math",
- "bevy_reflect",
- "bevy_render",
- "bevy_state",
- "bevy_text",
- "bevy_time",
- "bevy_transform",
- "bevy_ui",
- "bevy_utils",
- "bevy_window",
-]
-
-[[package]]
 name = "bevy_diagnostic"
 version = "0.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -703,15 +674,6 @@ dependencies = [
  "bevy_utils",
  "const-fnv1a-hash",
  "sysinfo",
-]
-
-[[package]]
-name = "bevy_dylib"
-version = "0.14.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c399292fac67682a72666e78872626f3c1c39b34c430b6f02c81d21da91b500"
-dependencies = [
- "bevy_internal",
 ]
 
 [[package]]
@@ -926,7 +888,6 @@ dependencies = [
  "bevy_core",
  "bevy_core_pipeline",
  "bevy_derive",
- "bevy_dev_tools",
  "bevy_diagnostic",
  "bevy_ecs",
  "bevy_gilrs",
@@ -1287,10 +1248,12 @@ dependencies = [
  "hexasphere",
  "image 0.25.4",
  "js-sys",
+ "ktx2",
  "naga",
  "naga_oil",
  "nonmax",
  "profiling",
+ "ruzstd",
  "send_wrapper",
  "serde",
  "smallvec",
@@ -3192,6 +3155,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
 
 [[package]]
+name = "ktx2"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "87d65e08a9ec02e409d27a0139eaa6b9756b4d81fe7cde71f6941a83730ce838"
+dependencies = [
+ "bitflags 1.3.2",
+]
+
+[[package]]
 name = "kurbo"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4799,6 +4771,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ruzstd"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99c3938e133aac070997ddc684d4b393777d293ba170f2988c8fd5ea2ad4ce21"
+dependencies = [
+ "twox-hash",
+]
+
+[[package]]
 name = "ryu"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5397,6 +5378,16 @@ name = "ttf-parser"
 version = "0.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "17f77d76d837a7830fe1d4f12b7b4ba4192c1888001c7164257e4bc6d21d96b4"
+
+[[package]]
+name = "twox-hash"
+version = "1.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
+dependencies = [
+ "cfg-if",
+ "static_assertions",
+]
 
 [[package]]
 name = "type-map"

@@ -1,13 +1,11 @@
-use std::sync::atomic::{AtomicBool, AtomicU8};
+use std::sync::atomic::AtomicU8;
 
 use bevy::{
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task},
     utils::tracing,
 };
-use pipeline::{
-    BackPolylineVertices, PolylineConfig, PolylineModel, PolylineProjection, PolylineVertices,
-};
+use pipeline::{PolylineConfig, PolylineModel, PolylineProjection, PolylineVertices};
 use wgpu::BufferUsages;
 
 use crate::app::alignments::layout::SeqPairLayout;
@@ -140,14 +138,10 @@ fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMu
     let front_depth = images.add(front_depth);
     let back_depth = images.add(back_depth);
 
-    let front_vertices = PolylineVertices::new();
-    let back_vertices = BackPolylineVertices(PolylineVertices::new());
-
     commands
         .spawn((
             SampledAlignmentViewer::default(),
-            front_vertices,
-            // back_vertices,
+            PolylineVertices::new(),
             SpriteBundle::default(),
             PolylineProjection {
                 proj: Mat4::IDENTITY,
@@ -202,10 +196,7 @@ struct VertexSamplingTask {
 fn resize_alignment_viewer_back_image(
     mut images: ResMut<Assets<Image>>,
     // mut viewers: Query<&mut BackRenderTarget, (With<SampledAlignmentViewer>, Without<RenderOperation>)>,
-    mut viewers: Query<
-        (&mut SampledAlignmentViewer, &BackRenderTarget),
-        (Without<RenderOperation>),
-    >,
+    mut viewers: Query<(&mut SampledAlignmentViewer, &BackRenderTarget), Without<RenderOperation>>,
 
     windows: Query<&Window>,
 ) {
@@ -314,9 +305,9 @@ fn spawn_vertex_sampling_tasks(
             let rel_scale = next_view.width() / s_view.width();
             let beyond_scale_limit = rel_scale < 0.5 || rel_scale > 2.0;
 
-            if view_out_of_bounds || beyond_scale_limit {
-                dbg!((view_out_of_bounds, beyond_scale_limit));
-            }
+            // if view_out_of_bounds || beyond_scale_limit {
+            //     dbg!((view_out_of_bounds, beyond_scale_limit));
+            // }
 
             view_out_of_bounds || beyond_scale_limit
         } else {
@@ -427,7 +418,7 @@ fn finish_vertex_sampling_tasks(
             &mut SampledAlignmentViewer,
             &mut VertexSamplingTask,
             &mut pipeline::PolylineVertices,
-            Option<&RenderOperation>,
+            // Option<&RenderOperation>,
             // Has<RenderOperation>,
             // &mut PolylineModel,
         ),
@@ -438,7 +429,7 @@ fn finish_vertex_sampling_tasks(
     //
     // the
 
-    for (viewer_ent, mut viewer, mut task, mut vertices, render_op) in viewers.iter_mut() {
+    for (viewer_ent, mut viewer, mut task, mut vertices) in viewers.iter_mut() {
         /*
         if let Some(state) =
             render_op.map(|s| s.finished.load(std::sync::atomic::Ordering::Relaxed))
@@ -485,7 +476,6 @@ fn finish_vertex_sampling_tasks(
             vertices.buffer.reserve(inst_count, &render_device);
             info!("vertices.buffer.write_buffer({inst_count})");
             vertices.buffer.write_buffer(&render_device, &render_queue);
-            dbg!();
         }
 
         // viewer.last_vertex_params =
@@ -583,7 +573,6 @@ fn update_vertex_transform(
             Transform::from_translation(Vec3::new(-screen_delta.x, screen_delta.y, 0.0));
         let scale_vec = Vec3::new(w_rat as f32, h_rat as f32, 1.0);
         let scale = Transform::from_scale(scale_vec);
-        println!("{scale_vec:?} vs {last_scale:?}");
         *last_scale = scale_vec;
 
         let mut transform = center.mul_transform(scale);
@@ -613,7 +602,7 @@ fn update_viewer_sprite_visibility(mut viewers: Query<(&mut Visibility, &Sampled
 fn update_viewer_sprite_transform(
     mut viewers: Query<(
         &SampledAlignmentViewer,
-        &VertexSamplingParams,
+        &PolylineVertices,
         &mut Transform,
         &mut Sprite,
     )>,
@@ -626,7 +615,7 @@ fn update_viewer_sprite_transform(
     // let win_size = window.resolution.size();
     let dpi_scale = window.resolution.scale_factor();
 
-    for (viewer, _vertex_params, _transform, mut sprite) in viewers.iter_mut() {
+    for (viewer, _vertices, mut transform, mut sprite) in viewers.iter_mut() {
         let Some(rendered) = viewer.last_rendered else {
             continue;
         };
@@ -635,7 +624,7 @@ fn update_viewer_sprite_transform(
         sprite.custom_size = Some(img_size / dpi_scale);
 
         // NB: sprite transform disabled as it makes things jumpy right now
-        /*
+        // /*
         let Some(next_view) = viewer.view else {
             continue;
         };
@@ -654,13 +643,13 @@ fn update_viewer_sprite_transform(
             let w_rat = last_view.width() / next_view.width();
             let h_rat = last_view.height() / next_view.height();
 
-            let screen_delta = norm_delta.to_f32() * [win_size.x, win_size.y].as_uv();
+            let screen_delta = norm_delta.to_f32() * [img_size.x, img_size.y].as_uv();
 
             *transform =
                 Transform::from_translation(Vec3::new(-screen_delta.x, -screen_delta.y, 0.0))
                     .with_scale(Vec3::new(w_rat as f32, h_rat as f32, 1.0));
         }
-        */
+        // */
     }
 }
 
@@ -670,7 +659,7 @@ struct RenderOperation {
     canvas_size: UVec2,
     vertex_params: VertexSamplingParams,
     #[reflect(ignore)]
-    finished: Arc<AtomicU8>,
+    state: Arc<AtomicU8>,
 }
 
 impl RenderOperation {
@@ -684,10 +673,7 @@ impl RenderOperation {
 fn trigger_render_operation(
     mut commands: Commands,
 
-    viewers: Query<
-        (Entity, &SampledAlignmentViewer, &PolylineVertices),
-        (Without<RenderOperation>),
-    >,
+    viewers: Query<(Entity, &SampledAlignmentViewer, &PolylineVertices), Without<RenderOperation>>,
     windows: Query<&Window>,
 ) {
     let Ok(window) = windows.get_single() else {
@@ -701,7 +687,6 @@ fn trigger_render_operation(
         };
 
         let Some(view) = viewer.view else {
-            dbg!();
             continue;
         };
 
@@ -725,7 +710,7 @@ fn trigger_render_operation(
             view,
             canvas_size,
             vertex_params: vx_params,
-            finished: Arc::new(0.into()),
+            state: Arc::new(0.into()),
             // finished: Arc::new(false.into()),
         });
         // dbg!();
@@ -747,9 +732,7 @@ fn finish_render_operation(
     for (viewer_ent, mut viewer, render_op, mut sprite_img, mut front_tgts, mut back_tgts) in
         viewers.iter_mut()
     {
-        let render_state = render_op
-            .finished
-            .load(std::sync::atomic::Ordering::Relaxed);
+        let render_state = render_op.state.load(std::sync::atomic::Ordering::Relaxed);
         println!("render_state: {render_state}");
         if render_state < RenderOperation::STATE_FINISHED {
             continue;
@@ -783,6 +766,7 @@ fn finish_render_operation(
 }
 
 #[derive(Debug)]
+#[allow(unused)]
 enum VertexSamplingError {
     OutOfMemory {
         estimated_extra_bp: Option<u64>,
@@ -932,9 +916,6 @@ mod pipeline {
         pub(super) instances: std::ops::Range<u32>,
         pub(super) params: Option<VertexSamplingParams>,
     }
-
-    #[derive(Component)]
-    pub(super) struct BackPolylineVertices(pub(super) PolylineVertices);
 
     #[derive(Component)]
     pub struct ExtractedVertexBuffer {
@@ -1163,23 +1144,16 @@ mod pipeline {
             return;
         };
 
-        // draw the sampled vertices; all that's needed is the vertex buffer and bind group(s)
-        // dbg!();
-
-        // if polylines.is_empty() {
-        // println!("nothing to render!");
-        // }
-
-        dbg!(polylines.is_empty());
-        for (entity, vertices, uniform_indices, render_op, render_tgt) in polylines.iter() {
+        for (_entity, vertices, uniform_indices, render_op, render_tgt) in polylines.iter() {
             let Some(vertices) = vertices.as_ref() else {
-                dbg!();
+                render_op.state.store(
+                    RenderOperation::STATE_ERROR,
+                    std::sync::atomic::Ordering::Relaxed,
+                );
                 continue;
             };
-            dbg!();
-            let render_state = render_op
-                .finished
-                .load(std::sync::atomic::Ordering::Relaxed);
+
+            let render_state = render_op.state.load(std::sync::atomic::Ordering::Relaxed);
 
             if render_state != RenderOperation::STATE_READY {
                 // skip as rendering has already begun
@@ -1194,8 +1168,7 @@ mod pipeline {
                 .get(&render_tgt.0.color)
                 .zip(gpu_images.get(&render_tgt.0.depth))
             else {
-                dbg!();
-                render_op.finished.store(
+                render_op.state.store(
                     RenderOperation::STATE_ERROR,
                     std::sync::atomic::Ordering::Relaxed,
                 );
@@ -1205,8 +1178,7 @@ mod pipeline {
             // println!("rendering to image size {:?}", tgt_img.size);
 
             if vertices.instances.len() == 0 {
-                dbg!();
-                render_op.finished.store(
+                render_op.state.store(
                     RenderOperation::STATE_ERROR,
                     std::sync::atomic::Ordering::Relaxed,
                 );
@@ -1214,11 +1186,6 @@ mod pipeline {
             }
 
             let vx_buffer = &vertices.buffer;
-            // let Some(vx_buffer) = vertices.buffer.buffer() else {
-            //     dbg!();
-            //     continue;
-            // };
-
             // create bind groups
 
             let Some((proj_binding, cfg_binding)) = projections
@@ -1226,8 +1193,7 @@ mod pipeline {
                 .binding()
                 .zip(configs.uniforms().binding())
             else {
-                dbg!();
-                render_op.finished.store(
+                render_op.state.store(
                     RenderOperation::STATE_ERROR,
                     std::sync::atomic::Ordering::Relaxed,
                 );
@@ -1235,15 +1201,14 @@ mod pipeline {
             };
 
             let Some(model_binding) = models.uniforms().binding() else {
-                dbg!();
-                render_op.finished.store(
+                render_op.state.store(
                     RenderOperation::STATE_ERROR,
                     std::sync::atomic::Ordering::Relaxed,
                 );
                 continue;
             };
 
-            render_op.finished.store(
+            render_op.state.store(
                 RenderOperation::STATE_SUBMITTED,
                 std::sync::atomic::Ordering::Relaxed,
             );
@@ -1292,11 +1257,10 @@ mod pipeline {
             }
 
             render_queue.0.submit([cmds.finish()]);
-            // dbg!();
 
             // start render
 
-            let finished = render_op.finished.clone();
+            let finished = render_op.state.clone();
             render_queue.0.on_submitted_work_done(move || {
                 // finished.store(true, std::sync::atomic::Ordering::Relaxed);
                 finished.store(
@@ -1308,6 +1272,7 @@ mod pipeline {
     }
 }
 
+/*
 mod debug {
     use super::*;
 
@@ -1415,3 +1380,4 @@ mod debug {
         }
     }
 }
+*/
