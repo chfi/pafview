@@ -62,8 +62,33 @@ impg = { git = "https://github.com/chfi/impg.git", rev = "5a48b8c90ef7ae9c68933d
 bincode = "1.3.3"
 coitrees = "0.4.0"
 
-# bevy = "0.14"
-bevy = { version = "0.14.2", features = ["dynamic_linking", "bevy_dev_tools"] }
+bevy = { version = "0.14.2", features = [
+    "dynamic_linking",
+    "bevy_dev_tools",
+    "bevy_asset",
+    "bevy_color",
+    "bevy_core_pipeline", # Provides cameras and other basic render pipeline features
+    # "bevy_gilrs",	# Adds gamepad support
+    "bevy_gizmos", # Adds support for rendering gizmos
+    "bevy_gltf",   # glTF support
+    "bevy_pbr",    # Adds PBR rendering
+    "bevy_render", # Provides rendering functionality
+    # "bevy_scene",	# Provides scene functionality
+    "bevy_sprite",  # Provides sprite functionality
+    "bevy_state",   # Enable built in global state machines
+    "bevy_text",    # Provides text functionality
+    "bevy_ui",      # A custom ECS-driven UI framework
+    "bevy_winit",   # winit window and input backend
+    "default_font", # Include a default font, containing only ASCII characters, at the cost of a 20kB binary size increase
+    # "hdr",              # HDR image format support
+    "multi_threaded", # Enables multithreaded parallelism in the engine. Disabling it forces all engine tasks to run on a "single" # thread.
+    "png",            # PNG image format support
+    "sysinfo_plugin", # Enables system information diagnostic plugin
+    # "tonemapping_luts",
+    "webgl2",
+    "x11",    # X11 display server support
+], default-features = false }
+# bevy = { version = "0.14.2", features = ["dynamic_linking", "bevy_dev_tools"] }
 # bevy = { version = "0.14.2", features = ["bevy_dev_tools"] }
 bevy_egui = "0.28.0"
 bevy_polyline = "0.10.0"
