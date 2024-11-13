@@ -54,7 +54,7 @@ impl Plugin for SampledAlignmentRendererPlugin {
                     .chain(),
             );
 
-        app.add_plugins(debug::DebugPlugin);
+        // app.add_plugins(debug::DebugPlugin);
 
         // app.add_systems(Update, viz_image_handle);
         // .add_systems(PostUpdate, finish_vertex_sampling_tasks);
@@ -69,6 +69,7 @@ struct SampledAlignmentViewer {
     view: Option<crate::view::View>,
 
     last_rendered: Option<RenderParams>,
+    last_rendered_sampling_params: Option<VertexSamplingParams>,
 
     last_sampled_at: Option<std::time::Instant>,
     last_rendered_at: Option<std::time::Instant>,
@@ -476,6 +477,7 @@ fn finish_vertex_sampling_tasks(
         viewer.last_sampled_at = Some(std::time::Instant::now());
 
         vertices.instances = 0..inst_count as u32;
+        vertices.params = Some(result.sampling_params);
         {
             let span = info_span!("Vertex buffer write");
             let _guard = span.enter();
@@ -544,16 +546,20 @@ fn update_vertex_transform(
     mut viewers: Query<
         (
             &SampledAlignmentViewer,
-            &VertexSamplingParams,
-            // &PolylineVertices,
+            // &VertexSamplingParams,
+            &PolylineVertices,
             &mut PolylineModel,
         ),
         // Without<RenderOperation>,
     >,
     mut last_scale: Local<Vec3>,
 ) {
-    for (viewer, sampled, mut model) in viewers.iter_mut() {
+    for (viewer, vertices, mut model) in viewers.iter_mut() {
         let Some(next_view) = viewer.view else {
+            continue;
+        };
+
+        let Some(sampled) = vertices.params else {
             continue;
         };
 
@@ -662,6 +668,7 @@ fn update_viewer_sprite_transform(
 struct RenderOperation {
     view: crate::view::View,
     canvas_size: UVec2,
+    vertex_params: VertexSamplingParams,
     #[reflect(ignore)]
     finished: Arc<AtomicU8>,
 }
@@ -678,8 +685,8 @@ fn trigger_render_operation(
     mut commands: Commands,
 
     viewers: Query<
-        (Entity, &SampledAlignmentViewer),
-        (Without<RenderOperation>, With<VertexSamplingParams>),
+        (Entity, &SampledAlignmentViewer, &PolylineVertices),
+        (Without<RenderOperation>),
     >,
     windows: Query<&Window>,
 ) {
@@ -688,7 +695,11 @@ fn trigger_render_operation(
     };
     let canvas_size = window.physical_size();
 
-    for (viewer_ent, viewer) in viewers.iter() {
+    for (viewer_ent, viewer, vertices) in viewers.iter() {
+        let Some(vx_params) = vertices.params else {
+            continue;
+        };
+
         let Some(view) = viewer.view else {
             dbg!();
             continue;
@@ -700,21 +711,24 @@ fn trigger_render_operation(
             }
         }
 
-        let need_render = Some(view) != viewer.last_rendered.map(|p| p.view);
+        let need_render = Some(view) != viewer.last_rendered.map(|p| p.view)
+            || Some(vx_params) != viewer.last_rendered_sampling_params;
 
         if !need_render {
-            dbg!();
+            // dbg!();
             continue;
         }
+
         // println!("triggering re-render");
 
         commands.entity(viewer_ent).insert(RenderOperation {
             view,
             canvas_size,
+            vertex_params: vx_params,
             finished: Arc::new(0.into()),
             // finished: Arc::new(false.into()),
         });
-        dbg!();
+        // dbg!();
     }
 }
 
@@ -757,6 +771,7 @@ fn finish_render_operation(
             view: render_op.view,
             canvas_size: render_op.canvas_size,
         });
+        viewer.last_rendered_sampling_params = Some(render_op.vertex_params);
         viewer.last_rendered_at = Some(std::time::Instant::now());
         std::mem::swap(&mut front_tgts.0, &mut back_tgts.0);
         *sprite_img = front_tgts.0.color.clone_weak();
@@ -915,6 +930,7 @@ mod pipeline {
     pub(super) struct PolylineVertices {
         pub(super) buffer: RawBufferVec<VertexData>,
         pub(super) instances: std::ops::Range<u32>,
+        pub(super) params: Option<VertexSamplingParams>,
     }
 
     #[derive(Component)]
@@ -952,6 +968,7 @@ mod pipeline {
             Self {
                 buffer,
                 instances: 0..0,
+                params: None,
             }
         }
     }
