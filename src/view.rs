@@ -199,16 +199,17 @@ impl View {
         u..d
     }
 
-    pub fn map_world_to_view(&self, world_pt: impl Into<DVec2>) -> DVec2 {
-        let wp = world_pt.into();
+    pub fn map_world_to_view(&self, world_pt: impl Into<[f64; 2]>) -> DVec2 {
+        let wp = DVec2::from(world_pt.into());
         let tleft = DVec2::new(self.x_min, self.y_min);
 
         let vp = wp - tleft;
         vp
     }
 
-    pub fn map_view_to_world(&self, view_pt: impl Into<DVec2>) -> DVec2 {
-        let vp = view_pt.into();
+    pub fn map_view_to_world(&self, view_pt: impl Into<[f64; 2]>) -> DVec2 {
+        // let [vx, vy] = view_pt.into();
+        let vp = DVec2::from(view_pt.into());
         let tleft = DVec2::new(self.x_min, self.y_min);
 
         let wp = vp + tleft;
@@ -218,15 +219,14 @@ impl View {
     pub fn map_screen_to_view(
         &self,
         screen_dims: impl Into<[f32; 2]>,
-        screen_pt: impl Into<Vec2>,
+        screen_pt: impl Into<[f32; 2]>,
     ) -> DVec2 {
         let [sw, sh] = screen_dims.into();
+        let [sx, sy] = screen_pt.into();
         let sw = sw as f64;
         let sh = sh as f64;
 
-        let sp = screen_pt.into();
-
-        let np = DVec2::new(sp.x as f64 / sw, 1.0 - (sp.y as f64 / sh));
+        let np = DVec2::new(sx as f64 / sw, 1.0 - (sy as f64 / sh));
 
         np * self.size()
     }
@@ -234,15 +234,14 @@ impl View {
     pub fn map_view_to_screen(
         &self,
         screen_dims: impl Into<[f32; 2]>,
-        view_pt: impl Into<DVec2>,
+        view_pt: impl Into<[f64; 2]>,
     ) -> Vec2 {
+        let [vx, vy] = view_pt.into();
         let [sw, sh] = screen_dims.into();
         let sdims = DVec2::new(sw as f64, sh as f64);
 
-        let vp = view_pt.into();
-
-        let nx = vp.x / self.width();
-        let ny = vp.y / self.height();
+        let nx = vx / self.width();
+        let ny = vy / self.height();
 
         let np = DVec2::new(nx, ny);
 
@@ -253,7 +252,7 @@ impl View {
     pub fn map_world_to_screen(
         &self,
         screen_dims: impl Into<[f32; 2]>,
-        world_pt: impl Into<DVec2>,
+        world_pt: impl Into<[f64; 2]>,
     ) -> Vec2 {
         let view_pt = self.map_world_to_view(world_pt);
         self.map_view_to_screen(screen_dims, view_pt)
@@ -262,7 +261,7 @@ impl View {
     pub fn map_screen_to_world(
         &self,
         screen_dims: impl Into<[f32; 2]>,
-        screen_pt: impl Into<Vec2>,
+        screen_pt: impl Into<[f32; 2]>,
     ) -> DVec2 {
         let view_pt = self.map_screen_to_view(screen_dims, screen_pt);
         self.map_view_to_world(view_pt)

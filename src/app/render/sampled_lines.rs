@@ -810,6 +810,7 @@ fn sample_segments_from_alignment(
 ) -> Result<usize, VertexSamplingError> {
     let [o_x0, o_y0] = seq_pair_offset.into();
     let [c_width, c_height] = canvas_size.into();
+    let screen_dims = Vec2::new(c_width, c_height);
     //
 
     // AI START
@@ -836,39 +837,64 @@ fn sample_segments_from_alignment(
     // let vis_target_range: std::ops::Range<u64> = todo!();
     let vis_target_range = loc_min..loc_max;
 
-    let cg_iter = alignment.iter_target_range(vis_target_range);
-    let mut cmd_iter = cigar_sampling::CigarScreenPathStrokeIter::new(
-        *view,
-        UVec2::new(c_width as u32, c_height as u32),
-        [o_x0, o_y0],
-        cg_iter,
-    );
-
     let bp_per_px = view.width() / c_width as f64;
-    // let mut path_start: Option<[u64; 2]> = None;
-    let mut path_start = None;
+
+    let (y0, y1) = if loc.query_strand.is_rev() {
+        (loc.query_range.end, loc.query_range.start)
+    } else {
+        (loc.query_range.start, loc.query_range.end)
+    };
+
+    use bevy::math::DVec2;
+
+    let al_start = DVec2::new(o_x0 + loc.target_range.start as f64, o_y0 + y0 as f64);
+    let al_end = DVec2::new(o_x0 + loc.target_range.end as f64, o_y0 + y1 as f64);
+
+    let al_screen_start = view.map_world_to_screen(screen_dims, al_start);
+    let al_screen_end = view.map_world_to_screen(screen_dims, al_end);
 
     let mut buffer_offset = 0;
 
-    while let Some(path_cmd) = cmd_iter.emit_next() {
-        match path_cmd {
-            zeno::Command::MoveTo(p0) => {
-                path_start = Some(p0);
-            }
-            zeno::Command::LineTo(p1) => {
-                if let Some(p0) = path_start.as_mut() {
-                    let half_bp = (0.5 / bp_per_px) as f32;
-                    let vertex = VertexData {
-                        p0: [p0.x + half_bp, p0.y + half_bp],
-                        p1: [p1.x + half_bp, p1.y + half_bp],
-                        z: 0.5,
-                        color: 0xFF000000, // ABGR
-                    };
-                    buffer.push(vertex);
-                    buffer_offset += 1;
+    if alignment.cigar.is_empty() {
+        buffer.push(VertexData {
+            p0: *al_screen_start.as_array(),
+            p1: *al_screen_end.as_array(),
+            z: 0.5,
+            color: 0xFF000000,
+        });
+        buffer_offset += 1;
+    } else {
+        let cg_iter = alignment.iter_target_range(vis_target_range);
+        let mut cmd_iter = cigar_sampling::CigarScreenPathStrokeIter::new(
+            *view,
+            UVec2::new(c_width as u32, c_height as u32),
+            [o_x0, o_y0],
+            cg_iter,
+        );
+
+        // let mut path_start: Option<[u64; 2]> = None;
+        let mut path_start = None;
+
+        while let Some(path_cmd) = cmd_iter.emit_next() {
+            match path_cmd {
+                zeno::Command::MoveTo(p0) => {
+                    path_start = Some(p0);
                 }
+                zeno::Command::LineTo(p1) => {
+                    if let Some(p0) = path_start.as_mut() {
+                        let half_bp = (0.5 / bp_per_px) as f32;
+                        let vertex = VertexData {
+                            p0: [p0.x + half_bp, p0.y + half_bp],
+                            p1: [p1.x + half_bp, p1.y + half_bp],
+                            z: 0.5,
+                            color: 0xFF000000, // ABGR
+                        };
+                        buffer.push(vertex);
+                        buffer_offset += 1;
+                    }
+                }
+                _ => (),
             }
-            _ => (),
         }
     }
 
