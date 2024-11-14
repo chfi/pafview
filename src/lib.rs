@@ -17,7 +17,6 @@ pub mod regions;
 pub mod render;
 pub mod sequences;
 pub mod view;
-pub mod vizlog;
 
 pub use cigar::*;
 pub use paf::{Alignment, Alignments, PafLine};
