@@ -3,6 +3,7 @@ pub mod annotations;
 pub mod figure_export;
 pub mod gui;
 pub mod infobar;
+pub mod input;
 pub mod picking;
 pub mod render;
 pub mod rulers;
