@@ -655,6 +655,9 @@ impl<S: BufRead> Iterator for CigarReaderIter<S> {
 
                 let mut op_count = len;
 
+                // NB: disabled as this is broken, but for compatibility with
+                // the other implementations it should clip (or the others not)
+                /*
                 if let Some(start_bound) = self.target_start {
                     if target_range.start < start_bound {
                         let clipped = start_bound - target_range.start;
@@ -678,6 +681,7 @@ impl<S: BufRead> Iterator for CigarReaderIter<S> {
                         }
                     }
                 }
+                */
 
                 super::CigarIterItem {
                     target_range,
