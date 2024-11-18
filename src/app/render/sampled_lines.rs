@@ -808,8 +808,8 @@ fn sample_segments_from_alignment(
     buffer: &mut Vec<VertexData>,
     // buffer: &mut [VertexData],
 ) -> Result<usize, VertexSamplingError> {
-    let [o_x0, o_y0] = seq_pair_offset.into();
-    let [c_width, c_height] = canvas_size.into();
+    let seq_pair_offset @ [o_x0, o_y0] = seq_pair_offset.into();
+    let canvas_size @ [c_width, c_height] = canvas_size.into();
     let screen_dims = Vec2::new(c_width, c_height);
     //
 
@@ -865,6 +865,9 @@ fn sample_segments_from_alignment(
         buffer_offset += 1;
     } else {
         let cg_iter = alignment.iter_target_range(vis_target_range);
+        buffer_offset +=
+            sample_alignment_iterator(cg_iter, seq_pair_offset, view, canvas_size, buffer);
+        /*
         let mut cmd_iter = cigar_sampling::CigarScreenPathStrokeIter::new(
             *view,
             UVec2::new(c_width as u32, c_height as u32),
@@ -896,9 +899,145 @@ fn sample_segments_from_alignment(
                 _ => (),
             }
         }
+        */
     }
 
     Ok(buffer_offset)
+}
+
+fn sample_alignment_iterator(
+    iter: crate::paf::AlignmentIter,
+    seq_pair_offset: [f64; 2],
+    view: &crate::view::View,
+    canvas_size: [f32; 2],
+    buffer: &mut Vec<VertexData>,
+) -> usize {
+    let [x_o, y_o] = seq_pair_offset;
+
+    let bp_per_px = view.width() / canvas_size[0] as f64;
+
+    let mut open_match_world: Option<[f64; 2]> = None;
+    let mut last_item: Option<crate::paf::AlignmentIterItem> = None;
+
+    fn mk_segment<P: Into<[f32; 2]>>(p0: P, p1: P) -> VertexData {
+        VertexData {
+            p0: p0.into(),
+            p1: p1.into(),
+            z: 0.5,
+            color: 0xFF000000,
+        }
+    }
+
+    let buffer_start_len = buffer.len();
+
+    for item in iter {
+        let item_len = item.op_count as f64;
+
+        let xs = item.target_seq_range();
+        let ys = item.query_seq_range();
+
+        let x0 = xs.start;
+        let x1 = xs.end;
+
+        let mut y0 = ys.start;
+        let mut y1 = ys.end;
+
+        if item.strand().is_rev() {
+            std::mem::swap(&mut y0, &mut y1);
+        }
+
+        if item.op.is_match_or_mismatch() {
+            if item_len > bp_per_px {
+                if let Some(w_prev) = open_match_world {
+                    // this item is big enough to be visible on its own and
+                    // we've already opened a line segment
+
+                    // do nothing?
+                } else {
+                    // this item is big enough to be visible and we haven't opened a line segment
+                    open_match_world = Some([x0 as f64 + x_o, y0 as f64 + y_o]);
+                }
+            } else {
+                if let Some(w_prev) = open_match_world {
+                    // this item is small, and there's already an open
+                    // line segment
+
+                    // do nothing?
+                } else {
+                    // this item is small, but could be the start of
+                    // a line segment continued by the next items
+                    open_match_world = Some([x0 as f64 + x_o, y0 as f64 + y_o]);
+                }
+            }
+        } else {
+            if let Some(w0) = open_match_world {
+                if item_len > bp_per_px {
+                    // open match, and this indel would be visible,
+                    // so emit a line segment
+
+                    let p0 = view.map_world_to_screen(canvas_size, w0);
+
+                    let w1 = [x0 as f64 + x_o, y0 as f64 + y_o];
+                    let p1 = view.map_world_to_screen(canvas_size, w1);
+
+                    let segment = mk_segment(p0, p1);
+                    if buffer.len() - buffer_start_len < 10 {
+                        let i = buffer.len() - buffer_start_len;
+                        println!("{i} {segment:?}\nlast: {last_item:?}");
+                    }
+                    buffer.push(segment);
+                    open_match_world = None;
+                } else {
+                    // open match, but this indel would be invisible
+                    // do nothing?
+                }
+            } else {
+                // no line segment has been opened, and this is an indel,
+                // so there's nothing to do
+            }
+        }
+
+        last_item = Some(item);
+    }
+
+    if let Some(last) = last_item {
+        let last_x0 = last.target_seq_range().start as f64 + x_o;
+        let last_x1 = last.target_seq_range().end as f64 + x_o;
+        let (last_y0, last_y1) = {
+            let y_min = last.query_seq_range().start as f64 + y_o;
+            let y_max = last.query_seq_range().end as f64 + y_o;
+
+            if last.strand().is_rev() {
+                (y_max, y_min)
+            } else {
+                (y_min, y_max)
+            }
+        };
+
+        if let Some(w0) = open_match_world {
+            let p0 = view.map_world_to_screen(canvas_size, w0);
+            let p1 = if last.op.is_match_or_mismatch() {
+                // emit segment [w0, last.op.end]
+                view.map_world_to_screen(canvas_size, [last_x1, last_y1])
+            } else {
+                // emit segment [w0, last.op.start]
+                view.map_world_to_screen(canvas_size, [last_x0, last_y0])
+            };
+            buffer.push(mk_segment(p0, p1));
+        } else {
+            if last.op.is_match_or_mismatch() {
+                // emit segment [last.op.start, last.op.end]
+                let w0 = [last_x0, last_y0];
+                let p0 = view.map_world_to_screen(canvas_size, w0);
+                let w1 = [last_x1, last_y1];
+                let p1 = view.map_world_to_screen(canvas_size, w1);
+                buffer.push(mk_segment(p0, p1));
+            }
+        }
+    }
+
+    let vx_count = buffer.len() - buffer_start_len;
+    vx_count
 }
 
 mod pipeline {
