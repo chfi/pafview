@@ -690,6 +690,7 @@ fn handle_selection_user_input(
 
     mut selection_mode: ResMut<FigureRegionSelectionMode>,
 ) {
+    /*
     let select = super::selection::SelectionAction::RegionSelection;
     let release = super::selection::SelectionAction::SelectionRelease;
 
@@ -706,4 +707,5 @@ fn handle_selection_user_input(
     if let Some(rel_data) = selection_actions.action_data_mut(&release) {
         *rel_data = data;
     }
+    */
 }

@@ -88,11 +88,9 @@ bevy = { version = "0.14.2", features = [
     "webgl2",
     "x11",              # X11 display server support
 ], default-features = false }
-# bevy = { version = "0.14.2", features = ["dynamic_linking", "bevy_dev_tools"] }
-# bevy = { version = "0.14.2", features = ["bevy_dev_tools"] }
 bevy_egui = "0.28.0"
 bevy_polyline = "0.10.0"
-leafwing-input-manager = "0.14.0"
+leafwing-input-manager = "0.15.1"
 bevy_mod_picking = "0.20.1"
 bevy-inspector-egui = "0.25.2"
 rand = "0.8.5"

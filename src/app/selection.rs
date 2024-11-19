@@ -70,10 +70,7 @@ fn setup_selection_input_map(mut commands: Commands) {
     input_map.insert(SelectionAction::SelectionRelease, MouseButton::Right);
     input_map.insert(SelectionAction::ZoomRectangle, MouseButton::Right);
 
-    let dist_chord = UserInput::Chord(vec![
-        InputKind::PhysicalKey(KeyCode::ControlLeft),
-        InputKind::Mouse(MouseButton::Right),
-    ]);
+    let dist_chord = ButtonlikeChord::new([KeyCode::ControlLeft]).with(MouseButton::Right);
     input_map.insert(SelectionAction::DistanceMeasurement, dist_chord);
 
     commands.init_resource::<ActionState<SelectionAction>>();
@@ -110,7 +107,7 @@ pub fn selection_action_input_system<T: Component + SelectionActionTrait + Defau
         if selection_actions.just_released(&Action::SelectionRelease)
             && !selection_actions.pressed(&T::action())
         {
-            selection_actions.consume_all();
+            // selection_actions.consume_all();
             commands.entity(sel_entity).insert(SelectionComplete);
         }
     } else {
