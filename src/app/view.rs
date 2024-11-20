@@ -64,9 +64,8 @@ impl Plugin for AlignmentViewPlugin {
 pub struct CursorAlignmentPosition {
     pub world_pos: Option<bevy::math::DVec2>,
     pub screen_pos: Option<bevy::math::Vec2>,
-
-    pub target_pos: Option<(SeqId, u64)>,
-    pub query_pos: Option<(SeqId, u64)>,
+    // pub target_pos: Option<(SeqId, u64)>,
+    // pub query_pos: Option<(SeqId, u64)>,
 }
 
 // TODO rewrite to use layouts instead of AlignmentGrid
@@ -98,8 +97,8 @@ pub fn update_cursor_world(
         new_al_cursor.screen_pos = Some(screen_pos);
         new_al_cursor.world_pos = Some(world_pos);
 
-        new_al_cursor.target_pos = grid.x_axis.global_to_axis_exact(world_pos.x.round() as u64);
-        new_al_cursor.query_pos = grid.y_axis.global_to_axis_exact(world_pos.y.round() as u64);
+        // new_al_cursor.target_pos = grid.x_axis.global_to_axis_exact(world_pos.x.round() as u64);
+        // new_al_cursor.query_pos = grid.y_axis.global_to_axis_exact(world_pos.y.round() as u64);
     }
 
     *cursor_world = new_al_cursor;

@@ -7,6 +7,52 @@ use super::{
     ForegroundColor,
 };
 
+mod new_rulers {
+
+    use bevy::{math::DVec2, prelude::*, render::view::RenderLayers, sprite::Anchor};
+    use leafwing_input_manager::prelude::*;
+
+    // use super::super::{
+    //     selection::{Selection, SelectionActionTrait, SelectionComplete},
+    //     view::{AlignmentViewport, CursorAlignmentPosition},
+    //     ForegroundColor,
+    // };
+
+    use crate::app::input::{ActiveTool, RulerAction, UserAction, ViewAction};
+
+    pub struct InteractiveRulersPlugin;
+
+    impl Plugin for InteractiveRulersPlugin {
+        fn build(&self, app: &mut App) {
+
+            // app.add_systems();
+        }
+    }
+
+    #[derive(Component)]
+    struct Ruler {
+        start: Entity,
+        end: Entity,
+    }
+
+    #[derive(Component)]
+    struct RulerEndpoint;
+
+    #[derive(Component)]
+    struct HeldByCursor;
+
+    #[derive(Component, Clone, Copy, PartialEq)]
+    struct AtWorldPoint(DVec2);
+
+    fn handle_actions(
+        //
+        mut commands: Commands,
+        ruler_actions: ActionState<RulerAction>,
+    ) {
+        //
+    }
+}
+
 pub(super) struct ViewerRulersPlugin;
 
 impl Plugin for ViewerRulersPlugin {
@@ -113,6 +159,9 @@ fn update_cursor_ruler(
 
         commands.entity(entity).insert(cursor_transform);
 
+        // NB commenting to delete `target_pos` & `query_pos` from `CursorAlignmentPosition`
+        // (since it doesn't make sense anymore)
+        /*
         if let Some((tgt_seq, tgt_pos)) = cursor.target_pos {
             let tgt_name = sequences.sequence_names.get_by_right(&tgt_seq);
             let tgt_text = tgt_name
@@ -157,6 +206,7 @@ fn update_cursor_ruler(
         } else {
             commands.entity(q_label).insert(Visibility::Hidden);
         }
+         */
     }
 }
 
