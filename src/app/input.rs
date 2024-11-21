@@ -1,5 +1,7 @@
-use bevy::prelude::*;
+use bevy::{input::touch::touch_screen_input_system, prelude::*};
 use leafwing_input_manager::prelude::*;
+
+use super::view::AlignmentViewport;
 
 pub struct InputPlugin;
 
@@ -11,13 +13,31 @@ impl Plugin for InputPlugin {
             InputManagerPlugin::<RulerAction>::default(),
         ))
         .init_resource::<ActiveTool>()
+        .add_plugins(input_processors::InputProcessorsPlugin)
+        .add_plugins(cursor::CursorInputPlugin)
         .configure_sets(
             PreUpdate,
-            (InputSet::ForwardUserActions, InputSet::HandleActions)
+            (
+                InputSet::BuildUserActions,
+                InputSet::ForwardUserActions,
+                InputSet::HandleActions,
+            )
                 .chain()
                 .in_set(leafwing_input_manager::plugin::InputManagerSystem::ManualControl), // .after(leafwing_input_manager::plugin::InputManagerSystem::ManualControl),
         )
         .add_systems(Startup, setup_input)
+        .add_systems(
+            PreUpdate,
+            touch_view_actions
+                .after(touch_screen_input_system)
+                .before(forward_view_actions),
+        )
+        .add_systems(
+            PreUpdate,
+            add_cursor_zoom_origin
+                .after(cursor::update_cursor_input)
+                .before(forward_view_actions),
+        )
         .add_systems(
             PreUpdate,
             (forward_tool_actions, forward_view_actions).in_set(InputSet::ForwardUserActions),
@@ -27,6 +47,7 @@ impl Plugin for InputPlugin {
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub enum InputSet {
+    BuildUserActions,
     ForwardUserActions,
     HandleActions,
 }
@@ -64,10 +85,15 @@ pub enum Tools {
 
 #[derive(Actionlike, Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
 pub enum ViewAction {
+    /// Pan the view by the axes' value times the view size
     #[actionlike(DualAxis)]
     Pan,
+    /// Scale the view
     #[actionlike(Axis)]
     Zoom,
+    /// Provides the origin/center for a `Zoom` action
+    #[actionlike(DualAxis)]
+    ZoomOrigin,
     AnchoredPan, // for click & drag, exact
     Reset,
 }
@@ -137,7 +163,35 @@ fn forward_tool_actions(
     //
 }
 
+// run before `forward_view_actions`, after `update_cursor_input`
+fn add_cursor_zoom_origin(
+    cursor: Res<cursor::CursorPosition>,
+    mut user_actions: ResMut<ActionState<UserAction>>,
+    touches: Res<Touches>,
+) {
+    let Some(cursor) = cursor.unit else {
+        return;
+    };
+
+    if let Some(zoom_data) = user_actions
+        .axis_data(&UserAction::View(ViewAction::Zoom))
+        .cloned()
+    {
+        if zoom_data.value != 1.0 {
+            let action = UserAction::View(ViewAction::ZoomOrigin);
+            // NB: this is the easiest way of seeing if there's no touch at all
+            if touches.first_pressed_position().is_none() {
+                if user_actions.axis_data(&action).is_none() {
+                    user_actions.set_axis_pair(&action, cursor);
+                }
+            }
+        }
+    }
+}
+
 fn forward_view_actions(
+    cursor: Res<cursor::CursorPosition>,
+
     user_actions: Res<ActionState<UserAction>>,
     mut view_actions: ResMut<ActionState<ViewAction>>,
     // user_actions: Events<
@@ -167,6 +221,54 @@ fn forward_view_actions(
     }
 
     // let view_action = user_actions.action_data(UserAction::V)
+}
+
+// run after (bevy_input's) `touch_screen_input_system`, before `forward_view_actions`
+fn touch_view_actions(
+    // viewport: Res<AlignmentViewport>,
+    touches: Res<Touches>,
+    mut user_actions: ResMut<ActionState<UserAction>>,
+
+    mut frame_touches: Local<Vec<bevy::input::touch::Touch>>,
+
+    windows: Query<&Window>,
+) {
+    let Ok(window) = windows.get_single() else {
+        return;
+    };
+
+    let win_size = window.size();
+    // let &[vw, vh] = viewport.view.size().as_array();
+    // let view_size = bevy::math::DVec2::new(vw, vh);
+
+    frame_touches.clear();
+    frame_touches.extend(touches.iter().copied());
+
+    match frame_touches.as_slice() {
+        [] => {}
+        [touch] => {
+            // pan
+            let delta = touch.delta();
+            let scaled = delta / win_size;
+            user_actions.set_axis_pair(&UserAction::View(ViewAction::Pan), -scaled);
+        }
+        [ta, tb, ..] => {
+            // zoom
+            let pa_0 = ta.previous_position();
+            let pa_1 = ta.position();
+            let pb_0 = tb.previous_position();
+            let pb_1 = tb.position();
+
+            let d_0 = pa_0 - pb_0;
+            let d_1 = pa_1 - pb_1;
+
+            let len_scale = d_1.length() / d_0.length();
+
+            let origin = ((pa_1 + pb_1) / win_size) * 0.5;
+            user_actions.set_axis_pair(&UserAction::View(ViewAction::ZoomOrigin), origin);
+            user_actions.set_value(&UserAction::View(ViewAction::Zoom), len_scale);
+        }
+    }
 }
 
 fn default_input_map() -> InputMap<UserAction> {
@@ -201,15 +303,108 @@ fn default_input_map() -> InputMap<UserAction> {
         KeyboardVirtualAxis::new(KeyCode::PageUp, KeyCode::PageDown),
     );
 
-    input_map.insert_axis(UserAction::View(ViewAction::Zoom), MouseScrollAxis::Y);
+    input_map.insert_axis(
+        UserAction::View(ViewAction::Zoom),
+        MouseScrollAxis::Y.with_processor(input_processors::ScalingAxisProcessor),
+        // .replace_processing_pipeline([input_processors::ScalingAxisProcessor.into()]),
+    );
 
     input_map
 }
 
-/*
-fn initialize_actions(
-    mut commands: Commands,
-) {
+pub mod cursor {
+    use bevy::math::DVec2;
 
+    use crate::app::view::AlignmentViewport;
+
+    use super::*;
+
+    pub struct CursorInputPlugin;
+
+    impl Plugin for CursorInputPlugin {
+        fn build(&self, app: &mut App) {
+            app
+                // .add_plugins(InputManagerPlugin::<CursorInput>::default())
+                .add_systems(
+                    PreUpdate,
+                    update_cursor_input.in_set(InputSet::BuildUserActions),
+                );
+            // .insert_resource(ActionState::<CursorInput>::default());
+
+            //
+        }
+    }
+
+    #[derive(Resource, Default, Debug, Reflect)]
+    pub struct CursorPosition {
+        pub world: Option<DVec2>,
+        pub screen: Option<Vec2>,
+        pub unit: Option<Vec2>,
+    }
+
+    // NB: this should probably not update while the cursor is over UI/egui
+    pub fn update_cursor_input(
+        viewport: Res<AlignmentViewport>,
+
+        mut cursor: ResMut<CursorPosition>,
+
+        windows: Query<&Window>,
+    ) {
+        let Ok(window) = windows.get_single() else {
+            return;
+        };
+
+        let win_dims = window.size();
+
+        let view = &viewport.view;
+
+        if let Some(cursor_pos) = window.cursor_position() {
+            let world_pos = {
+                let p: [f32; 2] = cursor_pos.into();
+                let wp: [f64; 2] = view.map_screen_to_world(win_dims, p).into();
+                bevy::math::DVec2::from(wp)
+            };
+            let screen_pos = Vec2::new(
+                cursor_pos.x - win_dims.x * 0.5,
+                win_dims.y - cursor_pos.y - win_dims.y * 0.5,
+            );
+
+            cursor.world = Some(world_pos);
+            cursor.screen = Some(screen_pos);
+            cursor.unit = Some(screen_pos / win_dims);
+        } else {
+            cursor.world = None;
+            cursor.screen = None;
+            cursor.unit = None;
+        }
+    }
 }
-*/
+
+pub mod input_processors {
+    use bevy::math::FloatOrd;
+    use bevy::prelude::*;
+    use leafwing_input_manager::prelude::*;
+    use serde::{Deserialize, Serialize};
+    use std::hash::{Hash, Hasher};
+
+    pub struct InputProcessorsPlugin;
+
+    impl Plugin for InputProcessorsPlugin {
+        fn build(&self, app: &mut App) {
+            app.register_axis_processor::<ScalingAxisProcessor>();
+        }
+    }
+
+    /// Axis input processor that maps 0 to 1, positive values above 1, negative
+    /// below 1 but above 0 (exact scaling to be decided)
+    #[derive(Debug, Clone, Copy, PartialEq, Reflect, Serialize, Deserialize, Eq, Hash)]
+    pub struct ScalingAxisProcessor;
+
+    #[serde_typetag]
+    impl CustomAxisProcessor for ScalingAxisProcessor {
+        fn process(&self, input_value: f32) -> f32 {
+            let zoom_rate = 0.05;
+            (1.0 - input_value * zoom_rate).clamp(0.1, 10.0)
+        }
+    }
+}
