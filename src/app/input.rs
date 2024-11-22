@@ -70,10 +70,10 @@ pub enum RectangleSelectAction {
 }
 
 #[derive(Actionlike, Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
-pub struct RectangleZoomAction(RectangleSelectAction);
+pub struct RectangleZoomAction(pub RectangleSelectAction);
 
 #[derive(Actionlike, Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
-pub struct RulerAction(RectangleSelectAction);
+pub struct RulerAction(pub RectangleSelectAction);
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
 pub enum Tools {

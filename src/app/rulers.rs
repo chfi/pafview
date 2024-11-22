@@ -18,13 +18,19 @@ mod new_rulers {
     //     ForegroundColor,
     // };
 
-    use crate::app::input::{ActiveTool, RulerAction, UserAction, ViewAction};
+    use crate::app::input::{
+        cursor::CursorPosition, ActiveTool, RectangleSelectAction, RulerAction, UserAction,
+        ViewAction,
+    };
 
     pub struct InteractiveRulersPlugin;
 
     impl Plugin for InteractiveRulersPlugin {
         fn build(&self, app: &mut App) {
-
+            app.add_systems(
+                PreUpdate,
+                update_rulers.in_set(crate::app::input::InputSet::HandleActions),
+            );
             // app.add_systems();
         }
     }
@@ -36,19 +42,73 @@ mod new_rulers {
     }
 
     #[derive(Component)]
-    struct RulerEndpoint;
+    struct RulerEndpoint {
+        world: DVec2,
+    }
 
-    #[derive(Component)]
-    struct HeldByCursor;
+    // #[derive(Component)]
+    // struct HeldByCursor;
 
-    #[derive(Component, Clone, Copy, PartialEq)]
-    struct AtWorldPoint(DVec2);
+    // #[derive(Component, Clone, Copy, PartialEq)]
+    // struct AtWorldPoint(DVec2);
 
-    fn handle_actions(
-        //
+    // TODO: probably better to use a marker component to track what is held,
+    // and split this into two systems (handle_actions & update_rulers);
+    // the `held_endpoint` `Local` is just to get started
+    fn update_rulers(
         mut commands: Commands,
-        ruler_actions: ActionState<RulerAction>,
+        ruler_actions: Res<ActionState<RulerAction>>,
+        cursor: Res<CursorPosition>,
+
+        mut endpoints: Query<(Entity, &mut RulerEndpoint, &Parent)>,
+
+        mut held_endpoint: Local<Option<Entity>>,
     ) {
+        if let Some((&held, world)) = held_endpoint.as_ref().zip(cursor.world) {
+            // move the endpoint... maybe... idk
+            if let Ok((_, mut endpoint, _)) = endpoints.get_mut(held) {
+                endpoint.world = world;
+            }
+        }
+
+        let mut picked_endpoint = None;
+        if let Some(pos) = cursor.world {
+            for (entity, endpoint, _) in endpoints.iter() {
+                if (endpoint.world - pos).length_squared() < 100.0 {
+                    picked_endpoint = Some(entity);
+                }
+            }
+        }
+
+        if ruler_actions.just_pressed(&RulerAction(RectangleSelectAction::StartOrEndSelect)) {
+            if held_endpoint.is_none() {
+                // spawn both endpoints, placing them under the cursor, but setting one of them to be "held"
+
+                if picked_endpoint.is_none() {
+                    if let Some(pos) = cursor.world {
+                        let mut start = Entity::PLACEHOLDER;
+                        let mut end = Entity::PLACEHOLDER;
+
+                        let root = commands
+                            .spawn_empty()
+                            .with_children(|parent| {
+                                start = parent.spawn(RulerEndpoint { world: pos }).id();
+                                end = parent.spawn(RulerEndpoint { world: pos }).id();
+                            })
+                            .insert(Ruler { start, end })
+                            .id();
+
+                        *held_endpoint = Some(end);
+                    }
+                } else {
+                    *held_endpoint = picked_endpoint;
+                }
+                // todo!();
+            } else if let Some(held) = held_endpoint.take() {
+                // TODO: place the held endpoint
+                // don't need to do anything yet
+            }
+        }
         //
     }
 }
