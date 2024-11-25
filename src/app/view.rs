@@ -39,10 +39,17 @@ impl Plugin for AlignmentViewPlugin {
             .add_systems(Startup, setup)
             .add_systems(
                 PreUpdate,
+                (new_pan_viewport_anchored, new_input_update_viewport)
+                    .chain()
+                    .before(enforce_alignment_viewport_limits)
+                    .in_set(super::input::InputSet::HandleActions),
+            )
+            .add_systems(
+                PreUpdate,
                 (
                     update_viewport_for_window_resize,
-                    click_drag_pan_viewport,
-                    input_update_viewport,
+                    // click_drag_pan_viewport,
+                    // input_update_viewport,
                     enforce_alignment_viewport_limits,
                     update_camera_from_viewport,
                 )

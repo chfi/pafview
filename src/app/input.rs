@@ -30,17 +30,19 @@ impl Plugin for InputPlugin {
             PreUpdate,
             touch_view_actions
                 .after(touch_screen_input_system)
-                .before(forward_view_actions),
+                .in_set(InputSet::BuildUserActions),
         )
         .add_systems(
             PreUpdate,
             add_cursor_zoom_origin
-                .after(cursor::update_cursor_input)
+                .in_set(InputSet::ForwardUserActions)
                 .before(forward_view_actions),
         )
         .add_systems(
             PreUpdate,
-            (forward_tool_actions, forward_view_actions).in_set(InputSet::ForwardUserActions),
+            (forward_view_actions, forward_tool_actions)
+                .chain()
+                .in_set(InputSet::ForwardUserActions),
         );
     }
 }

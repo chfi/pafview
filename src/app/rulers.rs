@@ -18,9 +18,12 @@ mod new_rulers {
     //     ForegroundColor,
     // };
 
-    use crate::app::input::{
-        cursor::CursorPosition, ActiveTool, RectangleSelectAction, RulerAction, UserAction,
-        ViewAction,
+    use crate::app::{
+        input::{
+            cursor::CursorPosition, ActiveTool, RectangleSelectAction, RulerAction, UserAction,
+            ViewAction,
+        },
+        view::AlignmentViewport,
     };
 
     pub struct InteractiveRulersPlugin;
@@ -30,7 +33,8 @@ mod new_rulers {
             app.add_systems(
                 PreUpdate,
                 update_rulers.in_set(crate::app::input::InputSet::HandleActions),
-            );
+            )
+            .add_systems(Update, draw_ruler_gizmos);
             // app.add_systems();
         }
     }
@@ -44,6 +48,51 @@ mod new_rulers {
     #[derive(Component)]
     struct RulerEndpoint {
         world: DVec2,
+    }
+
+    fn draw_ruler_gizmos(
+        mut gizmos: Gizmos<super::RulerGizmos>,
+        viewport: Res<AlignmentViewport>,
+        fg_color: Res<crate::app::ForegroundColor>,
+
+        endpoints: Query<&RulerEndpoint>,
+        rulers: Query<(Entity, &Ruler)>,
+
+        windows: Query<&Window>,
+    ) {
+        let Ok(window) = windows.get_single() else {
+            return;
+        };
+        let win_size = window.size();
+
+        for (entity, ruler) in rulers.iter() {
+            let Some((start, end)) = endpoints
+                .get(ruler.start)
+                .ok()
+                .zip(endpoints.get(ruler.end).ok())
+            else {
+                continue;
+            };
+
+            let s0 = viewport.view.map_world_to_screen(win_size, start.world);
+            let s1 = viewport.view.map_world_to_screen(win_size, end.world);
+
+            let corner = if s0.y > s1.y {
+                [s0.x, s1.y]
+            } else {
+                [s1.x, s0.y]
+            };
+
+            gizmos.linestrip_2d(
+                [[s0.x, s0.y].into(), corner.into(), [s1.x, s1.y].into()],
+                fg_color.0,
+            );
+
+            // gizmos.linestrip_2d([[[]]])
+
+            // gizmos.linestrip_2d([[sp.x, -size.y].into(), [sp.x, size.y].into()], color);
+            // gizmos.linestrip_2d([[-size.x, sp.y].into(), [size.x, sp.y].into()], color);
+        }
     }
 
     // #[derive(Component)]
@@ -118,11 +167,12 @@ pub(super) struct ViewerRulersPlugin;
 impl Plugin for ViewerRulersPlugin {
     fn build(&self, app: &mut App) {
         app.init_gizmo_group::<RulerGizmos>()
-            .add_plugins(MeasurePlugin)
-            .add_systems(Startup, setup_ruler_gizmo_config)
-            .add_systems(Startup, setup)
-            .add_systems(Update, update_cursor_ruler)
-            .add_systems(PostUpdate, draw_cursor_ruler_gizmos);
+            .add_plugins(new_rulers::InteractiveRulersPlugin);
+        // .add_plugins(MeasurePlugin)
+        // .add_systems(Startup, setup_ruler_gizmo_config)
+        // .add_systems(Startup, setup)
+        // .add_systems(Update, update_cursor_ruler)
+        // .add_systems(PostUpdate, draw_cursor_ruler_gizmos);
     }
 }
 
