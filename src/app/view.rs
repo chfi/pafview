@@ -286,12 +286,18 @@ fn new_input_update_viewport(
 
         alignment_view.view.translate(dv.x * w * dt, dv.y * h * dt);
     }
-
-    if let Some((zoom_delta, zoom_center)) = view_actions
+    let zoom_delta = view_actions
         .axis_data(&ViewAction::Zoom)
-        .zip(view_actions.dual_axis_data(&ViewAction::ZoomOrigin))
-    {
-        let center = zoom_center.pair;
+        .cloned()
+        .unwrap_or_default();
+    let zoom_center = view_actions
+        .dual_axis_data(&ViewAction::ZoomOrigin)
+        .map(|data| data.pair)
+        .unwrap_or(Vec2::new(0.5, 0.5));
+
+    if (zoom_delta.value - 1.0).abs() > 0.0 {
+        // println!("zooming with {} around {:?}", zoom_delta.value, zoom_center);
+        let center = zoom_center;
         let x0 = center.x as f64;
         let y0 = center.y as f64;
         alignment_view

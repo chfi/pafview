@@ -126,11 +126,20 @@ impl Actionlike for UserAction {
 
 fn setup_input(mut commands: Commands) {
     let user_action_map = default_input_map();
-
-    commands.init_resource::<ActionState<UserAction>>();
     commands.insert_resource(user_action_map);
 
-    commands.init_resource::<ActionState<ViewAction>>();
+    // commands.init_resource::<ActionState<UserAction>>();
+    let mut initial_actions = ActionState::<UserAction>::default();
+    initial_actions.set_axis_pair(&UserAction::View(ViewAction::ZoomOrigin), [0.5, 0.5].into());
+    initial_actions.set_value(&UserAction::View(ViewAction::Zoom), 1.0);
+    commands.insert_resource(initial_actions);
+
+    let mut view_actions = ActionState::<ViewAction>::default();
+    view_actions.set_axis_pair(&ViewAction::ZoomOrigin, [0.5, 0.5].into());
+    view_actions.set_value(&ViewAction::Zoom, 1.0);
+    commands.insert_resource(view_actions);
+    // commands.init_resource::<ActionState<ViewAction>>();
+
     commands.init_resource::<ActionState<RulerAction>>();
 }
 
@@ -194,7 +203,11 @@ fn add_cursor_zoom_origin(
             let action = UserAction::View(ViewAction::ZoomOrigin);
             // NB: this is the easiest way of seeing if there's no touch at all
             if touches.first_pressed_position().is_none() {
-                user_actions.set_axis_pair(&action, cursor);
+                let mut pos = cursor;
+                pos.y *= -1.0;
+                pos += Vec2::splat(0.5);
+                println!("setting zoom center to {pos:?}");
+                user_actions.set_axis_pair(&action, pos);
             }
         }
     }
@@ -208,11 +221,21 @@ fn forward_view_actions(
     // user_actions: Events<
 ) {
     let action = ViewAction::Zoom;
-    let view = view_actions.axis_data_mut_or_default(&action);
-    *view = user_actions
+    let view_zoom = view_actions.axis_data_mut_or_default(&action);
+    let zoom_data = user_actions
         .axis_data(&UserAction::View(action))
         .cloned()
         .unwrap_or_default();
+
+    // println!("zoom_data value: {}", zoom_data.value);
+    *view_zoom = zoom_data;
+
+    let zoom_center = view_actions.dual_axis_data_mut_or_default(&ViewAction::ZoomOrigin);
+    *zoom_center = user_actions
+        .dual_axis_data(&UserAction::View(ViewAction::ZoomOrigin))
+        .cloned()
+        .unwrap_or_default();
+
 
     let action = ViewAction::Pan;
     let view = view_actions.dual_axis_data_mut_or_default(&action);
@@ -415,8 +438,10 @@ pub mod input_processors {
     #[serde_typetag]
     impl CustomAxisProcessor for ScalingAxisProcessor {
         fn process(&self, input_value: f32) -> f32 {
-            let zoom_rate = 0.05;
-            (1.0 - input_value * zoom_rate).clamp(0.1, 10.0)
+            let zoom_rate = 0.01;
+            let val = (1.0 - input_value * zoom_rate).clamp(0.1, 10.0);
+            // println!("scaling {input_value} -> {val}");
+            val
         }
     }
 }
