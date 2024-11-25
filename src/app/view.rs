@@ -9,6 +9,7 @@ use leafwing_input_manager::action_state::ActionState;
 use crate::sequences::SeqId;
 
 use super::{
+    input::ViewAction,
     selection::{Selection, SelectionActionTrait, SelectionComplete},
     AlignmentCamera,
 };
@@ -259,6 +260,80 @@ fn rectangle_select_zoom_apply(
         }
 
         commands.entity(sel_entity).despawn();
+    }
+}
+
+fn new_input_update_viewport(
+    time: Res<Time>,
+
+    // cursor: Res<super::input::cursor::CursorPosition>,
+    view_actions: Res<ActionState<ViewAction>>,
+
+    mut alignment_view: ResMut<AlignmentViewport>,
+) {
+    let dt = time.delta_seconds_f64();
+
+    if let Some(pan_delta) = view_actions.dual_axis_data(&ViewAction::Pan) {
+        let dv = pan_delta.pair.as_dvec2();
+        let &[w, h] = alignment_view.view.size().as_array();
+
+        alignment_view.view.translate(dv.x * w * dt, dv.y * h * dt);
+    }
+
+    if let Some((zoom_delta, zoom_center)) = view_actions
+        .axis_data(&ViewAction::Zoom)
+        .zip(view_actions.dual_axis_data(&ViewAction::ZoomOrigin))
+    {
+        let center = zoom_center.pair;
+        let x0 = center.x as f64;
+        let y0 = center.y as f64;
+        alignment_view
+            .view
+            .zoom_with_focus([x0, y0], zoom_delta.value as f64);
+    }
+}
+
+// run in `InputSet::HandleActions`
+fn new_pan_viewport_anchored(
+    cursor: Res<super::input::cursor::CursorPosition>,
+    view_actions: Res<ActionState<ViewAction>>,
+
+    mut alignment_view: ResMut<AlignmentViewport>,
+
+    mut click_origin: Local<Option<bevy::math::Vec2>>,
+
+    windows: Query<&Window>,
+) {
+    let Ok(win_size) = windows.get_single().map(|w| w.size()) else {
+        return;
+    };
+
+    if view_actions.released(&ViewAction::AnchoredPan) {
+        *click_origin = None;
+    }
+
+    let Some(cur_screen_pos) = cursor.screen else {
+        return;
+    };
+
+    if view_actions.pressed(&ViewAction::AnchoredPan) && click_origin.is_none() {
+        *click_origin = Some(cur_screen_pos);
+    }
+
+    if let Some(last_screen_pos) = click_origin.as_ref().copied() {
+        // TODO: other actions (modifiers) for pan factor
+        let pan_factor = 1.0;
+        //
+        let screen_delta = last_screen_pos - cur_screen_pos;
+        let norm_delta = screen_delta / win_size;
+        let view_size = alignment_view.view.size();
+        let world_delta = ultraviolet::DVec2::new(
+            norm_delta.x as f64 * view_size.x,
+            norm_delta.y as f64 * view_size.y,
+        ) * pan_factor;
+
+        alignment_view.view.translate(world_delta.x, world_delta.y);
+        *click_origin = Some(cur_screen_pos);
     }
 }
 

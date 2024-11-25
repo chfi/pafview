@@ -30,6 +30,7 @@ impl Plugin for PafViewerPlugin {
         app.add_plugins(bevy_egui::EguiPlugin)
             // .add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::default())
             .init_resource::<AlignmentRenderConfig>()
+            .add_plugins(input::InputPlugin)
             .add_plugins(alignments::AlignmentsPlugin)
             .add_plugins(gui::MenubarPlugin)
             .add_plugins(infobar::InfobarPlugin)

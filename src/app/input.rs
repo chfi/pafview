@@ -103,13 +103,23 @@ pub struct ActiveTool {
     tool: Tools,
 }
 
-#[derive(Actionlike, Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
 pub enum UserAction {
     SelectedTool(SelectedToolAction),
     View(ViewAction),
 
     Cancel,
     // Undo,
+}
+
+impl Actionlike for UserAction {
+    fn input_control_kind(&self) -> InputControlKind {
+        match self {
+            UserAction::SelectedTool(tool) => tool.input_control_kind(),
+            UserAction::View(view) => view.input_control_kind(),
+            UserAction::Cancel => InputControlKind::Button,
+        }
+    }
 }
 
 fn setup_input(mut commands: Commands) {
@@ -119,6 +129,7 @@ fn setup_input(mut commands: Commands) {
     commands.insert_resource(user_action_map);
 
     commands.init_resource::<ActionState<ViewAction>>();
+    commands.init_resource::<ActionState<RulerAction>>();
 }
 
 fn forward_tool_actions(
@@ -181,9 +192,7 @@ fn add_cursor_zoom_origin(
             let action = UserAction::View(ViewAction::ZoomOrigin);
             // NB: this is the easiest way of seeing if there's no touch at all
             if touches.first_pressed_position().is_none() {
-                if user_actions.axis_data(&action).is_none() {
-                    user_actions.set_axis_pair(&action, cursor);
-                }
+                user_actions.set_axis_pair(&action, cursor);
             }
         }
     }
@@ -325,6 +334,7 @@ pub mod cursor {
         fn build(&self, app: &mut App) {
             app
                 // .add_plugins(InputManagerPlugin::<CursorInput>::default())
+                .init_resource::<CursorPosition>()
                 .add_systems(
                     PreUpdate,
                     update_cursor_input.in_set(InputSet::BuildUserActions),
