@@ -23,7 +23,12 @@ impl Plugin for InputPlugin {
                 InputSet::HandleActions,
             )
                 .chain()
-                .in_set(leafwing_input_manager::plugin::InputManagerSystem::ManualControl), // .after(leafwing_input_manager::plugin::InputManagerSystem::ManualControl),
+                .in_set(leafwing_input_manager::plugin::InputManagerSystem::ManualControl),
+            // .after(leafwing_input_manager::plugin::InputManagerSystem::ManualControl),
+        )
+        .configure_sets(
+            PreUpdate,
+            InputSet::BuildUserActions.after(bevy_mod_picking::picking_core::PickSet::PostFocus),
         )
         .add_systems(Startup, setup_input)
         .add_systems(
@@ -111,15 +116,18 @@ pub enum UserAction {
     View(ViewAction),
 
     Cancel,
-    // Undo,
+
+    ModifierPlus,
+    ModifierMinus,
 }
 
 impl Actionlike for UserAction {
     fn input_control_kind(&self) -> InputControlKind {
+        use UserAction::*;
         match self {
-            UserAction::SelectedTool(tool) => tool.input_control_kind(),
-            UserAction::View(view) => view.input_control_kind(),
-            UserAction::Cancel => InputControlKind::Button,
+            SelectedTool(tool) => tool.input_control_kind(),
+            View(view) => view.input_control_kind(),
+            Cancel | ModifierPlus | ModifierMinus => InputControlKind::Button,
         }
     }
 }
@@ -152,6 +160,7 @@ fn forward_tool_actions(
     // ruler_actions:
 
     // mut tool_actions
+    hover_map: Res<bevy_mod_picking::focus::HoverMap>,
 ) {
     let primary_tool_data = user_actions
         .button_data(&UserAction::SelectedTool(SelectedToolAction::Primary))
@@ -162,7 +171,14 @@ fn forward_tool_actions(
         .cloned()
         .unwrap_or_default();
 
-    match active_tool.tool {
+    let tool = if user_actions.pressed(&UserAction::ModifierMinus) {
+        Tools::Ruler
+    } else {
+        Tools::Pan
+    };
+
+    // match active_tool.tool {
+    match tool {
         Tools::Pan => {
             view_actions.set_button_data(ViewAction::AnchoredPan, primary_tool_data);
         }
@@ -235,7 +251,6 @@ fn forward_view_actions(
         .dual_axis_data(&UserAction::View(ViewAction::ZoomOrigin))
         .cloned()
         .unwrap_or_default();
-
 
     let action = ViewAction::Pan;
     let view = view_actions.dual_axis_data_mut_or_default(&action);
@@ -316,6 +331,11 @@ fn default_input_map() -> InputMap<UserAction> {
         UserAction::SelectedTool(SelectedToolAction::Secondary),
         MouseButton::Right,
     );
+
+    input_map.insert(UserAction::ModifierPlus, KeyCode::ShiftLeft);
+    input_map.insert(UserAction::ModifierPlus, KeyCode::ShiftRight);
+    input_map.insert(UserAction::ModifierMinus, KeyCode::ControlLeft);
+    input_map.insert(UserAction::ModifierMinus, KeyCode::ControlRight);
 
     // input_map.insert
 

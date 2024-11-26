@@ -9,7 +9,13 @@ use super::{
 
 mod new_rulers {
 
-    use bevy::{math::DVec2, prelude::*, render::view::RenderLayers, sprite::Anchor};
+    use bevy::{
+        ecs::system::EntityCommands,
+        math::DVec2,
+        prelude::*,
+        render::view::RenderLayers,
+        sprite::{Anchor, Mesh2dHandle},
+    };
     use leafwing_input_manager::prelude::*;
 
     // use super::super::{
@@ -33,8 +39,8 @@ mod new_rulers {
             app.add_systems(
                 PreUpdate,
                 update_rulers.in_set(crate::app::input::InputSet::HandleActions),
-            )
-            .add_systems(Update, draw_ruler_gizmos);
+            );
+            // .add_systems(Update, draw_ruler_gizmos);
             // app.add_systems();
         }
     }
@@ -46,10 +52,20 @@ mod new_rulers {
     }
 
     #[derive(Component)]
+    struct RulerAxes {
+        vertical: Entity,
+        horizontal: Entity,
+    }
+
+    #[derive(Component)]
+    struct RulerAxis;
+
+    #[derive(Component)]
     struct RulerEndpoint {
         world: DVec2,
     }
 
+    /*
     fn draw_ruler_gizmos(
         mut gizmos: Gizmos<super::RulerGizmos>,
         viewport: Res<AlignmentViewport>,
@@ -83,15 +99,153 @@ mod new_rulers {
                 [s1.x, s0.y]
             };
 
-            gizmos.linestrip_2d(
-                [[s0.x, s0.y].into(), corner.into(), [s1.x, s1.y].into()],
-                fg_color.0,
-            );
+            println!("drawing ruler: {s0:?} - {corner:?} - {s1:?}");
+            // gizmos.linestrip_2d(
+            //     [[s0.x, s0.y].into(), corner.into(), [s1.x, s1.y].into()],
+            //     fg_color.0,
+            // );
 
             // gizmos.linestrip_2d([[[]]])
 
             // gizmos.linestrip_2d([[sp.x, -size.y].into(), [sp.x, size.y].into()], color);
             // gizmos.linestrip_2d([[-size.x, sp.y].into(), [size.x, sp.y].into()], color);
+        }
+    }
+    */
+
+    fn spawn_ruler<'a>(
+        commands: &'a mut Commands,
+        text_color: impl Into<Color>,
+        start_point: DVec2,
+        end_point: DVec2,
+    ) -> (EntityCommands<'a>, Entity, Entity) {
+        let mut start = Entity::PLACEHOLDER;
+        let mut end = Entity::PLACEHOLDER;
+
+        let mut root = commands.spawn_empty();
+
+        root.with_children(|parent| {
+            let bundle = (
+                RenderLayers::layer(1),
+                Text2dBundle {
+                    text: Text::from_section(
+                        "",
+                        TextStyle {
+                            color: text_color.into(),
+                            ..default()
+                        },
+                    ),
+                    text_anchor: Anchor::BottomCenter,
+                    visibility: Visibility::Visible,
+                    ..default()
+                },
+            );
+
+            start = parent
+                .spawn(RulerEndpoint { world: start_point })
+                .insert(bundle.clone())
+                .id();
+            end = parent
+                .spawn(RulerEndpoint { world: end_point })
+                .insert(bundle)
+                .id();
+        })
+        .insert(Ruler { start, end });
+
+        (root, start, end)
+    }
+
+    fn add_ruler_visuals(
+        mut commands: Commands,
+
+        mut meshes: ResMut<Assets<Mesh>>,
+        mut materials: ResMut<Assets<ColorMaterial>>,
+
+        rulers: Query<(Entity, &Ruler), Without<RulerAxes>>,
+
+        mut ruler_mesh_material: Local<Option<(Mesh2dHandle, Handle<ColorMaterial>)>>,
+    ) {
+        if ruler_mesh_material.is_none() {
+            let mesh = Mesh2dHandle(meshes.add(Rectangle::new(1.0, 1.0)));
+            let material = materials.add(Color::BLACK);
+            *ruler_mesh_material = Some((mesh, material));
+        }
+
+        let Some((mesh, material)) = ruler_mesh_material.as_ref() else {
+            return;
+        };
+
+        for (root_ent, _endpoints) in rulers.iter() {
+            let vertical = commands
+                .spawn((
+                    RulerAxis,
+                    RenderLayers::layer(1),
+                    mesh.clone(),
+                    material.clone(),
+                    SpatialBundle::default(),
+                ))
+                .id();
+
+            let horizontal = commands
+                .spawn((
+                    RulerAxis,
+                    RenderLayers::layer(1),
+                    mesh.clone(),
+                    material.clone(),
+                    SpatialBundle::default(),
+                ))
+                .id();
+
+            let axes = RulerAxes {
+                vertical,
+                horizontal,
+            };
+
+            commands.entity(root_ent).insert(axes);
+        }
+    }
+
+    fn update_ruler_axes(
+        view: Res<AlignmentViewport>,
+
+        rulers: Query<(&Ruler, &RulerAxes)>,
+        endpoints: Query<&RulerEndpoint>,
+        mut transforms: Query<&mut Transform, With<RulerAxis>>,
+
+        windows: Query<&Window>,
+    ) {
+        let Ok(screen_dims) = windows.get_single().map(|w| w.size()) else {
+            return;
+        };
+
+        for (ruler, axes) in rulers.iter() {
+            let start = endpoints.get(ruler.start).map(|p| p.world);
+            let end = endpoints.get(ruler.end).map(|p| p.world);
+
+            let Some((start, end)) = start.ok().zip(end.ok()) else {
+                continue;
+            };
+
+            let start_s = view.view.map_world_to_screen(screen_dims, start);
+            let end_s = view.view.map_world_to_screen(screen_dims, end);
+
+            let dims = (start_s - end_s).abs();
+            let mid = (start_s + end_s) * 0.5;
+
+            let height = dims.y;
+            let width = dims.x;
+
+            // the axes are *not* children of the ruler, so they're not influenced
+            // by the transform hierarchy
+            if let Ok(mut transform) = transforms.get_mut(axes.vertical) {
+                transform.scale = Vec3::new(2.0, height, 1.0);
+                transform.translation = Vec3::new(start_s.x, mid.y, 1.0);
+            }
+
+            if let Ok(mut transform) = transforms.get_mut(axes.horizontal) {
+                transform.scale = Vec3::new(width, 2.0, 1.0);
+                transform.translation = Vec3::new(mid.x, end_s.y, 1.0);
+            }
         }
     }
 
