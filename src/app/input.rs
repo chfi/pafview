@@ -13,7 +13,6 @@ impl Plugin for InputPlugin {
             InputManagerPlugin::<RulerAction>::default(),
         ))
         .init_resource::<ActiveTool>()
-        .add_plugins(input_processors::InputProcessorsPlugin)
         .add_plugins(cursor::CursorInputPlugin)
         .configure_sets(
             PreUpdate,
@@ -215,7 +214,7 @@ fn add_cursor_zoom_origin(
         .axis_data(&UserAction::View(ViewAction::Zoom))
         .cloned()
     {
-        if zoom_data.value != 1.0 {
+        if zoom_data.value != 0.0 {
             let action = UserAction::View(ViewAction::ZoomOrigin);
             // NB: this is the easiest way of seeing if there's no touch at all
             if touches.first_pressed_position().is_none() {
@@ -315,7 +314,7 @@ fn touch_view_actions(
 
             let origin = ((pa_1 + pb_1) / win_size) * 0.5;
             user_actions.set_axis_pair(&UserAction::View(ViewAction::ZoomOrigin), origin);
-            user_actions.set_value(&UserAction::View(ViewAction::Zoom), len_scale);
+            user_actions.set_value(&UserAction::View(ViewAction::Zoom), 1.0 - len_scale);
         }
     }
 }
@@ -337,6 +336,7 @@ fn default_input_map() -> InputMap<UserAction> {
     input_map.insert(UserAction::ModifierMinus, KeyCode::ControlLeft);
     input_map.insert(UserAction::ModifierMinus, KeyCode::ControlRight);
 
+    input_map.insert(UserAction::View(ViewAction::Reset), KeyCode::Escape);
     // input_map.insert
 
     input_map.insert_dual_axis(
@@ -354,12 +354,13 @@ fn default_input_map() -> InputMap<UserAction> {
     );
     input_map.insert_axis(
         UserAction::View(ViewAction::Zoom),
-        KeyboardVirtualAxis::new(KeyCode::PageUp, KeyCode::PageDown),
+        KeyboardVirtualAxis::new(KeyCode::PageDown, KeyCode::PageUp), // .with_processor(input_processors::ScalingAxisProcessor),
     );
 
     input_map.insert_axis(
         UserAction::View(ViewAction::Zoom),
-        MouseScrollAxis::Y.with_processor(input_processors::ScalingAxisProcessor),
+        MouseScrollAxis::Y,
+        // .with_processor(input_processors::ScalingAxisProcessor),
         // .replace_processing_pipeline([input_processors::ScalingAxisProcessor.into()]),
     );
 
@@ -435,6 +436,7 @@ pub mod cursor {
     }
 }
 
+/*
 pub mod input_processors {
     use bevy::math::FloatOrd;
     use bevy::prelude::*;
@@ -458,10 +460,11 @@ pub mod input_processors {
     #[serde_typetag]
     impl CustomAxisProcessor for ScalingAxisProcessor {
         fn process(&self, input_value: f32) -> f32 {
-            let zoom_rate = 0.01;
+            let zoom_rate = 0.05;
             let val = (1.0 - input_value * zoom_rate).clamp(0.1, 10.0);
-            // println!("scaling {input_value} -> {val}");
+            println!("scaling {input_value} -> {val}");
             val
         }
     }
 }
+*/

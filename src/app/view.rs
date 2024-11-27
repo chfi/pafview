@@ -276,9 +276,21 @@ fn new_input_update_viewport(
     // cursor: Res<super::input::cursor::CursorPosition>,
     view_actions: Res<ActionState<ViewAction>>,
 
+    layout_bounds: Res<LayoutBounds>,
     mut alignment_view: ResMut<AlignmentViewport>,
+    mut view_events: EventWriter<ViewEvent>,
 ) {
     let dt = time.delta_seconds_f64();
+
+    if view_actions.just_pressed(&ViewAction::Reset)
+    // && !region_selection_mode
+    //     .map(|sel| sel.user_is_selecting)
+    //     .unwrap_or(false)
+    {
+        view_events.send(ViewEvent {
+            view: layout_bounds.bounds,
+        });
+    }
 
     if let Some(pan_delta) = view_actions.dual_axis_data(&ViewAction::Pan) {
         let dv = pan_delta.pair.as_dvec2();
@@ -286,23 +298,27 @@ fn new_input_update_viewport(
 
         alignment_view.view.translate(dv.x * w * dt, dv.y * h * dt);
     }
-    let zoom_delta = view_actions
-        .axis_data(&ViewAction::Zoom)
-        .cloned()
-        .unwrap_or_default();
+    let zoom_input = view_actions.value(&ViewAction::Zoom);
+    // .axis_data(&ViewAction::Zoom)
+    // .cloned()
+    // .unwrap_or_default();
+
+    let zoom_rate = 0.05;
+    let zoom_delta = (1.0 - zoom_input * zoom_rate).clamp(0.1, 10.0);
+
     let zoom_center = view_actions
         .dual_axis_data(&ViewAction::ZoomOrigin)
         .map(|data| data.pair)
         .unwrap_or(Vec2::new(0.5, 0.5));
 
-    if (zoom_delta.value - 1.0).abs() > 0.0 {
+    if (zoom_delta - 1.0).abs() > 0.0 {
         // println!("zooming with {} around {:?}", zoom_delta.value, zoom_center);
         let center = zoom_center;
         let x0 = center.x as f64;
         let y0 = center.y as f64;
         alignment_view
             .view
-            .zoom_with_focus([x0, y0], zoom_delta.value as f64);
+            .zoom_with_focus([x0, y0], zoom_delta as f64);
     }
 }
 
