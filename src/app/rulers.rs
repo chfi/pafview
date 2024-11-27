@@ -38,8 +38,9 @@ mod new_rulers {
         fn build(&self, app: &mut App) {
             app.add_systems(
                 PreUpdate,
-                update_rulers.in_set(crate::app::input::InputSet::HandleActions),
-            );
+                interact_with_rulers.in_set(crate::app::input::InputSet::HandleActions),
+            )
+            .add_systems(Update, (add_ruler_visuals, update_rulers).chain());
             // .add_systems(Update, draw_ruler_gizmos);
             // app.add_systems();
         }
@@ -115,21 +116,23 @@ mod new_rulers {
 
     fn spawn_ruler<'a>(
         commands: &'a mut Commands,
-        text_color: impl Into<Color>,
+        // text_color: impl Into<Color>,
         start_point: DVec2,
         end_point: DVec2,
     ) -> (EntityCommands<'a>, Entity, Entity) {
         let mut start = Entity::PLACEHOLDER;
         let mut end = Entity::PLACEHOLDER;
 
-        let mut root = commands.spawn_empty();
+        let mut root = commands.spawn((SpatialBundle { ..default() }, RenderLayers::layer(1)));
+
+        let text_color = Color::BLACK;
 
         root.with_children(|parent| {
             let bundle = (
                 RenderLayers::layer(1),
                 Text2dBundle {
                     text: Text::from_section(
-                        "",
+                        "is this anything",
                         TextStyle {
                             color: text_color.into(),
                             ..default()
@@ -201,16 +204,19 @@ mod new_rulers {
                 horizontal,
             };
 
-            commands.entity(root_ent).insert(axes);
+            commands
+                .entity(root_ent)
+                .push_children(&[vertical, horizontal])
+                .insert((axes, mesh.clone(), material.clone()));
         }
     }
 
-    fn update_ruler_axes(
+    fn update_rulers(
         view: Res<AlignmentViewport>,
 
-        rulers: Query<(&Ruler, &RulerAxes)>,
+        rulers: Query<(Entity, &Ruler, &RulerAxes)>,
         endpoints: Query<&RulerEndpoint>,
-        mut transforms: Query<&mut Transform, With<RulerAxis>>,
+        mut transforms: Query<&mut Transform, Or<(With<RulerAxis>, With<Ruler>)>>,
 
         windows: Query<&Window>,
     ) {
@@ -218,7 +224,7 @@ mod new_rulers {
             return;
         };
 
-        for (ruler, axes) in rulers.iter() {
+        for (ruler_entity, ruler, axes) in rulers.iter() {
             let start = endpoints.get(ruler.start).map(|p| p.world);
             let end = endpoints.get(ruler.end).map(|p| p.world);
 
@@ -235,16 +241,27 @@ mod new_rulers {
             let height = dims.y;
             let width = dims.x;
 
+            if let Ok(mut transform) = transforms.get_mut(ruler_entity) {
+                transform.translation = Vec3::new(end_s.x, screen_dims.y - start_s.y, 1.0)
+                    - Vec3::new(screen_dims.x, screen_dims.y, 0.0) * 0.5;
+                // transform.translation = Vec3::new(screen_dims.x, screen_dims.y, 1.0) * Vec3::new();
+                println!("setting root to {transform:?}");
+            }
+
             // the axes are *not* children of the ruler, so they're not influenced
             // by the transform hierarchy
             if let Ok(mut transform) = transforms.get_mut(axes.vertical) {
                 transform.scale = Vec3::new(2.0, height, 1.0);
-                transform.translation = Vec3::new(start_s.x, mid.y, 1.0);
+                transform.translation = Vec3::new(0.0, mid.y, 0.0);
+                // transform.translation = Vec3::new(start_s.x, mid.y, 0.0);
+                // println!("setting vertical axis to {transform:?}");
             }
 
             if let Ok(mut transform) = transforms.get_mut(axes.horizontal) {
                 transform.scale = Vec3::new(width, 2.0, 1.0);
-                transform.translation = Vec3::new(mid.x, end_s.y, 1.0);
+                transform.translation = Vec3::new(mid.x, 0.0, 0.0);
+                // transform.translation = Vec3::new(mid.x, end_s.y, 0.0);
+                // println!("setting horizontal axis to {transform:?}");
             }
         }
     }
@@ -258,7 +275,7 @@ mod new_rulers {
     // TODO: probably better to use a marker component to track what is held,
     // and split this into two systems (handle_actions & update_rulers);
     // the `held_endpoint` `Local` is just to get started
-    fn update_rulers(
+    fn interact_with_rulers(
         mut commands: Commands,
         ruler_actions: Res<ActionState<RulerAction>>,
         cursor: Res<CursorPosition>,
@@ -289,17 +306,19 @@ mod new_rulers {
 
                 if picked_endpoint.is_none() {
                     if let Some(pos) = cursor.world {
-                        let mut start = Entity::PLACEHOLDER;
-                        let mut end = Entity::PLACEHOLDER;
+                        // let mut start = Entity::PLACEHOLDER;
+                        // let mut end = Entity::PLACEHOLDER;
 
-                        let root = commands
-                            .spawn_empty()
-                            .with_children(|parent| {
-                                start = parent.spawn(RulerEndpoint { world: pos }).id();
-                                end = parent.spawn(RulerEndpoint { world: pos }).id();
-                            })
-                            .insert(Ruler { start, end })
-                            .id();
+                        let (root, start, end) = spawn_ruler(&mut commands, pos, pos);
+
+                        // let root = commands
+                        //     .spawn_empty()
+                        //     .with_children(|parent| {
+                        //         start = parent.spawn(RulerEndpoint { world: pos }).id();
+                        //         end = parent.spawn(RulerEndpoint { world: pos }).id();
+                        //     })
+                        //     .insert(Ruler { start, end })
+                        //     .id();
 
                         *held_endpoint = Some(end);
                     }
