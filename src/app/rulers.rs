@@ -241,25 +241,53 @@ mod new_rulers {
             let height = dims.y;
             let width = dims.x;
 
+            // the root of the ruler is at the middle of the rectangle defined by its endpoints
             if let Ok(mut transform) = transforms.get_mut(ruler_entity) {
-                transform.translation = Vec3::new(end_s.x, screen_dims.y - start_s.y, 1.0)
+                // transform.translation = Vec3::new(end_s.x, screen_dims.y - start_s.y, 1.0)
+
+                transform.translation = Vec3::new(mid.x, screen_dims.y - mid.y, 1.0)
                     - Vec3::new(screen_dims.x, screen_dims.y, 0.0) * 0.5;
+
+                // transform.translation = Vec3::new(mid.x, screen_dims.y - end_s.y, 1.0)
+                // transform.translation = Vec3::new(start_s.x, screen_dims.y - start_s.y, 1.0)
+                // - Vec3::new(screen_dims.x, screen_dims.y, 0.0) * 0.5;
                 // transform.translation = Vec3::new(screen_dims.x, screen_dims.y, 1.0) * Vec3::new();
                 println!("setting root to {transform:?}");
             }
 
-            // the axes are *not* children of the ruler, so they're not influenced
-            // by the transform hierarchy
+            // the vertical and horizontal axes are one of the corresponding sides of the rectangle
             if let Ok(mut transform) = transforms.get_mut(axes.vertical) {
                 transform.scale = Vec3::new(2.0, height, 1.0);
-                transform.translation = Vec3::new(0.0, mid.y, 0.0);
+
+                transform.translation = Vec3::new(width * 0.5, 0.0, 0.0);
+                if end_s.x > start_s.x {
+                    transform.translation.x *= -1.0;
+                }
+                // transform.translation = Vec3::new(0.0, height * 0.5, 0.0);
+                // if end_s.y > start_s.y {
+                //     transform.translation.y *= -1.0;
+                // };
+                // transform.translation = Vec3::new(width * 0.5, height * 0.5, 0.0);
+                // transform.translation = Vec3::new(0.0, mid.y, 0.0);
                 // transform.translation = Vec3::new(start_s.x, mid.y, 0.0);
                 // println!("setting vertical axis to {transform:?}");
             }
 
             if let Ok(mut transform) = transforms.get_mut(axes.horizontal) {
                 transform.scale = Vec3::new(width, 2.0, 1.0);
-                transform.translation = Vec3::new(mid.x, 0.0, 0.0);
+
+                transform.translation = Vec3::new(0.0, height * 0.5, 0.0);
+                if end_s.y > start_s.y {
+                    transform.translation.y *= -1.0;
+                };
+
+                // transform.translation = Vec3::new(width * 0.5, 0.0, 0.0);
+                // if end_s.x > start_s.x {
+                //     transform.translation.x *= -1.0;
+                // };
+                // transform.translation = Vec3::new(width * 0.5, 0.0, 0.0);
+                // transform.translation
+                // transform.translation = Vec3::new(mid.x, 0.0, 0.0);
                 // transform.translation = Vec3::new(mid.x, end_s.y, 0.0);
                 // println!("setting horizontal axis to {transform:?}");
             }
