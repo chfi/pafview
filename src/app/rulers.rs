@@ -55,11 +55,16 @@ mod new_rulers {
     #[derive(Component)]
     struct RulerAxes {
         vertical: Entity,
+        vertical_text: Entity,
         horizontal: Entity,
+        horizontal_text: Entity,
     }
 
-    #[derive(Component)]
+    #[derive(Component, Clone)]
     struct RulerAxis;
+
+    #[derive(Component, Clone)]
+    struct RulerText;
 
     #[derive(Component)]
     struct RulerEndpoint {
@@ -125,23 +130,22 @@ mod new_rulers {
 
         let mut root = commands.spawn((SpatialBundle { ..default() }, RenderLayers::layer(1)));
 
-        let text_color = Color::BLACK;
-
         root.with_children(|parent| {
             let bundle = (
                 RenderLayers::layer(1),
-                Text2dBundle {
-                    text: Text::from_section(
-                        "is this anything",
-                        TextStyle {
-                            color: text_color.into(),
-                            ..default()
-                        },
-                    ),
-                    text_anchor: Anchor::BottomCenter,
-                    visibility: Visibility::Visible,
-                    ..default()
-                },
+                SpatialBundle::default(),
+                // Text2dBundle {
+                //     text: Text::from_section(
+                //         "is this anything",
+                //         TextStyle {
+                //             color: text_color.into(),
+                //             ..default()
+                //         },
+                //     ),
+                //     text_anchor: Anchor::BottomCenter,
+                //     visibility: Visibility::Visible,
+                //     ..default()
+                // },
             );
 
             start = parent
@@ -174,39 +178,70 @@ mod new_rulers {
             *ruler_mesh_material = Some((mesh, material));
         }
 
+        let text_color = Color::BLACK;
+
         let Some((mesh, material)) = ruler_mesh_material.as_ref() else {
             return;
         };
 
         for (root_ent, _endpoints) in rulers.iter() {
-            let vertical = commands
-                .spawn((
-                    RulerAxis,
-                    RenderLayers::layer(1),
-                    mesh.clone(),
-                    material.clone(),
-                    SpatialBundle::default(),
-                ))
+            let bundle = (
+                RulerText,
+                RenderLayers::layer(1),
+                // text_bundle
+                Text2dBundle {
+                    text: Text::from_section(
+                        "",
+                        TextStyle {
+                            color: text_color.into(),
+                            ..default()
+                        },
+                    ),
+                    text_anchor: Anchor::BottomCenter,
+                    visibility: Visibility::Visible,
+                    ..default()
+                },
+            );
+
+            let mesh_bundle = (
+                RulerAxis,
+                RenderLayers::layer(1),
+                mesh.clone(),
+                material.clone(),
+                SpatialBundle::default(),
+            );
+
+            let mut vertical_axis = Entity::PLACEHOLDER;
+            let mut horizontal_axis = Entity::PLACEHOLDER;
+
+            // the (visual) axis is a descendant of the ruler text,
+            // since the axis is also scaled
+            let vertical_text = commands
+                .spawn(bundle.clone())
+                .insert(Anchor::CenterRight)
+                .with_children(|parent| {
+                    vertical_axis = parent.spawn(mesh_bundle.clone()).id();
+                })
                 .id();
 
-            let horizontal = commands
-                .spawn((
-                    RulerAxis,
-                    RenderLayers::layer(1),
-                    mesh.clone(),
-                    material.clone(),
-                    SpatialBundle::default(),
-                ))
+            let horizontal_text = commands
+                .spawn(bundle)
+                .insert(Anchor::CenterLeft)
+                .with_children(|parent| {
+                    horizontal_axis = parent.spawn(mesh_bundle.clone()).id();
+                })
                 .id();
 
             let axes = RulerAxes {
-                vertical,
-                horizontal,
+                vertical: vertical_axis,
+                vertical_text,
+                horizontal: horizontal_axis,
+                horizontal_text,
             };
 
             commands
                 .entity(root_ent)
-                .push_children(&[vertical, horizontal])
+                .push_children(&[vertical_text, horizontal_text])
                 .insert((axes, mesh.clone(), material.clone()));
         }
     }
@@ -216,7 +251,17 @@ mod new_rulers {
 
         rulers: Query<(Entity, &Ruler, &RulerAxes)>,
         endpoints: Query<&RulerEndpoint>,
-        mut transforms: Query<&mut Transform, Or<(With<RulerAxis>, With<Ruler>)>>,
+        mut transforms: Query<
+            &mut Transform,
+            Or<(
+                With<Ruler>,
+                With<RulerAxis>,
+                With<RulerEndpoint>,
+                With<RulerText>,
+            )>,
+        >,
+
+        mut texts: Query<(&mut Text, &mut Anchor), With<RulerText>>,
 
         windows: Query<&Window>,
     ) {
@@ -241,55 +286,63 @@ mod new_rulers {
             let height = dims.y;
             let width = dims.x;
 
-            // the root of the ruler is at the middle of the rectangle defined by its endpoints
-            if let Ok(mut transform) = transforms.get_mut(ruler_entity) {
-                // transform.translation = Vec3::new(end_s.x, screen_dims.y - start_s.y, 1.0)
-
-                transform.translation = Vec3::new(mid.x, screen_dims.y - mid.y, 1.0)
-                    - Vec3::new(screen_dims.x, screen_dims.y, 0.0) * 0.5;
-
-                // transform.translation = Vec3::new(mid.x, screen_dims.y - end_s.y, 1.0)
-                // transform.translation = Vec3::new(start_s.x, screen_dims.y - start_s.y, 1.0)
-                // - Vec3::new(screen_dims.x, screen_dims.y, 0.0) * 0.5;
-                // transform.translation = Vec3::new(screen_dims.x, screen_dims.y, 1.0) * Vec3::new();
-                println!("setting root to {transform:?}");
+            // set the endpoints to the screen position corresponding to their world position
+            if let Ok(mut transform) = transforms.get_mut(ruler.start) {
+                transform.translation = Vec3::new(start_s.x, screen_dims.y - start_s.y, 0.0);
+            }
+            if let Ok(mut transform) = transforms.get_mut(ruler.end) {
+                transform.translation = Vec3::new(end_s.x, screen_dims.y - end_s.y, 0.0);
             }
 
-            // the vertical and horizontal axes are one of the corresponding sides of the rectangle
-            if let Ok(mut transform) = transforms.get_mut(axes.vertical) {
-                transform.scale = Vec3::new(2.0, height, 1.0);
+            // the root of the ruler is at the middle of the rectangle defined by its endpoints
+            if let Ok(mut transform) = transforms.get_mut(ruler_entity) {
+                transform.translation = Vec3::new(mid.x, screen_dims.y - mid.y, 1.0)
+                    - Vec3::new(screen_dims.x, screen_dims.y, 0.0) * 0.5;
+            }
+
+            // the text labels are placed on the outside of the corresponding rectangle side,
+            // with the text anchors set accordingly
+            if let Some(((mut text, mut anchor), mut transform)) = texts
+                .get_mut(axes.vertical_text)
+                .ok()
+                .zip(transforms.get_mut(axes.vertical_text).ok())
+            {
+                text.sections[0].value = format!("{}", (start - end).y.abs().round() as u64);
 
                 transform.translation = Vec3::new(width * 0.5, 0.0, 0.0);
                 if end_s.x > start_s.x {
                     transform.translation.x *= -1.0;
+                    *anchor = Anchor::CenterRight;
+                } else {
+                    *anchor = Anchor::CenterLeft;
                 }
-                // transform.translation = Vec3::new(0.0, height * 0.5, 0.0);
-                // if end_s.y > start_s.y {
-                //     transform.translation.y *= -1.0;
-                // };
-                // transform.translation = Vec3::new(width * 0.5, height * 0.5, 0.0);
-                // transform.translation = Vec3::new(0.0, mid.y, 0.0);
-                // transform.translation = Vec3::new(start_s.x, mid.y, 0.0);
-                // println!("setting vertical axis to {transform:?}");
             }
 
-            if let Ok(mut transform) = transforms.get_mut(axes.horizontal) {
-                transform.scale = Vec3::new(width, 2.0, 1.0);
+            // if let Ok(mut text) = texts.get_mut(axes.horizontal_text) {
+            if let Some(((mut text, mut anchor), mut transform)) = texts
+                .get_mut(axes.horizontal_text)
+                .ok()
+                .zip(transforms.get_mut(axes.horizontal_text).ok())
+            {
+                text.sections[0].value = format!("{}", (start - end).x.abs().round() as u64);
 
                 transform.translation = Vec3::new(0.0, height * 0.5, 0.0);
                 if end_s.y > start_s.y {
                     transform.translation.y *= -1.0;
+                    *anchor = Anchor::TopCenter;
+                } else {
+                    *anchor = Anchor::BottomCenter;
                 };
+            }
 
-                // transform.translation = Vec3::new(width * 0.5, 0.0, 0.0);
-                // if end_s.x > start_s.x {
-                //     transform.translation.x *= -1.0;
-                // };
-                // transform.translation = Vec3::new(width * 0.5, 0.0, 0.0);
-                // transform.translation
-                // transform.translation = Vec3::new(mid.x, 0.0, 0.0);
-                // transform.translation = Vec3::new(mid.x, end_s.y, 0.0);
-                // println!("setting horizontal axis to {transform:?}");
+            // the axes are children of their corresponding texts, and only need to be
+            // scaled to display appropriately as their parent transforms are positioned
+            if let Ok(mut transform) = transforms.get_mut(axes.vertical) {
+                transform.scale = Vec3::new(2.0, height, 1.0);
+            }
+
+            if let Ok(mut transform) = transforms.get_mut(axes.horizontal) {
+                transform.scale = Vec3::new(width, 2.0, 1.0);
             }
         }
     }
