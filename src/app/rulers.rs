@@ -50,6 +50,8 @@ mod new_rulers {
     struct Ruler {
         start: Entity,
         end: Entity,
+
+        buttons_root: Entity,
     }
 
     #[derive(Component)]
@@ -70,6 +72,21 @@ mod new_rulers {
     struct RulerEndpoint {
         world: DVec2,
     }
+
+    #[derive(Component)]
+    struct RulerButtonRoot;
+
+    #[derive(Component)]
+    struct DeleteRulerButton;
+
+    type PositionedRulerFilter = Or<(
+        With<Ruler>,
+        With<RulerAxis>,
+        With<RulerEndpoint>,
+        With<RulerText>,
+        With<RulerButtonRoot>,
+        With<DeleteRulerButton>,
+    )>;
 
     /*
     fn draw_ruler_gizmos(
@@ -127,6 +144,7 @@ mod new_rulers {
     ) -> (EntityCommands<'a>, Entity, Entity) {
         let mut start = Entity::PLACEHOLDER;
         let mut end = Entity::PLACEHOLDER;
+        let mut buttons_root = Entity::PLACEHOLDER;
 
         let mut root = commands.spawn((SpatialBundle { ..default() }, RenderLayers::layer(1)));
 
@@ -148,6 +166,9 @@ mod new_rulers {
                 // },
             );
 
+            buttons_root = parent
+                .spawn((RulerButtonRoot, SpatialBundle::default()))
+                .id();
             start = parent
                 .spawn(RulerEndpoint { world: start_point })
                 .insert(bundle.clone())
@@ -157,13 +178,19 @@ mod new_rulers {
                 .insert(bundle)
                 .id();
         })
-        .insert(Ruler { start, end });
+        .insert(Ruler {
+            start,
+            end,
+            buttons_root,
+        });
 
         (root, start, end)
     }
 
     fn add_ruler_visuals(
         mut commands: Commands,
+
+        icons: Res<crate::app::assets::Icons>,
 
         mut meshes: ResMut<Assets<Mesh>>,
         mut materials: ResMut<Assets<ColorMaterial>>,
@@ -184,7 +211,7 @@ mod new_rulers {
             return;
         };
 
-        for (root_ent, _endpoints) in rulers.iter() {
+        for (root_ent, ruler) in rulers.iter() {
             let bundle = (
                 RulerText,
                 RenderLayers::layer(1),
@@ -239,26 +266,44 @@ mod new_rulers {
                 horizontal_text,
             };
 
+            commands.entity(ruler.buttons_root).with_children(|parent| {
+                parent.spawn((
+                    RenderLayers::layer(1),
+                    DeleteRulerButton,
+                    SpriteBundle {
+                        // sprite: todo!(),
+                        // transform: todo!(),
+                        // global_transform: todo!(),
+                        texture: icons.xmark.clone(),
+                        // visibility: todo!(),
+                        ..default()
+                    },
+                ));
+            });
+
             commands
                 .entity(root_ent)
                 .push_children(&[vertical_text, horizontal_text])
-                .insert((axes, mesh.clone(), material.clone()));
+                .insert(axes);
+            // .insert((axes, mesh.clone(), material.clone()));
         }
     }
 
     fn update_rulers(
         view: Res<AlignmentViewport>,
 
-        rulers: Query<(Entity, &Ruler, &RulerAxes)>,
+        rulers: Query<(Entity, &Ruler, &RulerAxes, &Children)>,
         endpoints: Query<&RulerEndpoint>,
         mut transforms: Query<
             &mut Transform,
-            Or<(
-                With<Ruler>,
-                With<RulerAxis>,
-                With<RulerEndpoint>,
-                With<RulerText>,
-            )>,
+            PositionedRulerFilter,
+            // Or<(
+            //     With<Ruler>,
+            //     With<RulerAxis>,
+            //     With<RulerEndpoint>,
+            //     With<RulerText>,
+            //     With<DeleteRulerButton>,
+            // )>,
         >,
 
         mut texts: Query<(&mut Text, &mut Anchor), With<RulerText>>,
@@ -269,7 +314,9 @@ mod new_rulers {
             return;
         };
 
-        for (ruler_entity, ruler, axes) in rulers.iter() {
+        for (ruler_entity, ruler, axes, children) in rulers.iter() {
+            println!("ruler root has {} children", children.len());
+
             let start = endpoints.get(ruler.start).map(|p| p.world);
             let end = endpoints.get(ruler.end).map(|p| p.world);
 
@@ -343,6 +390,32 @@ mod new_rulers {
 
             if let Ok(mut transform) = transforms.get_mut(axes.horizontal) {
                 transform.scale = Vec3::new(width, 2.0, 1.0);
+            }
+
+            match transforms.get_mut(ruler.buttons_root) {
+                Ok(_) => (),
+                Err(e) => println!("errorr:: : {e:?}"),
+            }
+
+            // the button(s) are on a child of the root entity, so its transform must also be set
+
+            if let Ok(mut transform) = transforms.get_mut(ruler.buttons_root) {
+                dbg!();
+                transform.translation = Vec3::new(width * 0.5, -1.0 * (height * 0.5 + 20.0), 0.0);
+                // if end_s.x > start_s.x {
+                //     transform.translation.x *= -1.0;
+                // }
+                // if end_s.y > start_s.y {
+                //     transform.translation.y *= -1.0;
+                // }
+            }
+        }
+    }
+
+    fn update_ruler_buttons(rulers: Query<&Ruler>, mut visibilities: Query<&mut Visibility>) {
+        for ruler in rulers.iter() {
+            if let Ok(mut visibility) = visibilities.get_mut(ruler.buttons_root) {
+                // let new_vis = ruler.
             }
         }
     }
