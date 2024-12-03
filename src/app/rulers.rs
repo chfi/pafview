@@ -16,16 +16,11 @@ mod new_rulers {
         render::view::RenderLayers,
         sprite::{Anchor, Mesh2dHandle},
     };
+    use bevy_mod_picking::prelude::*;
     use leafwing_input_manager::{
         action_diff::{ActionDiff, ActionDiffEvent},
         prelude::*,
     };
-
-    // use super::super::{
-    //     selection::{Selection, SelectionActionTrait, SelectionComplete},
-    //     view::{AlignmentViewport, CursorAlignmentPosition},
-    //     ForegroundColor,
-    // };
 
     use crate::app::{
         input::{
@@ -57,8 +52,6 @@ mod new_rulers {
                     )
                         .chain(),
                 );
-            // .add_systems(Update, draw_ruler_gizmos);
-            // app.add_systems();
         }
     }
 
@@ -110,54 +103,6 @@ mod new_rulers {
         With<DeleteRulerButton>,
     )>;
 
-    /*
-    fn draw_ruler_gizmos(
-        mut gizmos: Gizmos<super::RulerGizmos>,
-        viewport: Res<AlignmentViewport>,
-        fg_color: Res<crate::app::ForegroundColor>,
-
-        endpoints: Query<&RulerEndpoint>,
-        rulers: Query<(Entity, &Ruler)>,
-
-        windows: Query<&Window>,
-    ) {
-        let Ok(window) = windows.get_single() else {
-            return;
-        };
-        let win_size = window.size();
-
-        for (entity, ruler) in rulers.iter() {
-            let Some((start, end)) = endpoints
-                .get(ruler.start)
-                .ok()
-                .zip(endpoints.get(ruler.end).ok())
-            else {
-                continue;
-            };
-
-            let s0 = viewport.view.map_world_to_screen(win_size, start.world);
-            let s1 = viewport.view.map_world_to_screen(win_size, end.world);
-
-            let corner = if s0.y > s1.y {
-                [s0.x, s1.y]
-            } else {
-                [s1.x, s0.y]
-            };
-
-            println!("drawing ruler: {s0:?} - {corner:?} - {s1:?}");
-            // gizmos.linestrip_2d(
-            //     [[s0.x, s0.y].into(), corner.into(), [s1.x, s1.y].into()],
-            //     fg_color.0,
-            // );
-
-            // gizmos.linestrip_2d([[[]]])
-
-            // gizmos.linestrip_2d([[sp.x, -size.y].into(), [sp.x, size.y].into()], color);
-            // gizmos.linestrip_2d([[-size.x, sp.y].into(), [size.x, sp.y].into()], color);
-        }
-    }
-    */
-
     fn spawn_ruler<'a>(
         commands: &'a mut Commands,
         // text_color: impl Into<Color>,
@@ -166,27 +111,13 @@ mod new_rulers {
     ) -> (EntityCommands<'a>, Entity, Entity) {
         let mut start = Entity::PLACEHOLDER;
         let mut end = Entity::PLACEHOLDER;
+
         let mut buttons_root = Entity::PLACEHOLDER;
 
         let mut root = commands.spawn((SpatialBundle { ..default() }, RenderLayers::layer(1)));
 
         root.with_children(|parent| {
-            let bundle = (
-                RenderLayers::layer(1),
-                SpatialBundle::default(),
-                // Text2dBundle {
-                //     text: Text::from_section(
-                //         "is this anything",
-                //         TextStyle {
-                //             color: text_color.into(),
-                //             ..default()
-                //         },
-                //     ),
-                //     text_anchor: Anchor::BottomCenter,
-                //     visibility: Visibility::Visible,
-                //     ..default()
-                // },
-            );
+            let bundle = (RenderLayers::layer(1), SpatialBundle::default());
 
             buttons_root = parent
                 .spawn((RulerButtonRoot, SpatialBundle::default()))
@@ -216,14 +147,32 @@ mod new_rulers {
     ) {
         for entity in endpoints.iter() {
             //
-            commands.entity(entity).insert(SpriteBundle {
-                sprite: Sprite {
-                    color: Color::srgba_u8(0, 0, 0, 0),
+            commands.entity(entity).insert((
+                PickableBundle::default(),
+                // {
+                //     pickable: Pickable {
+                //         should_block_lower: false,
+                //         is_hoverable: false,
+                //     },
+                //     ..default()
+                // },
+                // TODO: this is ugly and hacky, and should be animated
+                On::<Pointer<Over>>::target_component_mut(|_, sprite: &mut Sprite| {
+                    sprite.color = Color::srgba_u8(0, 0, 0, 255);
+                }),
+                On::<Pointer<Out>>::target_component_mut(|_, sprite: &mut Sprite| {
+                    sprite.color = Color::srgba_u8(0, 0, 0, 0);
+                }),
+                SpriteBundle {
+                    sprite: Sprite {
+                        color: Color::srgba_u8(0, 0, 0, 255),
+                        // color: Color::srgba_u8(0, 0, 0, 0), // should be invisible
+                        ..default()
+                    },
+                    transform: Transform::from_scale(Vec3::new(10.0, 10.0, 100.0)),
                     ..default()
                 },
-                transform: Transform::from_scale(Vec3::new(10.0, 10.0, 0.0)),
-                ..default()
-            });
+            ));
         }
     }
 
@@ -306,6 +255,7 @@ mod new_rulers {
                 horizontal_text,
             };
 
+            /*
             commands.entity(ruler.buttons_root).with_children(|parent| {
                 parent.spawn((
                     RenderLayers::layer(1),
@@ -320,6 +270,7 @@ mod new_rulers {
                     },
                 ));
             });
+            */
 
             commands
                 .entity(root_ent)
@@ -334,17 +285,7 @@ mod new_rulers {
 
         rulers: Query<(Entity, &Ruler, &RulerAxes, &Children)>,
         endpoints: Query<&RulerEndpoint>,
-        mut transforms: Query<
-            &mut Transform,
-            PositionedRulerFilter,
-            // Or<(
-            //     With<Ruler>,
-            //     With<RulerAxis>,
-            //     With<RulerEndpoint>,
-            //     With<RulerText>,
-            //     With<DeleteRulerButton>,
-            // )>,
-        >,
+        mut transforms: Query<&mut Transform, PositionedRulerFilter>,
 
         mut texts: Query<(&mut Text, &mut Anchor), With<RulerText>>,
 
@@ -355,7 +296,7 @@ mod new_rulers {
         };
 
         for (ruler_entity, ruler, axes, children) in rulers.iter() {
-            println!("ruler root has {} children", children.len());
+            // println!("ruler root has {} children", children.len());
 
             let start = endpoints.get(ruler.start).map(|p| p.world);
             let end = endpoints.get(ruler.end).map(|p| p.world);
@@ -375,10 +316,14 @@ mod new_rulers {
 
             // set the endpoints to the screen position corresponding to their world position
             if let Ok(mut transform) = transforms.get_mut(ruler.start) {
-                transform.translation = Vec3::new(start_s.x, screen_dims.y - start_s.y, 0.0);
+                let x = if start_s.x > end_s.x { width } else { -width };
+                let y = if start_s.y > end_s.y { -height } else { height };
+                transform.translation = Vec3::new(x, y, 0.0) * 0.5;
             }
             if let Ok(mut transform) = transforms.get_mut(ruler.end) {
-                transform.translation = Vec3::new(end_s.x, screen_dims.y - end_s.y, 0.0);
+                let x = if start_s.x > end_s.x { -width } else { width };
+                let y = if start_s.y > end_s.y { height } else { -height };
+                transform.translation = Vec3::new(x, y, 0.0) * 0.5;
             }
 
             // the root of the ruler is at the middle of the rectangle defined by its endpoints
@@ -432,39 +377,24 @@ mod new_rulers {
                 transform.scale = Vec3::new(width, 2.0, 1.0);
             }
 
-            match transforms.get_mut(ruler.buttons_root) {
-                Ok(_) => (),
-                Err(e) => println!("errorr:: : {e:?}"),
-            }
-
             // the button(s) are on a child of the root entity, so its transform must also be set
-
             if let Ok(mut transform) = transforms.get_mut(ruler.buttons_root) {
-                dbg!();
                 transform.translation = Vec3::new(width * 0.5, -1.0 * (height * 0.5 + 20.0), 0.0);
-                // if end_s.x > start_s.x {
-                //     transform.translation.x *= -1.0;
-                // }
-                // if end_s.y > start_s.y {
-                //     transform.translation.y *= -1.0;
-                // }
             }
         }
     }
 
-    fn update_ruler_buttons(rulers: Query<&Ruler>, mut visibilities: Query<&mut Visibility>) {
+    fn update_ruler_buttons(
+        // held_ruler: Res<HeldRulerState>,
+        rulers: Query<&Ruler>,
+        mut visibilities: Query<&mut Visibility>,
+    ) {
         for ruler in rulers.iter() {
             if let Ok(mut visibility) = visibilities.get_mut(ruler.buttons_root) {
                 // let new_vis = ruler.
             }
         }
     }
-
-    // #[derive(Component)]
-    // struct HeldByCursor;
-
-    // #[derive(Component, Clone, Copy, PartialEq)]
-    // struct AtWorldPoint(DVec2);
 
     fn forward_ruler_cancel_action(
         mut user_actions: ResMut<ActionState<UserAction>>,
@@ -482,69 +412,14 @@ mod new_rulers {
         }
     }
 
-    /*
-    fn modify_ruler_action_diffs(
-        mut user_actions: ResMut<Events<ActionDiffEvent<UserAction>>>,
-        mut ruler_actions: ResMut<ActionState<RulerAction>>,
-        // mut ruler_actions: ResMut<Events<ActionDiffEvent<RulerAction>>>,
-
-        mut user_actions_reader: Local<ManualEventReader<ActionDiffEvent<UserAction>>>,
-        mut resend_user_actions: Local<Vec<ActionDiffEvent<UserAction>>>,
-
-        held_ruler: Res<HeldRulerState>,
-    ) {
-        resend_user_actions.clear();
-        resend_user_actions.extend(user_actions_reader.drain(&user_actions));
-
-        let endpoint_held = held_ruler.held_endpoint.is_some();
-            for event in resend_user_actions.iter_mut() {
-
-                let action = UserAction::Cancel;
-                event.action_diffs.retain_mut(|diff| {
-                    match diff {
-                        ActionDiff::Pressed { action } => {
-                            ruler_actions.pr
-                            false
-                        },
-                        ActionDiff::Released { action } => {
-                            false
-                        },
-                        _ => true,
-                    }
-
-                })
-                // event.action_diffs.rem
-                // event.action_diffs = event.action_diffs.into_iter().filter(|diff| {
-                //     diff != ActionDiff::Pressed { action: UserAction::Cancel }
-                // });
-                // event.action_diffs.iter_mut().for_each(|diff| {
-                // })
-
-                // if endpoint_held {
-                // event.action_diffs
-
-                // if let UserAction::Cancel = event. {
-                    //
-                // }
-                // if let UserAction::Cancel
-            }
-
-
-        // if a ruler endpoint is being held, this system will "consume" any
-        // `UserAction::Cancel` events, forwarding them to the cancel RulerAction
-
-        // if held_ruler.held_endpoint.is_some() {
-        //
-        // }
-    }
-    */
-
     fn interact_with_rulers(
         mut commands: Commands,
         ruler_actions: Res<ActionState<RulerAction>>,
         cursor: Res<CursorPosition>,
 
         mut endpoints: Query<(Entity, &mut RulerEndpoint, &Parent)>,
+
+        mut click_events: EventReader<Pointer<Click>>,
 
         mut held_ruler: ResMut<HeldRulerState>,
         // mut held_endpoint: Local<Option<Entity>>,
@@ -558,47 +433,46 @@ mod new_rulers {
         }
 
         let mut picked_endpoint = None;
-        if let Some(pos) = cursor.world {
-            for (entity, endpoint, _) in endpoints.iter() {
-                if (endpoint.world - pos).length_squared() < 100.0 {
-                    picked_endpoint = Some(entity);
+        // TODO: this isn't exactly correct; doesn't take distance from camera into account
+        // (but all rulers are on the same plane currently anyway; might be better to use
+        // the closest in the plane)
+        // if held_ruler.held_endpoint.is_none() {
+        for event in click_events.read() {
+            if let Ok((target, endpoint, _)) = endpoints.get(event.target()) {
+                if let Some(held) = held_ruler.held_endpoint {
+                    if target == held {
+                        println!("dropping endpoint {held:?}");
+                        held_ruler.held_endpoint = None;
+                        held_ruler.original_position = None;
+                    }
+                } else {
+                    println!("picking up endpoint {target:?}");
+                    held_ruler.held_endpoint = Some(target);
+                    held_ruler.original_position = Some(endpoint.world);
+                    picked_endpoint = Some(target);
+                    break;
                 }
             }
         }
+        click_events.clear();
 
         if ruler_actions.just_pressed(&RulerAction(RectangleSelectAction::StartOrEndSelect)) {
             if held_ruler.held_endpoint.is_none() {
                 // spawn both endpoints, placing them under the cursor, but setting one of them to be "held"
-
                 if picked_endpoint.is_none() {
                     if let Some(pos) = cursor.world {
-                        // let mut start = Entity::PLACEHOLDER;
-                        // let mut end = Entity::PLACEHOLDER;
-
-                        let (root, start, end) = spawn_ruler(&mut commands, pos, pos);
-
-                        // let root = commands
-                        //     .spawn_empty()
-                        //     .with_children(|parent| {
-                        //         start = parent.spawn(RulerEndpoint { world: pos }).id();
-                        //         end = parent.spawn(RulerEndpoint { world: pos }).id();
-                        //     })
-                        //     .insert(Ruler { start, end })
-                        //     .id();
-
+                        let (_root, _start, end) = spawn_ruler(&mut commands, pos, pos);
+                        println!("placing endpoint {end:?}");
                         held_ruler.held_endpoint = Some(end);
+                        held_ruler.original_position = None;
                     }
-                } else {
-                    held_ruler.held_endpoint = picked_endpoint;
                 }
-                // todo!();
-            } else if let Some(held) = held_ruler.held_endpoint {
-                held_ruler.held_endpoint.take();
-                // TODO: place the held endpoint
-                // don't need to do anything yet
+            } else if held_ruler.held_endpoint.is_some() && picked_endpoint.is_none() {
+                // this.. is probably not necessary
+                held_ruler.held_endpoint = None;
+                held_ruler.original_position = None;
             }
         }
-        //
 
         if let Some(held_endpoint) = held_ruler.held_endpoint {
             if let Ok((_, mut endpoint, parent)) = endpoints.get_mut(held_endpoint) {
