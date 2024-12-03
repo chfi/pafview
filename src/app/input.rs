@@ -221,7 +221,7 @@ fn add_cursor_zoom_origin(
                 let mut pos = cursor;
                 pos.y *= -1.0;
                 pos += Vec2::splat(0.5);
-                println!("setting zoom center to {pos:?}");
+                // println!("setting zoom center to {pos:?}");
                 user_actions.set_axis_pair(&action, pos);
             }
         }
@@ -257,6 +257,12 @@ fn forward_view_actions(
         .dual_axis_data(&UserAction::View(action))
         .cloned()
         .unwrap_or_default();
+
+    let cancel = user_actions
+        .button_data(&UserAction::Cancel)
+        .cloned()
+        .unwrap_or_default();
+    *view_actions.button_data_mut_or_default(&ViewAction::Reset) = cancel;
 
     for btnlike in [ViewAction::AnchoredPan, ViewAction::Reset] {
         view_actions.set_button_data(
@@ -336,7 +342,8 @@ fn default_input_map() -> InputMap<UserAction> {
     input_map.insert(UserAction::ModifierMinus, KeyCode::ControlLeft);
     input_map.insert(UserAction::ModifierMinus, KeyCode::ControlRight);
 
-    input_map.insert(UserAction::View(ViewAction::Reset), KeyCode::Escape);
+    input_map.insert(UserAction::Cancel, KeyCode::Escape);
+    // input_map.insert(UserAction::View(ViewAction::Reset), KeyCode::Escape);
     // input_map.insert
 
     input_map.insert_dual_axis(

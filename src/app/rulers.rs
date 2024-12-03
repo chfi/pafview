@@ -10,13 +10,16 @@ use super::{
 mod new_rulers {
 
     use bevy::{
-        ecs::system::EntityCommands,
+        ecs::{event::ManualEventReader, system::EntityCommands},
         math::DVec2,
         prelude::*,
         render::view::RenderLayers,
         sprite::{Anchor, Mesh2dHandle},
     };
-    use leafwing_input_manager::prelude::*;
+    use leafwing_input_manager::{
+        action_diff::{ActionDiff, ActionDiffEvent},
+        prelude::*,
+    };
 
     // use super::super::{
     //     selection::{Selection, SelectionActionTrait, SelectionComplete},
@@ -36,11 +39,24 @@ mod new_rulers {
 
     impl Plugin for InteractiveRulersPlugin {
         fn build(&self, app: &mut App) {
-            app.add_systems(
-                PreUpdate,
-                interact_with_rulers.in_set(crate::app::input::InputSet::HandleActions),
-            )
-            .add_systems(Update, (add_ruler_visuals, update_rulers).chain());
+            app.init_resource::<HeldRulerState>()
+                .add_systems(
+                    PreUpdate,
+                    forward_ruler_cancel_action
+                        .in_set(crate::app::input::InputSet::BuildUserActions),
+                )
+                .add_systems(
+                    PreUpdate,
+                    interact_with_rulers.in_set(crate::app::input::InputSet::HandleActions),
+                )
+                .add_systems(
+                    Update,
+                    (
+                        (add_ruler_visuals, add_ruler_endpoint_interaction_sprite),
+                        update_rulers,
+                    )
+                        .chain(),
+                );
             // .add_systems(Update, draw_ruler_gizmos);
             // app.add_systems();
         }
@@ -78,6 +94,12 @@ mod new_rulers {
 
     #[derive(Component)]
     struct DeleteRulerButton;
+
+    #[derive(Resource, Default)]
+    struct HeldRulerState {
+        held_endpoint: Option<Entity>,
+        original_position: Option<DVec2>,
+    }
 
     type PositionedRulerFilter = Or<(
         With<Ruler>,
@@ -185,6 +207,24 @@ mod new_rulers {
         });
 
         (root, start, end)
+    }
+
+    fn add_ruler_endpoint_interaction_sprite(
+        mut commands: Commands,
+
+        endpoints: Query<Entity, (With<RulerEndpoint>, Without<Sprite>)>,
+    ) {
+        for entity in endpoints.iter() {
+            //
+            commands.entity(entity).insert(SpriteBundle {
+                sprite: Sprite {
+                    color: Color::srgba_u8(0, 0, 0, 0),
+                    ..default()
+                },
+                transform: Transform::from_scale(Vec3::new(10.0, 10.0, 0.0)),
+                ..default()
+            });
+        }
     }
 
     fn add_ruler_visuals(
@@ -426,9 +466,79 @@ mod new_rulers {
     // #[derive(Component, Clone, Copy, PartialEq)]
     // struct AtWorldPoint(DVec2);
 
-    // TODO: probably better to use a marker component to track what is held,
-    // and split this into two systems (handle_actions & update_rulers);
-    // the `held_endpoint` `Local` is just to get started
+    fn forward_ruler_cancel_action(
+        mut user_actions: ResMut<ActionState<UserAction>>,
+        mut ruler_actions: ResMut<ActionState<RulerAction>>,
+
+        held_ruler: Res<HeldRulerState>,
+    ) {
+        if held_ruler.held_endpoint.is_some() {
+            let cancel_data = user_actions.button_data_mut_or_default(&UserAction::Cancel);
+            let ruler_data = ruler_actions
+                .button_data_mut_or_default(&RulerAction(RectangleSelectAction::CancelSelect));
+
+            *ruler_data = cancel_data.clone();
+            *cancel_data = leafwing_input_manager::action_state::ButtonData::default();
+        }
+    }
+
+    /*
+    fn modify_ruler_action_diffs(
+        mut user_actions: ResMut<Events<ActionDiffEvent<UserAction>>>,
+        mut ruler_actions: ResMut<ActionState<RulerAction>>,
+        // mut ruler_actions: ResMut<Events<ActionDiffEvent<RulerAction>>>,
+
+        mut user_actions_reader: Local<ManualEventReader<ActionDiffEvent<UserAction>>>,
+        mut resend_user_actions: Local<Vec<ActionDiffEvent<UserAction>>>,
+
+        held_ruler: Res<HeldRulerState>,
+    ) {
+        resend_user_actions.clear();
+        resend_user_actions.extend(user_actions_reader.drain(&user_actions));
+
+        let endpoint_held = held_ruler.held_endpoint.is_some();
+            for event in resend_user_actions.iter_mut() {
+
+                let action = UserAction::Cancel;
+                event.action_diffs.retain_mut(|diff| {
+                    match diff {
+                        ActionDiff::Pressed { action } => {
+                            ruler_actions.pr
+                            false
+                        },
+                        ActionDiff::Released { action } => {
+                            false
+                        },
+                        _ => true,
+                    }
+
+                })
+                // event.action_diffs.rem
+                // event.action_diffs = event.action_diffs.into_iter().filter(|diff| {
+                //     diff != ActionDiff::Pressed { action: UserAction::Cancel }
+                // });
+                // event.action_diffs.iter_mut().for_each(|diff| {
+                // })
+
+                // if endpoint_held {
+                // event.action_diffs
+
+                // if let UserAction::Cancel = event. {
+                    //
+                // }
+                // if let UserAction::Cancel
+            }
+
+
+        // if a ruler endpoint is being held, this system will "consume" any
+        // `UserAction::Cancel` events, forwarding them to the cancel RulerAction
+
+        // if held_ruler.held_endpoint.is_some() {
+        //
+        // }
+    }
+    */
+
     fn interact_with_rulers(
         mut commands: Commands,
         ruler_actions: Res<ActionState<RulerAction>>,
@@ -436,9 +546,11 @@ mod new_rulers {
 
         mut endpoints: Query<(Entity, &mut RulerEndpoint, &Parent)>,
 
-        mut held_endpoint: Local<Option<Entity>>,
+        mut held_ruler: ResMut<HeldRulerState>,
+        // mut held_endpoint: Local<Option<Entity>>,
     ) {
-        if let Some((&held, world)) = held_endpoint.as_ref().zip(cursor.world) {
+        if let Some((held, world)) = held_ruler.held_endpoint.zip(cursor.world) {
+            // if let Some((&held, world)) = held_endpoint.as_ref().zip(cursor.world) {
             // move the endpoint... maybe... idk
             if let Ok((_, mut endpoint, _)) = endpoints.get_mut(held) {
                 endpoint.world = world;
@@ -455,7 +567,7 @@ mod new_rulers {
         }
 
         if ruler_actions.just_pressed(&RulerAction(RectangleSelectAction::StartOrEndSelect)) {
-            if held_endpoint.is_none() {
+            if held_ruler.held_endpoint.is_none() {
                 // spawn both endpoints, placing them under the cursor, but setting one of them to be "held"
 
                 if picked_endpoint.is_none() {
@@ -474,18 +586,40 @@ mod new_rulers {
                         //     .insert(Ruler { start, end })
                         //     .id();
 
-                        *held_endpoint = Some(end);
+                        held_ruler.held_endpoint = Some(end);
                     }
                 } else {
-                    *held_endpoint = picked_endpoint;
+                    held_ruler.held_endpoint = picked_endpoint;
                 }
                 // todo!();
-            } else if let Some(held) = held_endpoint.take() {
+            } else if let Some(held) = held_ruler.held_endpoint {
+                held_ruler.held_endpoint.take();
                 // TODO: place the held endpoint
                 // don't need to do anything yet
             }
         }
         //
+
+        if let Some(held_endpoint) = held_ruler.held_endpoint {
+            if let Ok((_, mut endpoint, parent)) = endpoints.get_mut(held_endpoint) {
+                if let Some(world) = cursor.world {
+                    endpoint.world = world;
+                }
+
+                if ruler_actions.just_pressed(&RulerAction(RectangleSelectAction::CancelSelect)) {
+                    held_ruler.held_endpoint = None;
+                    if let Some(origin) = held_ruler.original_position.take() {
+                        // the endpoint had a position when it was picked up,
+                        // so move it there
+                        endpoint.world = origin;
+                    } else {
+                        // the endpoint didn't have a position (i.e. the ruler is being placed),
+                        // so remove the entire thing
+                        commands.entity(parent.get()).despawn_recursive();
+                    }
+                }
+            }
+        }
     }
 }
 
