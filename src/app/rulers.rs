@@ -88,6 +88,9 @@ mod new_rulers {
     #[derive(Component)]
     struct DeleteRulerButton;
 
+    #[derive(Component)]
+    struct CopyRulerBedpeButton;
+
     #[derive(Resource, Default)]
     struct HeldRulerState {
         held_endpoint: Option<Entity>,
@@ -101,6 +104,7 @@ mod new_rulers {
         With<RulerText>,
         With<RulerButtonRoot>,
         With<DeleteRulerButton>,
+        With<CopyRulerBedpeButton>,
     )>;
 
     fn spawn_ruler<'a>(
@@ -255,22 +259,26 @@ mod new_rulers {
                 horizontal_text,
             };
 
-            /*
             commands.entity(ruler.buttons_root).with_children(|parent| {
                 parent.spawn((
                     RenderLayers::layer(1),
                     DeleteRulerButton,
                     SpriteBundle {
-                        // sprite: todo!(),
-                        // transform: todo!(),
-                        // global_transform: todo!(),
                         texture: icons.xmark.clone(),
-                        // visibility: todo!(),
+                        transform: Transform::from_translation(Vec3::new(-15.0, 0.0, 0.0)),
+                        ..default()
+                    },
+                ));
+                parent.spawn((
+                    RenderLayers::layer(1),
+                    CopyRulerBedpeButton,
+                    SpriteBundle {
+                        texture: icons.paste_clipboard.clone(),
+                        transform: Transform::from_translation(Vec3::new(15.0, 0.0, 0.0)),
                         ..default()
                     },
                 ));
             });
-            */
 
             commands
                 .entity(root_ent)
