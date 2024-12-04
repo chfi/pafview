@@ -22,6 +22,11 @@ impl Sequences {
         self.sequences.get(&seq)
     }
 
+    pub fn get_name(&self, seq: SeqId) -> Option<&str> {
+        let name = self.sequence_names.get_by_right(&seq)?;
+        Some(name.as_str())
+    }
+
     pub fn names(&self) -> &Arc<bimap::BiMap<String, SeqId>> {
         &self.sequence_names
     }

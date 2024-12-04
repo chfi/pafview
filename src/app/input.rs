@@ -116,6 +116,8 @@ pub enum UserAction {
     SelectedTool(SelectedToolAction),
     View(ViewAction),
 
+    Paste,
+
     Cancel,
 
     ModifierPlus,
@@ -128,7 +130,7 @@ impl Actionlike for UserAction {
         match self {
             SelectedTool(tool) => tool.input_control_kind(),
             View(view) => view.input_control_kind(),
-            Cancel | ModifierPlus | ModifierMinus => InputControlKind::Button,
+            Paste | Cancel | ModifierPlus | ModifierMinus => InputControlKind::Button,
         }
     }
 }
@@ -337,6 +339,15 @@ fn default_input_map() -> InputMap<UserAction> {
     input_map.insert(
         UserAction::SelectedTool(SelectedToolAction::Secondary),
         MouseButton::Right,
+    );
+
+    input_map.insert(
+        UserAction::Paste,
+        ButtonlikeChord::new([KeyCode::ControlLeft, KeyCode::KeyV]),
+    );
+    input_map.insert(
+        UserAction::Paste,
+        ButtonlikeChord::new([KeyCode::ControlRight, KeyCode::KeyV]),
     );
 
     input_map.insert(UserAction::ModifierPlus, KeyCode::ShiftLeft);

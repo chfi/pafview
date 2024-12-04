@@ -1,6 +1,7 @@
 use std::sync::{atomic::AtomicBool, Arc};
 
 use bevy::{
+    ecs::system::SystemParam,
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task},
     utils::HashMap,
@@ -64,6 +65,69 @@ impl Plugin for AlignmentsPlugin {
     }
 }
 
+/// `SystemParam` for easy access to laid out sequence tiles and alignments
+#[derive(SystemParam)]
+pub struct AlignmentLayoutQuery<'w, 's> {
+    pub layout_assets: Res<'w, Assets<SeqPairLayout>>,
+    pub layout_roots: Query<
+        'w,
+        's,
+        (
+            Entity,
+            &'static Transform,
+            &'static Handle<SeqPairLayout>,
+            &'static LayoutEntityIndex,
+        ),
+    >,
+}
+
+impl<'w, 's> AlignmentLayoutQuery<'w, 's> {
+    /// returns the tile and local offset found at `world_point`.
+    /// Includes the root layout entity. If multiple layouts or tiles overlap
+    /// the world point, any of the tiles may be returned
+    pub fn tile_and_local_offset_at_point(
+        &self,
+        world_point: impl Into<[f64; 2]>,
+    ) -> Option<(Entity, SequencePairTile, [u64; 2])> {
+        let world_point = bevy::math::DVec2::from(world_point.into());
+        let mut hit: Option<(Entity, SequencePairTile, [u64; 2])> = None;
+
+        for (root, root_transform, layout_handle, _) in self.layout_roots.iter() {
+            // TODO: take layout transform into account
+            let Some(layout) = self.layout_assets.get(layout_handle) else {
+                continue;
+            };
+
+            let mut hit_tile: Option<SequencePairTile> = None;
+            layout
+                .layout_qbvh
+                .tiles_at_point_callback(world_point, |tile| {
+                    hit_tile = Some(tile);
+                    false
+                });
+
+            let Some(tile) = hit_tile else {
+                // let tiles = layout.layout_qbvh.tiles_at_point(world_point);
+                // let Some(tile) = tiles.first() else {
+                continue;
+            };
+
+            let Some(aabb) = layout.aabbs.get(&tile) else {
+                continue;
+            };
+
+            // TODO: transform here too
+            let mins = bevy::math::DVec2::new(aabb.mins.x, aabb.mins.y);
+
+            let local = (world_point - mins).as_u64vec2();
+            hit = Some((root, tile, local.into()));
+            break;
+        }
+
+        hit
+    }
+}
+
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
 pub struct AlignmentEntityIndex(pub HashMap<AlignmentIndex, Entity>);
 
@@ -87,6 +151,9 @@ pub struct AlignmentIndex {
 
     pub pair_index: usize,
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Resource, Reflect)]
+pub struct DefaultLayoutRoot(pub Entity);
 
 // create the initial sequence pair layout from the application input data,
 // and create the DefaultLayout resource
@@ -125,9 +192,6 @@ pub(super) fn initialize_default_layout(
     println!("inserting default layout resource");
     commands.insert_resource(default_layout);
 }
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Resource, Reflect)]
-pub struct DefaultLayoutRoot(pub Entity);
 
 pub(super) fn spawn_default_layout_root(
     mut commands: Commands,

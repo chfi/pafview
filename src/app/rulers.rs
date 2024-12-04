@@ -1,6 +1,14 @@
-use super::view::AlignmentViewport;
-use crate::app::input::{
-    cursor::CursorPosition, ActiveTool, RectangleSelectAction, RulerAction, UserAction, ViewAction,
+use super::{
+    alignments::{AlignmentLayoutQuery, DefaultLayoutRoot},
+    view::AlignmentViewport,
+    SequencePairTile,
+};
+use crate::{
+    app::input::{
+        cursor::CursorPosition, ActiveTool, RectangleSelectAction, RulerAction, UserAction,
+        ViewAction,
+    },
+    Sequences,
 };
 use bevy::{
     ecs::{event::ManualEventReader, system::EntityCommands},
@@ -27,6 +35,10 @@ impl Plugin for InteractiveRulersPlugin {
             .add_systems(
                 PreUpdate,
                 interact_with_rulers.in_set(crate::app::input::InputSet::HandleActions),
+            )
+            .add_systems(
+                Update,
+                (copy_ruler_to_clipboard, paste_ruler_from_clipboard),
             )
             .add_systems(
                 Update,
@@ -249,16 +261,19 @@ fn add_ruler_visuals(
                 DeleteRulerButton,
                 SpriteBundle {
                     texture: icons.xmark.clone(),
-                    transform: Transform::from_translation(Vec3::new(-15.0, 0.0, 0.0)),
+                    transform: Transform::from_translation(Vec3::new(-15.0, 0.0, 100.0)),
                     ..default()
                 },
             ));
             parent.spawn((
                 RenderLayers::layer(1),
                 CopyRulerBedpeButton,
+                On::<Pointer<Over>>::run(|| {
+                    println!("hovering copy button!");
+                }),
                 SpriteBundle {
                     texture: icons.paste_clipboard.clone(),
-                    transform: Transform::from_translation(Vec3::new(-15.0, 0.0, 0.0)),
+                    transform: Transform::from_translation(Vec3::new(15.0, 0.0, 100.0)),
                     ..default()
                 },
             ));
@@ -486,20 +501,149 @@ fn interact_with_rulers(
             }
         }
     }
+}
 
-    fn copy_ruler_to_clipboard(
-        mut clipboard: ResMut<bevy_egui::EguiClipboard>,
+// fn delete_ruler_button(
+// )
 
-        rulers: Query<&Ruler>,
-        endpoints: Query<&RulerEndpoint>,
-        copy_buttons: Query<(Entity, &PickingInteraction, &Parent), With<CopyRulerBedpeButton>>,
-    ) {
-        for (_, interact, parent) in copy_buttons.iter() {
-            if *interact == PickingInteraction::Pressed {
-                // TODO: find *local* endpoints using seq. pair layout...
-                // then format as BEDPE string & set to clipboard
+// TODO: this is quite hacky and mostly a proof of concept -- this doesn't generalize
+// and will need more focus information to even work with egui
+fn paste_ruler_from_clipboard(
+    mut commands: Commands,
+
+    mut clipboard: ResMut<bevy_egui::EguiClipboard>,
+    user_actions: Res<ActionState<UserAction>>,
+    layout_root: Res<DefaultLayoutRoot>,
+    layouts: AlignmentLayoutQuery,
+    sequences: Res<Sequences>,
+
+    mut last_pasted: Local<String>,
+) {
+    if user_actions.just_pressed(&UserAction::Paste) {
+        println!("in paste");
+        let Some(data) = clipboard.get_contents() else {
+            return;
+        };
+
+        if data == *last_pasted {
+            return;
+        }
+
+        // parse as BEDPE
+        let lines = data.lines();
+        for line in lines {
+            let fields = line.split('\t').take(6).collect::<Vec<_>>();
+            if let [chrom1, start1, end1, chrom2, start2, end2] = fields.as_slice() {
+                let start1 = start1.parse::<u64>().ok();
+                let end1 = end1.parse::<u64>().ok();
+                let start2 = start2.parse::<u64>().ok();
+                let end2 = end2.parse::<u64>().ok();
+
+                let Some(((start1, end1), (start2, end2))) =
+                    (start1.zip(end1)).zip(start2.zip(end2))
+                else {
+                    return;
+                };
+
+                let tgt = sequences.names().get_by_left(*chrom1);
+                let qry = sequences.names().get_by_left(*chrom2);
+
+                let Some((&target, &query)) = tgt.zip(qry) else {
+                    return;
+                };
+
+                // TODO transform here too (probably do this in a method on `AlignmentLayoutQuery`)
+                let Ok((_, _transform, layout_handle, _)) = layouts.layout_roots.get(layout_root.0)
+                else {
+                    return;
+                };
+
+                let Some(tile_aabb) = layouts
+                    .layout_assets
+                    .get(layout_handle)
+                    .and_then(|layout| layout.aabbs.get(&SequencePairTile { target, query }))
+                else {
+                    return;
+                };
+                // let Some(layout) = layouts.layout_assets.get(layout_handle) else {
+                //     return;
+                // };
+                let offset = tile_aabb.mins;
+
+                let p1 = DVec2::new(offset.x + start1 as f64, offset.y + start2 as f64);
+                let p2 = DVec2::new(offset.x + end1 as f64, offset.y + end2 as f64);
+
+                spawn_ruler(&mut commands, p1, p2);
+                println!("spawned ruler `{data}`");
             }
         }
+
+        *last_pasted = data;
+    }
+}
+
+fn copy_ruler_to_clipboard(
+    mut clipboard: ResMut<bevy_egui::EguiClipboard>,
+
+    sequences: Res<Sequences>,
+
+    layouts: AlignmentLayoutQuery,
+
+    rulers: Query<&Ruler>,
+    endpoints: Query<&RulerEndpoint>,
+
+    mut click_events: EventReader<Pointer<Click>>,
+    copy_buttons: Query<(Entity, &PickingInteraction), With<CopyRulerBedpeButton>>,
+
+    parents: Query<&Parent, Or<(With<CopyRulerBedpeButton>, With<RulerButtonRoot>)>>,
+) {
+    // let Some((layout_root, hit_tile, local_offset)) = layouts.tile_and_local_offset_at_point(world_point)
+    for (button, _interact) in copy_buttons.iter_many(click_events.read().map(|ev| ev.target())) {
+        // if *interact == PickingInteraction::Pressed {
+        // TODO: find *local* endpoints using seq. pair layout...
+        // then format as BEDPE string & set to clipboard
+
+        // let aa = parents.get(button).and_then(|btns| parents.get(btns.get())).and_then(|ruler| ruler);
+
+        let ruler = parents
+            .get(button)
+            .and_then(|r| parents.get(r.get()))
+            .and_then(|r| rulers.get(r.get()));
+
+        let Ok(ruler) = ruler else {
+            continue;
+        };
+
+        let start = endpoints.get(ruler.start).ok();
+        let end = endpoints.get(ruler.end).ok();
+
+        let Some((start, end)) = start.zip(end) else {
+            continue;
+        };
+
+        let start_pt = layouts.tile_and_local_offset_at_point(start.world);
+        let end_pt = layouts.tile_and_local_offset_at_point(end.world);
+
+        // TODO: is the order right here?
+        let Some(((_, start_tile, [start1, start2]), (_, end_tile, [end1, end2]))) =
+            start_pt.zip(end_pt)
+        else {
+            continue;
+        };
+
+        // doesn't make sense to output BEDPE for a ruler crossing sequence bounds
+        if start_tile != end_tile {
+            continue;
+        }
+        let tile = start_tile;
+
+        let chrom1 = sequences.get_name(tile.target).unwrap_or("UNKNOWNSEQ");
+        let chrom2 = sequences.get_name(tile.query).unwrap_or("UNKNOWNSEQ");
+        let record = format!("{chrom1}\t{start1}\t{end1}\t{chrom2}\t{start2}\t{end2}");
+        clipboard.set_contents(&record);
+        println!("copied ruler to clipboard: `{record}`");
+        let retrieved = clipboard.get_contents();
+        println!("read clipboard: {retrieved:?}");
     }
 }
 
@@ -557,6 +701,7 @@ mod cursor_information {
         let text_color = Color::BLACK;
 
         let bundle = (
+            Pickable::IGNORE,
             RenderLayers::layer(1),
             Text2dBundle {
                 text: Text::from_section(
@@ -586,6 +731,7 @@ mod cursor_information {
 
         commands
             .spawn((
+                Pickable::IGNORE,
                 CursorRulerLabels {
                     target_seq,
                     query_seq,
@@ -594,12 +740,14 @@ mod cursor_information {
             ))
             .with_children(|parent| {
                 parent.spawn((
+                    Pickable::IGNORE,
                     RenderLayers::layer(1),
                     SpatialBundle::default(),
                     mesh.clone(),
                     material.clone(),
                 ));
                 parent.spawn((
+                    Pickable::IGNORE,
                     RenderLayers::layer(1),
                     SpatialBundle::default(),
                     mesh,
@@ -655,7 +803,6 @@ mod cursor_information {
 
             // TODO: transform here too
             let mins = bevy::math::DVec2::new(aabb.mins.x, aabb.mins.y);
-            let maxs = bevy::math::DVec2::new(aabb.maxs.x, aabb.maxs.y);
 
             let local = (world_point - mins).as_u64vec2();
             hovered = Some((*tile, local.into()));
@@ -691,10 +838,10 @@ mod cursor_information {
             }
 
             if let Ok(mut transform) = transforms.get_mut(cursor_labels.target_seq) {
-                transform.translation = Vec3::new(screen_point.x, screen_dims.y * 0.5 - 30.0, 60.0);
+                transform.translation = Vec3::new(screen_point.x, screen_dims.y * 0.5 - 30.0, 0.0);
             }
             if let Ok(mut transform) = transforms.get_mut(cursor_labels.query_seq) {
-                transform.translation = Vec3::new(10.0 - screen_dims.x * 0.5, screen_point.y, 60.0);
+                transform.translation = Vec3::new(10.0 - screen_dims.x * 0.5, screen_point.y, 0.0);
             }
 
             if let Ok(mut text) = texts.get_mut(cursor_labels.target_seq) {
