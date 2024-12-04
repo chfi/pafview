@@ -53,8 +53,34 @@ fn vs_main(
 
     let view_width = 2.0 * projection[0][0];
 
+    let delta = p1 - p0;
+    let dlen = length(delta);
+
+    var end = p1;
+    if dlen < 0.5 * config.line_width / view_width {
+    // if dlen < (1.0 / view_width) {
+        var len = 0.5 * config.line_width / view_width;
+        // let len = 1.0 / view_width;
+
+        var dir = delta;
+        if dlen < 0.01 {
+            len *= 0.1;
+            dir = vec2(1.0, 0.0);
+        }
+
+        // let d = len * normalize(vec2(1.0, -1.0));
+        let d = len * normalize(dir);
+        end = p0 + d;
+    }
+
+    // if all(p1 == p0) {
+    //     let len = 0.5 * config.line_width / view_width;
+    //     let d = vec2(len, 0.0);
+    //     end = p0 + d;
+    // }
+
     let s0 = model * vec4(p0, 0.0, 1.0);
-    let s1 = model * vec4(p1, 0.0, 1.0);
+    let s1 = model * vec4(end, 0.0, 1.0);
 
     let x_basis = s1.xy - s0.xy;
     let y_basis = normalize(vec2(-x_basis.y, x_basis.x));
