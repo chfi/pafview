@@ -341,7 +341,8 @@ fn spawn_vertex_sampling_tasks(
             let (data_send, data_recv) = crossbeam::channel::unbounded::<VertexData>();
 
             let t0 = std::time::Instant::now();
-            let alignments = placed_layouts.par_iter().flat_map(|(_tform, layout)| {
+            // TODO: actually use the root transform
+            let alignments = placed_layouts.par_iter().flat_map(|(transform, layout)| {
                 layout
                     .layout_qbvh
                     .tiles_in_rect(params.view.center(), params.view.size() * 0.5)

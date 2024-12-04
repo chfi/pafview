@@ -12,7 +12,7 @@ use crate::{sequences::SeqId, PafViewerApp};
 
 pub mod layout;
 
-use layout::SeqPairLayout;
+use layout::{LayoutEntityIndex, SeqPairLayout};
 
 /*
 
@@ -138,7 +138,7 @@ pub(super) fn spawn_default_layout_root(
         .spawn((
             SpatialBundle::default(),
             default_layout.layout.clone(),
-            layout::LayoutEntityIndex(default()),
+            layout::LayoutEntityIndex::default(),
         ))
         .id();
     layout_events.send(layout::LayoutChangedEvent {

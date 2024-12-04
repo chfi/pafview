@@ -34,7 +34,7 @@ fn seq_pair_and_alignment_picking(
     alignments: Res<crate::Alignments>,
 
     layouts: Res<Assets<SeqPairLayout>>,
-    layout_roots: Query<(&Handle<SeqPairLayout>, &LayoutEntityIndex)>,
+    layout_roots: Query<(&Transform, &Handle<SeqPairLayout>, &LayoutEntityIndex)>,
     seq_pair_tiles: Query<&SequencePairAlignmentEntities, With<SequencePairTile>>,
 
     mut output: EventWriter<backend::PointerHits>,
@@ -42,10 +42,14 @@ fn seq_pair_and_alignment_picking(
     let (camera_ent, _camera) = cameras.single();
     let view = alignment_viewport.view;
 
-    for (layout_handle, entity_index) in layout_roots.iter() {
+    for (root_transform, layout_handle, entity_index) in layout_roots.iter() {
         let Some(layout) = layouts.get(layout_handle) else {
             continue;
         };
+
+        let root_offset = root_transform.translation.as_dvec3();
+        let root_scale = root_transform.scale.as_dvec3();
+        // let root_rotation = root_transform.rotation;
 
         for (ptr_id, ptr_loc) in pointers.iter() {
             let Some(loc) = ptr_loc.location() else {

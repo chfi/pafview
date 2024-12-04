@@ -32,7 +32,7 @@ pub struct DefaultLayout {
     builder: LayoutBuilder,
 }
 
-#[derive(Component, Deref, DerefMut)]
+#[derive(Component, Default, Deref, DerefMut)]
 pub struct LayoutEntityIndex(pub HashMap<SequencePairTile, Entity>);
 
 impl DefaultLayout {
