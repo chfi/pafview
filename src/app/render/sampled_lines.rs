@@ -81,7 +81,7 @@ struct SampledVertices {
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
 struct VertexSamplingParams {
     view: crate::view::View,
-    canvas_size: UVec2,
+    canvas_size: Vec2,
 }
 
 fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
@@ -331,7 +331,7 @@ fn spawn_vertex_sampling_tasks(
 
         let params = VertexSamplingParams {
             view: next_view,
-            canvas_size: canvas_size_u,
+            canvas_size,
             // scale: bp_per_px,
         };
 
@@ -554,7 +554,7 @@ fn update_vertex_transform(
             continue;
         };
 
-        let win_size = sampled.canvas_size.as_vec2();
+        let win_size = sampled.canvas_size;
         let last_view = sampled.view;
         let old_mid = last_view.center();
         let new_mid = next_view.center();
@@ -613,8 +613,7 @@ fn update_viewer_sprite_transform(
     let Ok(window) = windows.get_single() else {
         return;
     };
-    // let win_size = window.resolution.size();
-    let dpi_scale = window.resolution.scale_factor();
+    let dpi_scale = window.scale_factor();
 
     for (viewer, _vertices, mut transform, mut sprite) in viewers.iter_mut() {
         let Some(rendered) = viewer.last_rendered else {
@@ -624,8 +623,6 @@ fn update_viewer_sprite_transform(
         let img_size = rendered.canvas_size.as_vec2();
         sprite.custom_size = Some(img_size / dpi_scale);
 
-        // NB: sprite transform disabled as it makes things jumpy right now
-        // /*
         let Some(next_view) = viewer.view else {
             continue;
         };
@@ -644,13 +641,12 @@ fn update_viewer_sprite_transform(
             let w_rat = last_view.width() / next_view.width();
             let h_rat = last_view.height() / next_view.height();
 
-            let screen_delta = norm_delta.to_f32() * [img_size.x, img_size.y].as_uv();
+            let screen_delta = norm_delta.to_f32() * [img_size.x, img_size.y].as_uv() / dpi_scale;
 
             *transform =
                 Transform::from_translation(Vec3::new(-screen_delta.x, -screen_delta.y, 0.0))
                     .with_scale(Vec3::new(w_rat as f32, h_rat as f32, 1.0));
         }
-        // */
     }
 }
 
