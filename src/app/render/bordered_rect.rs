@@ -103,10 +103,7 @@ pub struct BorderedRectMaterial2d {
 
 impl Material2d for BorderedRectMaterial2d {
     fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
-        bevy::render::render_resource::ShaderRef::Path(
-            "../src/app/render/bordered_rect_2d.wgsl".into(),
-        )
-        // BORDERED_RECT_2D_SHADER_HANDLE.into()
+        BORDERED_RECT_2D_SHADER_HANDLE.into()
     }
 
     fn specialize(
