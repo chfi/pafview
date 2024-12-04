@@ -27,7 +27,8 @@ struct InteractiveRulersPlugin;
 
 impl Plugin for InteractiveRulersPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<HeldRulerState>()
+        app.add_event::<DeleteRulerEvent>()
+            .init_resource::<HeldRulerState>()
             .add_systems(
                 PreUpdate,
                 forward_ruler_cancel_action.in_set(crate::app::input::InputSet::BuildUserActions),
@@ -40,6 +41,7 @@ impl Plugin for InteractiveRulersPlugin {
                 Update,
                 (copy_ruler_to_clipboard, paste_ruler_from_clipboard),
             )
+            .add_systems(PreUpdate, delete_rulers)
             .add_systems(
                 Update,
                 (
@@ -259,6 +261,7 @@ fn add_ruler_visuals(
             parent.spawn((
                 RenderLayers::layer(1),
                 DeleteRulerButton,
+                On::<Pointer<Click>>::send_event::<DeleteRulerEvent>(),
                 SpriteBundle {
                     texture: icons.xmark.clone(),
                     transform: Transform::from_translation(Vec3::new(-15.0, 0.0, 100.0)),
@@ -268,9 +271,9 @@ fn add_ruler_visuals(
             parent.spawn((
                 RenderLayers::layer(1),
                 CopyRulerBedpeButton,
-                On::<Pointer<Over>>::run(|| {
-                    println!("hovering copy button!");
-                }),
+                // On::<Pointer<Over>>::run(|| {
+                //     println!("hovering copy button!");
+                // }),
                 SpriteBundle {
                     texture: icons.paste_clipboard.clone(),
                     transform: Transform::from_translation(Vec3::new(15.0, 0.0, 100.0)),
@@ -503,8 +506,39 @@ fn interact_with_rulers(
     }
 }
 
-// fn delete_ruler_button(
-// )
+#[derive(Event)]
+struct DeleteRulerEvent {
+    button: Entity,
+}
+
+impl From<ListenerInput<Pointer<Click>>> for DeleteRulerEvent {
+    fn from(value: ListenerInput<Pointer<Click>>) -> Self {
+        DeleteRulerEvent {
+            button: value.listener(),
+        }
+    }
+}
+
+// TODO: doesn't ensure that `HeldRulerState` is cleared on the off chance that
+// a held ruler is deleted
+fn delete_rulers(
+    mut commands: Commands,
+    mut delete_events: EventReader<DeleteRulerEvent>,
+    parents: Query<&Parent>,
+) {
+    for event in delete_events.read() {
+        let Some(ruler) = parents
+            .get(event.button)
+            .and_then(|r| parents.get(r.get()))
+            .map(|r| r.get())
+            .ok()
+        else {
+            continue;
+        };
+
+        commands.entity(ruler).despawn_recursive();
+    }
+}
 
 // TODO: this is quite hacky and mostly a proof of concept -- this doesn't generalize
 // and will need more focus information to even work with egui

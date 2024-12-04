@@ -734,7 +734,6 @@ fn finish_render_operation(
         viewers.iter_mut()
     {
         let render_state = render_op.state.load(std::sync::atomic::Ordering::Relaxed);
-        println!("render_state: {render_state}");
         if render_state < RenderOperation::STATE_FINISHED {
             continue;
         } else if render_state == RenderOperation::STATE_ERROR {
