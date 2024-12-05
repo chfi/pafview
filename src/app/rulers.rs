@@ -4,9 +4,12 @@ use super::{
     SequencePairTile,
 };
 use crate::{
-    app::input::{
-        cursor::CursorPosition, ActiveTool, RectangleSelectAction, RulerAction, UserAction,
-        ViewAction,
+    app::{
+        input::{
+            cursor::CursorPosition, ActiveTool, RectangleSelectAction, RulerAction, UserAction,
+            ViewAction,
+        },
+        AlignmentIndex,
     },
     Sequences,
 };
@@ -21,6 +24,11 @@ use bevy_mod_picking::prelude::*;
 use leafwing_input_manager::{
     action_diff::{ActionDiff, ActionDiffEvent},
     prelude::*,
+};
+
+use avian2d::parry::{
+    self,
+    bounding_volume::{Aabb, BoundingVolume},
 };
 
 struct InteractiveRulersPlugin;
@@ -419,6 +427,64 @@ fn forward_ruler_cancel_action(
 
         *ruler_data = cancel_data.clone();
         *cancel_data = leafwing_input_manager::action_state::ButtonData::default();
+    }
+}
+
+fn snap_held_ruler(
+    user_actions: Res<ActionState<UserAction>>,
+    held_ruler: Res<HeldRulerState>,
+    viewport: Res<AlignmentViewport>,
+
+    mut endpoints: Query<&mut RulerEndpoint>,
+
+    layouts: AlignmentLayoutQuery,
+
+    windows: Query<&Window>,
+) {
+    if !user_actions.pressed(&UserAction::ModifierMinus) {
+        return;
+    }
+
+    let Some(held_endpoint) = held_ruler.held_endpoint else {
+        return;
+    };
+
+    let Ok(mut endpoint) = endpoints.get_mut(held_endpoint) else {
+        return;
+    };
+
+    let Ok(win_size) = windows.get_single().map(|w| w.size()) else {
+        return;
+    };
+
+    let wp = endpoint.world;
+    let aabb_size = (10.0 / win_size.x) as f64 * viewport.view.width();
+
+    struct Closest {
+        layout_root: Entity,
+        alignment_entity: Entity,
+        alignment: AlignmentIndex,
+        closest_world_point_on_aabb: DVec2,
+    }
+
+    let mut closest_alignment: Option<Closest> = None;
+
+    for (layout_root, _transform, layout_handle, _) in layouts.layout_roots.iter() {
+        let Some(layout) = layouts.layout_assets.get(layout_handle) else {
+            continue;
+        };
+
+        // let test_aabb = Aabb::from_half_extents([wp.x, wp.y].into(), [aabb_size, aabb_size].into());
+
+        layout.layout_qbvh.tiles_in_rect_callback(
+            endpoint.world,
+            [aabb_size, aabb_size],
+            |seq_pair, aabb| {
+                //
+            },
+        );
+
+        // let (seq_pair, aabb) = layout.layout_qbvh.closest_tile_at_point(endpoint.world);
     }
 }
 

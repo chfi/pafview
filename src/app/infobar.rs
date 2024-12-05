@@ -185,7 +185,6 @@ fn update_infobar(
                 text.sections[0].value.extend(field.chars());
             }
         }
-        //
     }
 }
 

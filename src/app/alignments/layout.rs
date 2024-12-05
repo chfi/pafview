@@ -208,7 +208,7 @@ impl LayoutQbvh {
         &self,
         center: impl Into<[f64; 2]>,
         half_extents: impl Into<[f64; 2]>,
-        mut callback: impl FnMut(SequencePairTile) -> bool,
+        mut callback: impl FnMut(SequencePairTile, &Aabb) -> bool,
     ) {
         let center = center.into();
         let half_extents = half_extents.into();
@@ -220,7 +220,7 @@ impl LayoutQbvh {
             let aabb = &self.aabbs[*index];
             if query_aabb.intersects(aabb) {
                 let seq_pair = self.tile_index_map[*index];
-                callback(seq_pair)
+                callback(seq_pair, aabb)
             } else {
                 true
             }
@@ -238,7 +238,7 @@ impl LayoutQbvh {
     ) -> Vec<SequencePairTile> {
         let mut results = Vec::new();
 
-        self.tiles_in_rect_callback(center, half_extents, |tile| {
+        self.tiles_in_rect_callback(center, half_extents, |tile, _| {
             results.push(tile);
             true
         });
