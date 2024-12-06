@@ -29,6 +29,7 @@ use leafwing_input_manager::{
 use avian2d::parry::{
     self,
     bounding_volume::{Aabb, BoundingVolume},
+    query::PointQuery,
 };
 
 struct InteractiveRulersPlugin;
@@ -465,6 +466,7 @@ fn snap_held_ruler(
         alignment_entity: Entity,
         alignment: AlignmentIndex,
         closest_world_point_on_aabb: DVec2,
+        distance: f64,
     }
 
     let mut closest_alignment: Option<Closest> = None;
@@ -474,13 +476,49 @@ fn snap_held_ruler(
             continue;
         };
 
-        // let test_aabb = Aabb::from_half_extents([wp.x, wp.y].into(), [aabb_size, aabb_size].into());
+        let test_aabb = Aabb::from_half_extents([wp.x, wp.y].into(), [aabb_size, aabb_size].into());
 
-        layout.layout_qbvh.tiles_in_rect_callback(
+        layout.layout_qbvh.aabbs_in_rect_callback(
             endpoint.world,
             [aabb_size, aabb_size],
             |seq_pair, aabb| {
-                //
+                // TODO take layout transform into account here too
+                let projected = aabb.project_local_point(&test_aabb.center(), true);
+
+                // TODO idk if this is correct; don't want snapping when entirely inside an alignment... probably
+                // if projected.is_inside {
+                //     return true;
+                // }
+
+                let pt: nalgebra::OPoint<f64, nalgebra::Const<2>> = projected.point;
+                let distance = (pt - test_aabb.center()).magnitude();
+
+                let min_dist = closest_alignment
+                    .as_ref()
+                    .map(|c| c.distance)
+                    .unwrap_or(std::f64::INFINITY);
+
+                if distance < min_dist {
+                    // TODO still need to check the alignments *in* the tile; don't have
+                    // that qbvh yet
+                    todo!();
+
+                    let closest = Closest {
+                        layout_root,
+                        alignment_entity: todo!(),
+                        alignment: todo!(),
+                        closest_world_point_on_aabb: todo!(),
+                        distance,
+                    };
+
+                    closest_alignment = Some(closest);
+                }
+
+                // let points = parry::query::closest_points(
+                // )
+                // compare distance to `closest_alignment`, build & store `Closest`
+                // when appropriate
+                todo!();
             },
         );
 
@@ -620,7 +658,6 @@ fn paste_ruler_from_clipboard(
     mut last_pasted: Local<String>,
 ) {
     if user_actions.just_pressed(&UserAction::Paste) {
-        println!("in paste");
         let Some(data) = clipboard.get_contents() else {
             return;
         };
@@ -890,7 +927,7 @@ mod cursor_information {
             };
 
             // TODO: take layout transform into account
-            let tiles = layout.layout_qbvh.tiles_at_point(world_point);
+            let tiles = layout.layout_qbvh.aabbs_at_point(world_point);
 
             let Some(tile) = tiles.first() else {
                 // TODO hide labels as there's no sequence tile under the cursor

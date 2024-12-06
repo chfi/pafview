@@ -382,7 +382,7 @@ fn spawn_render_tasks(
 
             let tiles = layout
                 .layout_qbvh
-                .tiles_in_rect(params.view.center(), params.view.size() * 0.5);
+                .aabbs_in_rect(params.view.center(), params.view.size() * 0.5);
 
             let tile_aabbs = tiles
                 .into_iter()

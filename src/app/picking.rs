@@ -73,7 +73,7 @@ fn seq_pair_and_alignment_picking(
             let world_pos = view.map_screen_to_world(size, cursor.to_array());
 
             // find tile under pointer
-            let hit_tiles = layout.layout_qbvh.tiles_at_point(world_pos);
+            let hit_tiles = layout.layout_qbvh.aabbs_at_point(world_pos);
 
             for hit_tile in hit_tiles {
                 let Some(seq_entity) = entity_index.get(&hit_tile) else {

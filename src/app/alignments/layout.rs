@@ -22,7 +22,7 @@ impl Plugin for AlignmentLayoutPlugin {
 pub struct SeqPairLayout {
     pub aabbs: HashMap<SequencePairTile, Aabb>,
 
-    pub layout_qbvh: LayoutQbvh,
+    pub layout_qbvh: AabbQbvh<SequencePairTile>,
 }
 
 #[derive(Resource, Clone)]
@@ -112,7 +112,7 @@ impl LayoutBuilder {
                 .collect(),
         };
 
-        let layout_qbvh = LayoutQbvh::from_tiles(aabbs.iter().map(|(&sp, &aabb)| (sp, aabb)));
+        let layout_qbvh = AabbQbvh::from_aabbs(aabbs.iter().map(|(&sp, &aabb)| (sp, aabb)));
 
         SeqPairLayout { aabbs, layout_qbvh }
     }
@@ -171,24 +171,20 @@ enum LayoutInput {
 }
 
 #[derive(Clone)]
-pub struct LayoutQbvh {
+pub struct AabbQbvh<Data: Copy> {
     qbvh: parry::partitioning::Qbvh<usize>,
-    tile_index_map: Vec<SequencePairTile>,
+    data: Vec<Data>,
     aabbs: Vec<Aabb>,
-    // tile_index_map: HashMap<usize,
 }
 
-impl LayoutQbvh {
-    pub fn from_tiles<T>(tiles: T) -> Self
+impl<T: Copy> AabbQbvh<T> {
+    pub fn from_aabbs<I>(tiles: I) -> Self
     where
-        T: ExactSizeIterator<Item = (SequencePairTile, Aabb)>,
+        I: ExactSizeIterator<Item = (T, Aabb)>,
     {
         use parry::partitioning::Qbvh;
 
-        let (tile_index_map, mut leaf_data): (
-            Vec<SequencePairTile>,
-            Vec<(usize, parry::bounding_volume::Aabb)>,
-        ) = tiles
+        let (data, leaf_data): (Vec<T>, Vec<(usize, parry::bounding_volume::Aabb)>) = tiles
             .enumerate()
             .map(|(ix, (seq_pair, aabb))| (seq_pair, (ix, aabb)))
             .unzip();
@@ -197,18 +193,14 @@ impl LayoutQbvh {
         let mut qbvh = Qbvh::new();
         qbvh.clear_and_rebuild(leaf_data.into_iter(), 1.0);
 
-        Self {
-            qbvh,
-            tile_index_map,
-            aabbs,
-        }
+        Self { qbvh, data, aabbs }
     }
 
-    pub fn tiles_in_rect_callback(
+    pub fn aabbs_in_rect_callback(
         &self,
         center: impl Into<[f64; 2]>,
         half_extents: impl Into<[f64; 2]>,
-        mut callback: impl FnMut(SequencePairTile, &Aabb) -> bool,
+        mut callback: impl FnMut(T, &Aabb) -> bool,
     ) {
         let center = center.into();
         let half_extents = half_extents.into();
@@ -219,8 +211,8 @@ impl LayoutQbvh {
         let leaf_cb = &mut |index: &usize| {
             let aabb = &self.aabbs[*index];
             if query_aabb.intersects(aabb) {
-                let seq_pair = self.tile_index_map[*index];
-                callback(seq_pair, aabb)
+                let value = self.data[*index];
+                callback(value, aabb)
             } else {
                 true
             }
@@ -231,33 +223,33 @@ impl LayoutQbvh {
         self.qbvh.traverse_depth_first(&mut visitor);
     }
 
-    pub fn tiles_in_rect(
+    pub fn aabbs_in_rect(
         &self,
         center: impl Into<[f64; 2]>,
         half_extents: impl Into<[f64; 2]>,
-    ) -> Vec<SequencePairTile> {
+    ) -> Vec<T> {
         let mut results = Vec::new();
 
-        self.tiles_in_rect_callback(center, half_extents, |tile, _| {
-            results.push(tile);
+        self.aabbs_in_rect_callback(center, half_extents, |value, _| {
+            results.push(value);
             true
         });
 
         results
     }
 
-    pub fn tiles_at_point_callback(
+    pub fn aabbs_at_point_callback(
         &self,
         point: impl Into<[f64; 2]>,
-        mut callback: impl FnMut(SequencePairTile) -> bool,
+        mut callback: impl FnMut(T) -> bool,
     ) {
         let query_pt = point.into();
 
         let leaf_cb = &mut |index: &usize| {
             let aabb = &self.aabbs[*index];
             if aabb.contains_local_point(&query_pt.into()) {
-                let seq_pair = self.tile_index_map[*index];
-                callback(seq_pair)
+                let value = self.data[*index];
+                callback(value)
             } else {
                 true
             }
@@ -269,11 +261,11 @@ impl LayoutQbvh {
         self.qbvh.traverse_depth_first(&mut visitor);
     }
 
-    pub fn tiles_at_point(&self, point: impl Into<[f64; 2]>) -> Vec<SequencePairTile> {
+    pub fn aabbs_at_point(&self, point: impl Into<[f64; 2]>) -> Vec<T> {
         let mut results = Vec::new();
 
-        self.tiles_at_point_callback(point, |tile| {
-            results.push(tile);
+        self.aabbs_at_point_callback(point, |value| {
+            results.push(value);
             true
         });
 

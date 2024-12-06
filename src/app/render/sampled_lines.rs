@@ -351,7 +351,7 @@ fn spawn_vertex_sampling_tasks(
             let alignments = placed_layouts.par_iter().flat_map(|(transform, layout)| {
                 layout
                     .layout_qbvh
-                    .tiles_in_rect(params.view.center(), params.view.size() * 0.5)
+                    .aabbs_in_rect(params.view.center(), params.view.size() * 0.5)
                     .into_par_iter()
                     .filter_map(|seq_pair| {
                         let aabb = layout.aabbs.get(&seq_pair)?;
@@ -931,10 +931,6 @@ fn sample_alignment_iterator(
                     let p1 = view.map_world_to_screen(canvas_size, w1);
 
                     let segment = mk_segment(p0, p1);
-                    if buffer.len() - buffer_start_len < 10 {
-                        let i = buffer.len() - buffer_start_len;
-                        println!("{i} {segment:?}\nlast: {last_item:?}");
-                    }
                     buffer.push(segment);
                     open_match_world = None;
                 } else {
