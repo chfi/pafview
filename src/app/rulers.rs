@@ -1,5 +1,5 @@
 use super::{
-    alignments::{AlignmentLayoutQuery, DefaultLayoutRoot},
+    alignments::{AlignmentAabbs, AlignmentLayoutQuery, DefaultLayoutRoot},
     view::AlignmentViewport,
     SequencePairTile,
 };
@@ -56,6 +56,7 @@ impl Plugin for InteractiveRulersPlugin {
                 (
                     (add_ruler_visuals, add_ruler_endpoint_interaction_sprite),
                     update_rulers,
+                    snap_held_ruler,
                 )
                     .chain(),
             );
@@ -435,6 +436,7 @@ fn snap_held_ruler(
     user_actions: Res<ActionState<UserAction>>,
     held_ruler: Res<HeldRulerState>,
     viewport: Res<AlignmentViewport>,
+    alignment_aabbs: Res<AlignmentAabbs>,
 
     mut endpoints: Query<&mut RulerEndpoint>,
 
@@ -461,6 +463,7 @@ fn snap_held_ruler(
     let wp = endpoint.world;
     let aabb_size = (10.0 / win_size.x) as f64 * viewport.view.width();
 
+    /*
     struct Closest {
         layout_root: Entity,
         alignment_entity: Entity,
@@ -470,13 +473,23 @@ fn snap_held_ruler(
     }
 
     let mut closest_alignment: Option<Closest> = None;
+    */
+
+    dbg!();
+    struct ClosestTile {
+        layout_root: Entity,
+        seq_pair: SequencePairTile,
+        distance: f64,
+    }
+
+    let mut closest_tile: Option<ClosestTile> = None;
+
+    let test_aabb = Aabb::from_half_extents([wp.x, wp.y].into(), [aabb_size, aabb_size].into());
 
     for (layout_root, _transform, layout_handle, _) in layouts.layout_roots.iter() {
         let Some(layout) = layouts.layout_assets.get(layout_handle) else {
             continue;
         };
-
-        let test_aabb = Aabb::from_half_extents([wp.x, wp.y].into(), [aabb_size, aabb_size].into());
 
         layout.layout_qbvh.aabbs_in_rect_callback(
             endpoint.world,
@@ -485,44 +498,112 @@ fn snap_held_ruler(
                 // TODO take layout transform into account here too
                 let projected = aabb.project_local_point(&test_aabb.center(), true);
 
-                // TODO idk if this is correct; don't want snapping when entirely inside an alignment... probably
                 // if projected.is_inside {
-                //     return true;
+                //     return false;
                 // }
 
-                let pt: nalgebra::OPoint<f64, nalgebra::Const<2>> = projected.point;
+                let pt = projected.point;
                 let distance = (pt - test_aabb.center()).magnitude();
 
-                let min_dist = closest_alignment
+                let min_dist = closest_tile
                     .as_ref()
                     .map(|c| c.distance)
                     .unwrap_or(std::f64::INFINITY);
 
                 if distance < min_dist {
-                    // TODO still need to check the alignments *in* the tile; don't have
-                    // that qbvh yet
-                    todo!();
-
-                    let closest = Closest {
+                    let closest = ClosestTile {
                         layout_root,
-                        alignment_entity: todo!(),
-                        alignment: todo!(),
-                        closest_world_point_on_aabb: todo!(),
+                        seq_pair,
                         distance,
                     };
 
-                    closest_alignment = Some(closest);
+                    closest_tile = Some(closest);
                 }
-
-                // let points = parry::query::closest_points(
-                // )
-                // compare distance to `closest_alignment`, build & store `Closest`
-                // when appropriate
-                todo!();
+                true
             },
         );
+    }
 
-        // let (seq_pair, aabb) = layout.layout_qbvh.closest_tile_at_point(endpoint.world);
+    let Some(closest_tile) = closest_tile else {
+        return;
+    };
+
+    let Ok((_, _transform, layout_handle, _tile_entities)) =
+        layouts.layout_roots.get(closest_tile.layout_root)
+    else {
+        return;
+    };
+
+    dbg!();
+    let Some(layout) = layouts.layout_assets.get(layout_handle) else {
+        return;
+    };
+
+    dbg!();
+    let Some(tile_aabb) = layout.aabbs.get(&closest_tile.seq_pair) else {
+        return;
+    };
+    let tile_offset: DVec2 = [tile_aabb.mins.x, tile_aabb.mins.y].into();
+
+    dbg!();
+    let Some(tile_qbvh) = alignment_aabbs.qbvhs.get(&closest_tile.seq_pair) else {
+        return;
+    };
+    dbg!();
+
+    let tile_local_pt: DVec2 = endpoint.world - tile_offset;
+    let test_aabb = Aabb::from_half_extents(
+        tile_local_pt.to_array().into(),
+        [aabb_size, aabb_size].into(),
+    );
+
+    #[derive(Debug)]
+    struct ClosestAlignment {
+        index: AlignmentIndex,
+        projected: DVec2,
+        distance: f64,
+    }
+
+    let mut closest_alignment: Option<ClosestAlignment> = None;
+
+    tile_qbvh.aabbs_in_rect_callback(tile_local_pt, [aabb_size, aabb_size], |al_ix, aabb| {
+        // need to convert to tile-local coordinates
+        let projected = aabb.project_local_point(&test_aabb.center(), true);
+
+        if projected.is_inside {
+            return false;
+        }
+
+        let pt = projected.point;
+        let distance = (pt - test_aabb.center()).magnitude();
+
+        let min_dist = closest_alignment
+            .as_ref()
+            .map(|c| c.distance)
+            .unwrap_or(std::f64::INFINITY);
+
+        if distance < min_dist {
+            let closest = ClosestAlignment {
+                index: al_ix,
+                projected: [pt.x, pt.y].into(),
+                distance,
+            };
+
+            closest_alignment = Some(closest);
+        }
+
+        true
+    });
+    dbg!(&closest_alignment);
+
+    if let Some(closest) = closest_alignment {
+        // TODO do the snap
+        let world_pt = closest.projected + tile_offset;
+
+        let delta = world_pt - endpoint.world;
+        println!("snapping with delta {delta:?}");
+
+        endpoint.world = world_pt;
     }
 }
 

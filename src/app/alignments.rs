@@ -2,6 +2,7 @@ use std::sync::{atomic::AtomicBool, Arc};
 
 use bevy::{
     ecs::system::SystemParam,
+    math::U64Vec2,
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task},
     utils::HashMap,
@@ -13,7 +14,12 @@ use crate::{sequences::SeqId, Alignments, PafViewerApp};
 
 pub mod layout;
 
-use layout::{AabbQbvh, LayoutEntityIndex, SeqPairLayout};
+use layout::{AabbQbvh, DefaultLayout, LayoutEntityIndex, SeqPairLayout};
+
+use avian2d::parry::{
+    self,
+    bounding_volume::{Aabb, BoundingVolume},
+};
 
 /*
 
@@ -27,7 +33,8 @@ impl Plugin for AlignmentsPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<AlignmentEntityIndex>()
             .init_resource::<SequencePairEntityIndex>()
-            .add_plugins(layout::AlignmentLayoutPlugin);
+            .add_plugins(layout::AlignmentLayoutPlugin)
+            .add_plugins(AlignmentAabbPlugin);
 
         // app.add_systems(Startup, initialize_default_layout);
         app.add_systems(Startup, initialize_grid_material);
@@ -546,31 +553,92 @@ fn update_grid_material_from_config(
     mat.border_width_px = config.grid_line_width;
 }
 
+struct AlignmentAabbPlugin;
+impl Plugin for AlignmentAabbPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<AlignmentAabbs>()
+            .add_systems(Startup, spawn_alignment_aabbs_task)
+            .add_systems(PreUpdate, update_alignment_aabbs);
+    }
+}
+
 // resource storing the local (to their parent sequence pair) AABBs of each alignment
 //
 #[derive(Default, Resource)]
 pub struct AlignmentAabbs {
     pub qbvhs: HashMap<SequencePairTile, AabbQbvh<AlignmentIndex>>,
+    task: Option<Task<Vec<AlignmentAabbEvent>>>,
 }
-
-#[derive(Event)]
 struct AlignmentAabbEvent {
     tile: SequencePairTile,
     qbvh: AabbQbvh<AlignmentIndex>,
 }
 
-fn spawn_alignment_aabbs_task(alignments: Res<Alignments>, aabbs: Res<AlignmentAabbs>) {
-    // how do i know which sequence pairs to process at this point
-    //
+fn spawn_alignment_aabbs_task(alignments: Res<Alignments>, mut aabbs: ResMut<AlignmentAabbs>) {
+    let al_ixs = alignments.indices.clone();
+    let alignments = alignments.alignments.clone();
 
-    todo!();
+    let task_pool = AsyncComputeTaskPool::get();
+
+    let task = task_pool.spawn(async move {
+        let mut result = Vec::new();
+
+        for (&(target, query), ixs) in al_ixs.iter() {
+            let aligns = ixs.iter().filter_map(|&ix| Some((ix, alignments.get(ix)?)));
+
+            let leaf_data = aligns.map(|(pair_index, alignment)| {
+                let loc = &alignment.location;
+                let mins: U64Vec2 = [loc.target_range.start, loc.query_range.start].into();
+                let maxs: U64Vec2 = [loc.target_range.end, loc.query_range.end].into();
+
+                let p0 = mins.as_dvec2();
+                let p1 = maxs.as_dvec2();
+
+                let center = (p0 + p1) * 0.5;
+                let half_extents = (p1 - p0) * 0.5;
+
+                let aabb = Aabb::from_half_extents(
+                    center.to_array().into(),
+                    half_extents.to_array().into(),
+                );
+
+                let index = AlignmentIndex {
+                    target,
+                    query,
+                    pair_index,
+                };
+                (index, aabb)
+            });
+
+            let qbvh = AabbQbvh::from_aabbs(leaf_data);
+            result.push(AlignmentAabbEvent {
+                tile: SequencePairTile { target, query },
+                qbvh,
+            });
+        }
+
+        result
+    });
+
+    aabbs.task = Some(task);
 }
 
 fn update_alignment_aabbs(
     mut aabbs: ResMut<AlignmentAabbs>,
-    mut events: Events<AlignmentAabbEvent>,
+    // mut events: Events<AlignmentAabbEvent>,
 ) {
-    for event in events.drain() {
-        aabbs.qbvhs.insert(event.tile, event.qbvh);
+    if let Some(task) = aabbs.task.take() {
+        if !task.is_finished() {
+            aabbs.task = Some(task);
+            return;
+        }
+
+        let Some(results) = bevy::tasks::block_on(bevy::tasks::poll_once(task)) else {
+            return;
+        };
+
+        for event in results {
+            aabbs.qbvhs.insert(event.tile, event.qbvh);
+        }
     }
 }

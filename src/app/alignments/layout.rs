@@ -180,7 +180,7 @@ pub struct AabbQbvh<Data: Copy> {
 impl<T: Copy> AabbQbvh<T> {
     pub fn from_aabbs<I>(tiles: I) -> Self
     where
-        I: ExactSizeIterator<Item = (T, Aabb)>,
+        I: Iterator<Item = (T, Aabb)>,
     {
         use parry::partitioning::Qbvh;
 
