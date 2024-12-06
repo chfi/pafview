@@ -329,6 +329,15 @@ fn draw_alignments_at_offset<'a>(
                 let nucls = seqs(op, tgt, qry);
 
                 let world_offset = seq_pair_offset + bevy::math::DVec2::new(tgt as f64, qry as f64);
+
+                if world_offset.x < view.x_min
+                    || world_offset.x > view.x_max
+                    || world_offset.y < view.y_min
+                    || world_offset.y > view.y_max
+                {
+                    continue;
+                }
+
                 let world_offset: [f64; 2] = world_offset.into();
                 let dst_offset = view.map_world_to_screen(canvas_size.as_vec2(), world_offset);
 
