@@ -39,7 +39,7 @@ impl Plugin for AlignmentViewPlugin {
             .add_systems(Startup, setup)
             .add_systems(
                 PreUpdate,
-                (new_pan_viewport_anchored, new_input_update_viewport)
+                (pan_viewport_anchored, handle_input_update_viewport)
                     .chain()
                     .before(enforce_alignment_viewport_limits)
                     .in_set(super::input::InputSet::HandleActions),
@@ -270,7 +270,7 @@ fn rectangle_select_zoom_apply(
     }
 }
 
-fn new_input_update_viewport(
+fn handle_input_update_viewport(
     time: Res<Time>,
 
     // cursor: Res<super::input::cursor::CursorPosition>,
@@ -282,11 +282,7 @@ fn new_input_update_viewport(
 ) {
     let dt = time.delta_seconds_f64();
 
-    if view_actions.just_pressed(&ViewAction::Reset)
-    // && !region_selection_mode
-    //     .map(|sel| sel.user_is_selecting)
-    //     .unwrap_or(false)
-    {
+    if view_actions.just_pressed(&ViewAction::Reset) {
         view_events.send(ViewEvent {
             view: layout_bounds.bounds,
         });
@@ -299,9 +295,6 @@ fn new_input_update_viewport(
         alignment_view.view.translate(dv.x * w * dt, dv.y * h * dt);
     }
     let zoom_input = view_actions.value(&ViewAction::Zoom);
-    // .axis_data(&ViewAction::Zoom)
-    // .cloned()
-    // .unwrap_or_default();
 
     let zoom_rate = 0.05;
     let zoom_delta = (1.0 - zoom_input * zoom_rate).clamp(0.1, 10.0);
@@ -323,7 +316,7 @@ fn new_input_update_viewport(
 }
 
 // run in `InputSet::HandleActions`
-fn new_pan_viewport_anchored(
+fn pan_viewport_anchored(
     cursor: Res<super::input::cursor::CursorPosition>,
     view_actions: Res<ActionState<ViewAction>>,
 
@@ -363,258 +356,6 @@ fn new_pan_viewport_anchored(
 
         alignment_view.view.translate(world_delta.x, world_delta.y);
         *click_origin = Some(cur_screen_pos);
-    }
-}
-
-fn click_drag_pan_viewport(
-    // mut click_origin: Local<Option<(bevy::math::DVec2, bevy::math::Vec2)>>,
-    mut click_origin: Local<Option<bevy::math::Vec2>>,
-
-    // TODO: this should be handled better; this system shouldn't depend
-    // on a specific state/mode in the figure export plugin
-    region_selection_mode: Option<Res<super::figure_export::FigureRegionSelectionMode>>,
-
-    mut egui_contexts: bevy_egui::EguiContexts,
-    menubar_size: Res<super::gui::MenubarSize>,
-
-    mouse_button: Res<ButtonInput<MouseButton>>,
-    keyboard: Res<ButtonInput<KeyCode>>,
-    alignment_cursor: Res<CursorAlignmentPosition>,
-
-    windows: Query<&Window>,
-    mut alignment_view: ResMut<AlignmentViewport>,
-) {
-    if region_selection_mode
-        .map(|sel| sel.user_is_selecting)
-        .unwrap_or(false)
-    {
-        *click_origin = None;
-        return;
-    }
-
-    let Ok(window) = windows.get_single() else {
-        return;
-    };
-    let win_size = window.resolution.size();
-    let ptr_pos = window.cursor_position();
-
-    let egui_using_cursor = egui_contexts.ctx_mut().wants_pointer_input()
-        || ptr_pos.map(|p| p.y < menubar_size.height).unwrap_or(false);
-
-    if egui_using_cursor {
-        return;
-    }
-
-    if mouse_button.pressed(MouseButton::Left) && click_origin.is_none() {
-        let origin = alignment_cursor.screen_pos;
-        *click_origin = origin;
-    }
-
-    if !mouse_button.pressed(MouseButton::Left) {
-        *click_origin = None;
-    }
-
-    let Some(cur_screen_pos) = alignment_cursor.screen_pos else {
-        return;
-    };
-    if let Some(last_screen_pos) = click_origin.as_ref().copied() {
-        // set the alignment view center so that the world positions
-        // of the cursor at the start of the drag & the current frame
-        // are the same
-
-        let ctrl_down =
-            keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
-
-        let shift_down =
-            keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
-
-        let pan_factor = if ctrl_down {
-            0.25
-        } else if shift_down {
-            5.0
-        } else {
-            1.0
-        };
-
-        let screen_delta = last_screen_pos - cur_screen_pos;
-        let norm_delta = screen_delta / win_size;
-        let view_size = alignment_view.view.size();
-        let world_delta = ultraviolet::DVec2::new(
-            norm_delta.x as f64 * view_size.x,
-            norm_delta.y as f64 * view_size.y,
-        ) * pan_factor;
-
-        alignment_view.view.translate(world_delta.x, world_delta.y);
-        *click_origin = Some(cur_screen_pos);
-    }
-}
-
-fn input_update_viewport(
-    time: Res<Time>,
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mouse_button: Res<ButtonInput<MouseButton>>,
-
-    windows: Query<&Window>,
-    mut egui_contexts: bevy_egui::EguiContexts,
-
-    mut mouse_wheel: EventReader<MouseWheel>,
-    mut mouse_motion: EventReader<MouseMotion>,
-
-    layout_bounds: Res<LayoutBounds>,
-    mut alignment_view: ResMut<AlignmentViewport>,
-    mut view_events: EventWriter<ViewEvent>,
-
-    // TODO: this should be handled better; this system shouldn't depend
-    // on a specific state/mode in the figure export plugin
-    region_selection_mode: Option<Res<super::figure_export::FigureRegionSelectionMode>>,
-) {
-    let egui_using_cursor = egui_contexts.ctx_mut().wants_pointer_input();
-
-    let Ok(window) = windows.get_single() else {
-        return;
-    };
-
-    if keyboard.just_pressed(KeyCode::Escape)
-        && !region_selection_mode
-            .map(|sel| sel.user_is_selecting)
-            .unwrap_or(false)
-    {
-        view_events.send(ViewEvent {
-            view: layout_bounds.bounds,
-        });
-    }
-
-    let win_size = bevy::math::DVec2::new(
-        window.resolution.width() as f64,
-        window.resolution.height() as f64,
-    );
-
-    let mut scroll_delta = mouse_wheel
-        .read()
-        .map(|ev| {
-            // TODO scale based on ev.unit
-            match ev.unit {
-                bevy::input::mouse::MouseScrollUnit::Line => {
-                    ev.y as f64
-                    //
-                }
-                bevy::input::mouse::MouseScrollUnit::Pixel => {
-                    ev.y as f64 * 0.01f64
-                    //
-                }
-            }
-        })
-        .sum::<f64>();
-
-    let dt = time.delta_seconds();
-
-    let mut mouse_delta = mouse_motion
-        .read()
-        .map(|ev| bevy::math::DVec2::new(ev.delta.x as f64, ev.delta.y as f64))
-        .sum::<bevy::math::DVec2>();
-    mouse_delta.y *= -1.0;
-
-    if egui_using_cursor {
-        mouse_delta = bevy::math::DVec2::ZERO;
-        scroll_delta = 0.0;
-    }
-
-    // for (mut transform, mut proj) in camera_query.iter_mut() {
-    // let Projection::Orthographic(proj) = proj.as_mut() else {
-    //     continue;
-    // };
-
-    let view = alignment_view.view;
-    let view_size = bevy::math::DVec2::new(view.size().x, view.size().y);
-
-    let Some(cursor_position) = window.cursor_position() else {
-        return;
-    };
-    let cursor_norm = {
-        let p = cursor_position;
-        let x = p.x as f64 / window.resolution.width() as f64;
-        let y = p.y as f64 / window.resolution.height() as f64;
-        [x, y]
-    };
-
-    let ctrl_down =
-        keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
-
-    let shift_down = keyboard.pressed(KeyCode::ShiftLeft) || keyboard.pressed(KeyCode::ShiftRight);
-
-    let pan_factor = if ctrl_down {
-        0.25
-    } else if shift_down {
-        5.0
-    } else {
-        1.0
-    };
-
-    let xv = view.width() * 0.05 * pan_factor;
-    let yv = view.height() * 0.05 * pan_factor;
-
-    let mut dv = bevy::math::DVec2::ZERO;
-
-    if keyboard.pressed(KeyCode::ArrowLeft) {
-        dv.x -= xv;
-    }
-    if keyboard.pressed(KeyCode::ArrowRight) {
-        dv.x += xv;
-    }
-
-    if keyboard.pressed(KeyCode::ArrowUp) {
-        dv.y += yv;
-    }
-    if keyboard.pressed(KeyCode::ArrowDown) {
-        dv.y -= yv;
-    }
-
-    // if mouse_button.pressed(MouseButton::Left) {
-    //     dv -= (mouse_delta / win_size) * view_size * pan_factor;
-    // }
-
-    if dv.length_squared() > 0.0 {
-        alignment_view.view.translate(dv.x, dv.y);
-    }
-
-    if scroll_delta.abs() > 0.0 {
-        let zoom_factor = scroll_delta;
-
-        let base_zoom_speed = 0.05f64;
-
-        let zoom_mult = if ctrl_down {
-            0.1
-        } else if shift_down {
-            10.0
-        } else {
-            1.0
-        };
-
-        let delta_scale = 1.0 - zoom_factor * base_zoom_speed * zoom_mult;
-
-        alignment_view
-            .view
-            .zoom_with_focus(cursor_norm, delta_scale as f64);
-    }
-
-    const KEY_ZOOM_FACTOR: f32 = 3.0;
-
-    let mut key_zoom_delta = 0.0;
-    if keyboard.pressed(KeyCode::PageUp) {
-        key_zoom_delta += KEY_ZOOM_FACTOR;
-    }
-    if keyboard.pressed(KeyCode::PageDown) {
-        key_zoom_delta -= KEY_ZOOM_FACTOR;
-    }
-
-    if key_zoom_delta.abs() > 0.0 {
-        let zoom = if key_zoom_delta < 0.0 {
-            1.0 + key_zoom_delta.abs() * dt
-        } else {
-            1.0 - key_zoom_delta.abs() * dt
-        };
-
-        alignment_view.view.zoom_with_focus([0.5, 0.5], zoom as f64);
     }
 }
 

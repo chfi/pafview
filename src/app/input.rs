@@ -190,18 +190,8 @@ fn forward_tool_actions(
                 RulerAction(RectangleSelectAction::StartOrEndSelect),
                 primary_tool_data,
             );
-
-            let cancel_data = user_actions
-                .button_data(&UserAction::Cancel)
-                .cloned()
-                .unwrap_or_default();
-            ruler_actions.set_button_data(
-                RulerAction(RectangleSelectAction::CancelSelect),
-                cancel_data,
-            );
         }
     }
-    //
 }
 
 // run before `forward_view_actions`, after `update_cursor_input`
@@ -233,11 +223,8 @@ fn add_cursor_zoom_origin(
 }
 
 fn forward_view_actions(
-    cursor: Res<cursor::CursorPosition>,
-
     user_actions: Res<ActionState<UserAction>>,
     mut view_actions: ResMut<ActionState<ViewAction>>,
-    // user_actions: Events<
 ) {
     let action = ViewAction::Zoom;
     let view_zoom = view_actions.axis_data_mut_or_default(&action);
@@ -268,7 +255,7 @@ fn forward_view_actions(
         .unwrap_or_default();
     *view_actions.button_data_mut_or_default(&ViewAction::Reset) = cancel;
 
-    for btnlike in [ViewAction::AnchoredPan, ViewAction::Reset] {
+    for btnlike in [ViewAction::AnchoredPan] {
         view_actions.set_button_data(
             btnlike,
             user_actions
