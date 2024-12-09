@@ -122,9 +122,8 @@ impl PafColorSchemes {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct AlignmentColorScheme {
-    pub m_fg: egui::Color32,
-    pub m_bg: egui::Color32,
-
+    // pub m_fg: egui::Color32,
+    // pub m_bg: egui::Color32,
     pub eq_fg: egui::Color32,
     pub eq_bg: egui::Color32,
 
@@ -147,8 +146,7 @@ impl AlignmentColorScheme {
 
     pub fn set_fg(&mut self, op: crate::CigarOp, color: impl Into<egui::Color32>) {
         let field = match op {
-            crate::CigarOp::M => &mut self.m_fg,
-            crate::CigarOp::Eq => &mut self.eq_fg,
+            crate::CigarOp::M | crate::CigarOp::Eq => &mut self.eq_fg,
             crate::CigarOp::X => &mut self.x_fg,
             crate::CigarOp::I => &mut self.i_fg,
             crate::CigarOp::D => &mut self.d_fg,
@@ -158,8 +156,7 @@ impl AlignmentColorScheme {
     }
     pub fn set_bg(&mut self, op: crate::CigarOp, color: impl Into<egui::Color32>) {
         let field = match op {
-            crate::CigarOp::M => &mut self.m_bg,
-            crate::CigarOp::Eq => &mut self.eq_bg,
+            crate::CigarOp::M | crate::CigarOp::Eq => &mut self.eq_bg,
             crate::CigarOp::X => &mut self.x_bg,
             crate::CigarOp::I => &mut self.i_bg,
             crate::CigarOp::D => &mut self.d_bg,
@@ -170,8 +167,7 @@ impl AlignmentColorScheme {
 
     pub fn get_fg(&self, op: crate::CigarOp) -> egui::Color32 {
         match op {
-            crate::CigarOp::M => self.m_fg,
-            crate::CigarOp::Eq => self.eq_fg,
+            crate::CigarOp::M | crate::CigarOp::Eq => self.eq_fg,
             crate::CigarOp::X => self.x_fg,
             crate::CigarOp::I => self.i_fg,
             crate::CigarOp::D => self.d_fg,
@@ -180,8 +176,7 @@ impl AlignmentColorScheme {
 
     pub fn get_bg(&self, op: crate::CigarOp) -> egui::Color32 {
         match op {
-            crate::CigarOp::M => self.m_bg,
-            crate::CigarOp::Eq => self.eq_bg,
+            crate::CigarOp::M | crate::CigarOp::Eq => self.eq_bg,
             crate::CigarOp::X => self.x_bg,
             crate::CigarOp::I => self.i_bg,
             crate::CigarOp::D => self.d_bg,
@@ -194,9 +189,6 @@ impl AlignmentColorScheme {
         use egui::Color32 as C;
 
         Self {
-            m_fg: C::WHITE,
-            m_bg: C::BLACK,
-
             eq_fg: C::WHITE,
             eq_bg: C::BLACK,
 
@@ -215,9 +207,6 @@ impl AlignmentColorScheme {
         use egui::Color32 as C;
 
         Self {
-            m_fg: C::BLACK,
-            m_bg: C::WHITE,
-
             eq_fg: C::BLACK,
             eq_bg: C::WHITE,
 
@@ -257,6 +246,7 @@ impl AlignmentColorScheme {
 
         for pair in pairs {
             let Some((op_str, col_str)) = pair.split_once(':') else {
+                log::warn!("Error parsing alignment color: couldn't parse `{pair}`");
                 continue;
             };
 
@@ -265,22 +255,34 @@ impl AlignmentColorScheme {
                 .next()
                 .and_then(|op| crate::CigarOp::try_from(op).ok())
             else {
+                log::warn!(
+                    "Error parsing alignment color: couldn't parse `{op_str}` as a CIGAR op"
+                );
                 continue;
             };
 
             let Some((bg_str, fg_str)) = col_str.split_once(':') else {
+                log::warn!("Error parsing alignment color: couldn't parse `{col_str}`");
                 continue;
             };
 
             if let Some(color_str) = bg_str.strip_prefix('#').filter(|s| s.len() == 6) {
                 if let Some(color) = parse_color(color_str) {
                     result.set_bg(op, color);
+                } else {
+                    log::warn!(
+                        "Error parsing alignment background color: couldn't parse `{color_str}`"
+                    );
                 }
             }
 
             if let Some(color_str) = fg_str.strip_prefix('#').filter(|s| s.len() == 6) {
                 if let Some(color) = parse_color(color_str) {
                     result.set_fg(op, color);
+                } else {
+                    log::warn!(
+                        "Error parsing alignment foreground color: couldn't parse `{color_str}`"
+                    );
                 }
             }
         }
@@ -303,7 +305,7 @@ impl GPUColorScheme {
     pub fn from_color_scheme(color: &AlignmentColorScheme) -> Self {
         let map_color = |c: egui::Color32| egui::Rgba::from(c).to_array();
         Self {
-            m_bg: map_color(color.m_bg),
+            m_bg: map_color(color.eq_bg),
             eq_bg: map_color(color.eq_bg),
             x_bg: map_color(color.x_bg),
             i_bg: map_color(color.i_bg),

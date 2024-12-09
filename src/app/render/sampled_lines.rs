@@ -905,7 +905,7 @@ fn sample_alignment_iterator(
             p0: p0.into(),
             p1: p1.into(),
             z: 0.5,
-            color: color.m_bg.to_array(),
+            color: color.eq_bg.to_array(),
         }
     }
 

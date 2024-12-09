@@ -868,7 +868,7 @@ impl From<crate::render::color::AlignmentColorScheme> for GpuAlignmentColorSchem
         };
 
         GpuAlignmentColorScheme {
-            m_bg: map_color(value.m_bg),
+            m_bg: map_color(value.eq_bg),
             eq_bg: map_color(value.eq_bg),
             x_bg: map_color(value.x_bg),
             i_bg: map_color(value.i_bg),

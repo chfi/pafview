@@ -73,12 +73,6 @@ fn vs_main(
         end = p0 + d;
     }
 
-    // if all(p1 == p0) {
-    //     let len = 0.5 * config.line_width / view_width;
-    //     let d = vec2(len, 0.0);
-    //     end = p0 + d;
-    // }
-
     let s0 = model * vec4(p0, 0.0, 1.0);
     let s1 = model * vec4(end, 0.0, 1.0);
 
@@ -91,38 +85,7 @@ fn vs_main(
     result.position = projection * vec4(sp, 0.0, 1.0);
     result.position.z = z;
 
-    // let color_ix = color % 5;
     result.color = unpack4x8unorm(color_packed);
-    // result.color = unpack4x8unorm(color_packed).abgr;
-
-    /*
-    switch color_ix {
-        case 0u: {
-        result.color = color_scheme.m_bg;
-        result.position.z = 0.5;
-        }
-        case 1u: {
-        result.color = color_scheme.eq_bg;
-        result.position.z = 0.6;
-        }
-        case 2u: {
-        result.color = color_scheme.x_bg;
-        result.position.z = 0.7;
-        }
-        case 3u: {
-        result.color = color_scheme.i_bg;
-        result.position.z = 0.1;
-        }
-        case 4u: {
-        result.color = color_scheme.d_bg;
-        result.position.z = 0.1;
-        }
-        default: {
-        result.color = color_scheme.m_bg;
-        result.position.z = 0.5;
-        }
-    }
-    */
 
     return result;
 }
