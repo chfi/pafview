@@ -34,7 +34,7 @@ fn setup_infobar(
     mut commands: Commands,
     //
     bg_color: Res<ClearColor>,
-    fg_color: Res<ForegroundColor>,
+    fg_color: Res<AppForegroundColor>,
 ) {
     let infobar = commands
         .spawn((
@@ -190,7 +190,7 @@ fn update_infobar(
 
 use bevy_mod_picking::prelude::*;
 
-use super::ForegroundColor;
+use super::AppForegroundColor;
 
 impl From<ListenerInput<Pointer<Over>>> for InfobarAlignmentEvent {
     fn from(value: ListenerInput<Pointer<Over>>) -> Self {

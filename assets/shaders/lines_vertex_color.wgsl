@@ -93,6 +93,7 @@ fn vs_main(
 
     // let color_ix = color % 5;
     result.color = unpack4x8unorm(color_packed);
+    // result.color = unpack4x8unorm(color_packed).abgr;
 
     /*
     switch color_ix {

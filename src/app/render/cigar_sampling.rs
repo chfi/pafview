@@ -15,7 +15,7 @@ use crate::{
     app::{
         alignments::layout::{LayoutChangedEvent, SeqPairLayout},
         view::AlignmentViewport,
-        ForegroundColor, SequencePairTile,
+        AppForegroundColor, SequencePairTile,
     },
     math_conv::*,
 };

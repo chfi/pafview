@@ -9,7 +9,10 @@ use bevy::{
 use pipeline::{PolylineConfig, PolylineModel, PolylineProjection, PolylineVertices};
 use wgpu::BufferUsages;
 
-use crate::app::alignments::layout::SeqPairLayout;
+use crate::{
+    app::{alignments::layout::SeqPairLayout, AlignmentIndex},
+    render::color::PafColorSchemes,
+};
 
 use super::*;
 
@@ -262,6 +265,7 @@ fn spawn_vertex_sampling_tasks(
     mut commands: Commands,
 
     alignments: Res<crate::Alignments>,
+    paf_colors: Res<PafColorSchemes>,
     layouts: Res<Assets<SeqPairLayout>>,
 
     layout_roots: Query<(&Transform, &Handle<SeqPairLayout>)>,
@@ -342,6 +346,8 @@ fn spawn_vertex_sampling_tasks(
             // scale: bp_per_px,
         };
 
+        let paf_colors = paf_colors.clone();
+
         let task = task_pool.spawn(async move {
             use rayon::prelude::*;
 
@@ -363,20 +369,32 @@ fn spawn_vertex_sampling_tasks(
                     })
                     .flat_map(|(offset, al_indices)| {
                         let al_vec = &alignments_vec;
-                        al_indices.par_iter().filter_map(move |ix| {
-                            let al = al_vec.get(*ix)?;
-                            Some((offset, al))
-                        })
+                        al_indices
+                            .par_iter()
+                            .enumerate()
+                            .filter_map(move |(pair_ix, &vec_ix)| {
+                                let al = al_vec.get(vec_ix)?;
+                                Some((offset, pair_ix, al))
+                            })
                     })
             });
 
             alignments.for_each_with(
                 (data_send, Vec::<VertexData>::new()),
-                |(send, ref mut vx_data), (seq_pair_offset, alignment)| {
+                |(send, ref mut vx_data), (seq_pair_offset, pair_index, alignment)| {
+                    let index = AlignmentIndex {
+                        target: alignment.target_id,
+                        query: alignment.query_id,
+                        pair_index,
+                    };
+
+                    let color_scheme = paf_colors.get(&index);
+
                     vx_data.clear();
                     if let Err(_err) = sample_segments_from_alignment(
                         seq_pair_offset,
                         alignment,
+                        color_scheme,
                         &next_view,
                         canvas_size,
                         vx_data,
@@ -745,7 +763,7 @@ struct VertexData {
     p0: [f32; 2],
     p1: [f32; 2],
     z: f32,
-    color: u32,
+    color: [u8; 4],
 }
 
 // samples the `alignment` to produce screen-space
@@ -754,6 +772,7 @@ struct VertexData {
 fn sample_segments_from_alignment(
     seq_pair_offset: impl Into<[f64; 2]>,
     alignment: &crate::Alignment,
+    color_scheme: &AlignmentColorScheme,
     view: &crate::view::View,
     canvas_size: impl Into<[f32; 2]>,
     buffer: &mut Vec<VertexData>,
@@ -763,6 +782,8 @@ fn sample_segments_from_alignment(
     let canvas_size @ [c_width, c_height] = canvas_size.into();
     let screen_dims = Vec2::new(c_width, c_height);
     //
+
+    // println!("sampling alignment with color scheme: {color_scheme:?}");
 
     // AI START
     let loc = &alignment.location;
@@ -811,13 +832,20 @@ fn sample_segments_from_alignment(
             p0: *al_screen_start.as_array(),
             p1: *al_screen_end.as_array(),
             z: 0.5,
-            color: 0xFF000000,
+            color: [0xff, 0, 0, 0],
+            // color: 0xFF000000,
         });
         buffer_offset += 1;
     } else {
         let cg_iter = alignment.iter_target_range(vis_target_range);
-        buffer_offset +=
-            sample_alignment_iterator(cg_iter, seq_pair_offset, view, canvas_size, buffer);
+        buffer_offset += sample_alignment_iterator(
+            cg_iter,
+            color_scheme,
+            seq_pair_offset,
+            view,
+            canvas_size,
+            buffer,
+        );
         /*
         let mut cmd_iter = cigar_sampling::CigarScreenPathStrokeIter::new(
             *view,
@@ -858,6 +886,7 @@ fn sample_segments_from_alignment(
 
 fn sample_alignment_iterator(
     iter: crate::paf::AlignmentIter,
+    color_scheme: &AlignmentColorScheme,
     seq_pair_offset: [f64; 2],
     view: &crate::view::View,
     canvas_size: [f32; 2],
@@ -871,21 +900,21 @@ fn sample_alignment_iterator(
     let mut open_match_world: Option<[f64; 2]> = None;
     let mut last_item: Option<crate::paf::AlignmentIterItem> = None;
 
-    fn mk_match<P: Into<[f32; 2]>>(p0: P, p1: P) -> VertexData {
+    fn mk_match<P: Into<[f32; 2]>>(color: &AlignmentColorScheme, p0: P, p1: P) -> VertexData {
         VertexData {
             p0: p0.into(),
             p1: p1.into(),
             z: 0.5,
-            color: 0xFF000000,
+            color: color.m_bg.to_array(),
         }
     }
 
-    fn mk_mismatch<P: Into<[f32; 2]>>(p0: P, p1: P) -> VertexData {
+    fn mk_mismatch<P: Into<[f32; 2]>>(color: &AlignmentColorScheme, p0: P, p1: P) -> VertexData {
         VertexData {
             p0: p0.into(),
             p1: p1.into(),
             z: 0.75,
-            color: 0xFF0000FF,
+            color: color.x_bg.to_array(),
         }
     }
 
@@ -921,7 +950,7 @@ fn sample_alignment_iterator(
                     let w1 = [x0 as f64 + x_o, y0 as f64 + y_o];
                     let p1 = view.map_world_to_screen(canvas_size, w1);
 
-                    let segment = mk_match(p0, p1);
+                    let segment = mk_match(color_scheme, p0, p1);
                     buffer.push(segment);
                     open_match_world = None;
                 }
@@ -935,7 +964,7 @@ fn sample_alignment_iterator(
             let p0 = view.map_world_to_screen(canvas_size, w0);
             let p1 = view.map_world_to_screen(canvas_size, w1);
 
-            buffer.push(mk_mismatch(p0, p1));
+            buffer.push(mk_mismatch(color_scheme, p0, p1));
         }
 
         last_item = Some(item);
@@ -964,7 +993,7 @@ fn sample_alignment_iterator(
                 // emit segment [w0, last.op.start]
                 view.map_world_to_screen(canvas_size, [last_x0, last_y0])
             };
-            buffer.push(mk_match(p0, p1));
+            buffer.push(mk_match(color_scheme, p0, p1));
         } else {
             if last.op.is_match_or_mismatch() {
                 // emit segment [last.op.start, last.op.end]
@@ -972,7 +1001,7 @@ fn sample_alignment_iterator(
                 let p0 = view.map_world_to_screen(canvas_size, w0);
                 let w1 = [last_x1, last_y1];
                 let p1 = view.map_world_to_screen(canvas_size, w1);
-                buffer.push(mk_match(p0, p1));
+                buffer.push(mk_match(color_scheme, p0, p1));
             }
         }
     }

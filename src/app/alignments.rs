@@ -9,8 +9,8 @@ use bevy::{
 };
 use bevy_mod_picking::prelude::*;
 
-use super::{render::bordered_rect::BorderedRectMaterial, AlignmentColorSchemes};
-use crate::{sequences::SeqId, Alignments, PafViewerApp};
+use super::render::bordered_rect::BorderedRectMaterial;
+use crate::{render::color::PafColorSchemes, sequences::SeqId, Alignments, PafViewerApp};
 
 pub mod layout;
 
@@ -419,7 +419,7 @@ pub(super) fn insert_alignment_polyline_materials(
     // alignments: Res<crate::Alignments>,
     vertex_index: Res<super::render::gpu_lines::AlignmentVerticesIndex>,
     mut alignment_materials: ResMut<Assets<super::render::gpu_lines::AlignmentPolylineMaterial>>,
-    color_schemes: Res<AlignmentColorSchemes>,
+    color_schemes: Res<PafColorSchemes>,
 
     cli_args: Res<crate::cli::Cli>,
 

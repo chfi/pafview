@@ -245,7 +245,9 @@ fn setup(mut commands: Commands) {
 }
 
 #[derive(Resource)]
-pub struct ForegroundColor(pub Color);
+pub struct AppForegroundColor(pub Color);
+#[derive(Resource)]
+pub struct AppBackgroundColor(pub Color);
 
 pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
     let args = crate::cli::Cli::parse();
@@ -283,10 +285,10 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
         .unwrap_or_default();
     let window_title = format!("pafview - {paf_file_name}");
 
-    let (foreground_color, clear_color) = if args.dark_mode {
-        (ForegroundColor(Color::WHITE), ClearColor(Color::BLACK))
+    let (fg_color, bg_color) = if args.dark_mode {
+        (Color::WHITE, Color::BLACK)
     } else {
-        (ForegroundColor(Color::BLACK), ClearColor(Color::WHITE))
+        (Color::BLACK, Color::WHITE)
     };
 
     viewer_app
@@ -300,15 +302,14 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
         }))
         .add_plugins(PolylinePlugin)
         .insert_resource(args)
-        .insert_resource(clear_color)
-        .insert_resource(foreground_color)
+        .insert_resource(AppForegroundColor(fg_color))
+        .insert_resource(AppBackgroundColor(bg_color))
+        .insert_resource(ClearColor(bg_color))
         .insert_resource(app.app_config)
         .insert_resource(app.sequences)
         .insert_resource(app.alignments)
         .insert_resource(app.alignment_grid)
-        .insert_resource(AlignmentColorSchemes {
-            colors: paf_color_schemes,
-        })
+        .insert_resource(paf_color_schemes)
         .add_plugins(PafViewerPlugin);
 
     if let Ok(opt_fields) = paf_opt_fields {

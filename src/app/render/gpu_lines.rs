@@ -1,4 +1,4 @@
-use crate::app::alignments::layout::LayoutChangedEvent;
+use crate::{app::alignments::layout::LayoutChangedEvent, render::color::PafColorSchemes};
 
 use super::*;
 
@@ -149,7 +149,7 @@ pub(crate) fn prepare_alignment_grid_layout_materials(
     alignments: Res<crate::Alignments>,
     grid: Res<crate::AlignmentGrid>,
 
-    color_schemes: Res<crate::app::AlignmentColorSchemes>,
+    color_schemes: Res<PafColorSchemes>,
     vertex_index: Res<AlignmentVerticesIndex>,
 ) {
     let mut line_only_pos = Vec::new();
@@ -1049,7 +1049,7 @@ impl AlignmentLayoutMaterials {
     pub fn from_positions_iter(
         material_store: &mut Assets<AlignmentPolylineMaterial>,
         vertex_index: &AlignmentVerticesIndex,
-        color_schemes: &crate::app::AlignmentColorSchemes,
+        color_schemes: &PafColorSchemes,
         positions: impl IntoIterator<Item = (crate::app::alignments::AlignmentIndex, Vec2)>,
     ) -> Self {
         let mut materials = HashMap::default();

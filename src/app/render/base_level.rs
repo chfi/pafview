@@ -2,7 +2,7 @@ use bevy::{prelude::*, render::view::RenderLayers};
 
 use crate::{
     app::{alignments::layout::SeqPairLayout, view::AlignmentViewport},
-    render::exact::CpuViewRasterizerEgui,
+    render::{color::PafColorSchemes, exact::CpuViewRasterizerEgui},
 };
 
 use super::RenderParams;
@@ -37,22 +37,15 @@ struct BaselevelViewer {
 #[derive(Resource, Deref, DerefMut)]
 struct AlignmentRasterizer(CpuViewRasterizerEgui);
 
-fn initialize_rasterizer(
-    mut commands: Commands,
-    paf_color_schemes: Res<crate::app::AlignmentColorSchemes>,
-) {
+fn initialize_rasterizer(mut commands: Commands, paf_color_schemes: Res<PafColorSchemes>) {
     let rasterizer = {
         let mut rasterizer = CpuViewRasterizerEgui::initialize();
         rasterizer
             .tile_cache
-            .cache_tile_buffers_for(&paf_color_schemes.colors.default);
-        paf_color_schemes
-            .colors
-            .overrides
-            .values()
-            .for_each(|colors| {
-                rasterizer.tile_cache.cache_tile_buffers_for(colors);
-            });
+            .cache_tile_buffers_for(&paf_color_schemes.default);
+        paf_color_schemes.overrides.values().for_each(|colors| {
+            rasterizer.tile_cache.cache_tile_buffers_for(colors);
+        });
         rasterizer
     };
 
@@ -136,7 +129,7 @@ fn set_base_level_viewer_visibility(
 fn render_base_level_views(
     //
     rasterizer: Res<AlignmentRasterizer>,
-    color_schemes: Res<crate::app::AlignmentColorSchemes>,
+    color_schemes: Res<PafColorSchemes>,
     sequences: Res<crate::Sequences>,
     // alignment_grid: Res<crate::AlignmentGrid>,
     alignments: Res<crate::Alignments>,
@@ -170,7 +163,7 @@ fn render_base_level_views(
 
             let pixel_buffer = crate::render::exact::draw_seq_pair_layouts_with_color_schemes(
                 &rasterizer.0.tile_cache,
-                &color_schemes.colors,
+                &color_schemes,
                 &sequences,
                 &alignments,
                 &view,

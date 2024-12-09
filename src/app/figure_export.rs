@@ -7,7 +7,7 @@ use bevy::{
 };
 use bevy_egui::{EguiContexts, EguiUserTextures};
 
-use crate::{grid::AxisRange, sequences::SeqId};
+use crate::{grid::AxisRange, render::color::PafColorSchemes, sequences::SeqId};
 
 use super::{
     render::gpu_lines::{
@@ -481,7 +481,7 @@ fn update_figure_export_alignment_layout(
     //
     alignment_store: Res<crate::Alignments>,
     alignment_grid: Res<crate::AlignmentGrid>,
-    color_schemes: Res<super::AlignmentColorSchemes>,
+    color_schemes: Res<PafColorSchemes>,
     vertex_buffer_index: Res<super::render::gpu_lines::AlignmentVerticesIndex>,
 ) {
     let Some(UpdateExportAlignmentLayout {

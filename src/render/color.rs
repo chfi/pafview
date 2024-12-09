@@ -3,7 +3,7 @@ use rustc_hash::FxHashMap;
 use crate::app::alignments::AlignmentIndex;
 // use crate::paf::AlignmentIndex;
 
-#[derive(Debug)]
+#[derive(Debug, bevy::prelude::Resource, Clone)]
 pub struct PafColorSchemes {
     pub overrides: FxHashMap<AlignmentIndex, AlignmentColorScheme>,
     pub default: AlignmentColorScheme,
