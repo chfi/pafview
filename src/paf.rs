@@ -176,6 +176,16 @@ impl AlignmentIterItem {
         &self.query_range
     }
 
+    /// Equivalent to `[self.target_seq_range().start, self.query_seq_range().start]
+    pub fn mins(&self) -> [u64; 2] {
+        [self.target_range.start, self.query_range.start]
+    }
+
+    /// Equivalent to `[self.target_seq_range().end, self.query_seq_range().end]
+    pub fn maxs(&self) -> [u64; 2] {
+        [self.target_range.end, self.query_range.end]
+    }
+
     pub fn strand(&self) -> Strand {
         if self.query_rev {
             Strand::Reverse

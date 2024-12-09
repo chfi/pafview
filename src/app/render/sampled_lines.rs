@@ -1,6 +1,7 @@
 use std::sync::atomic::AtomicU8;
 
 use bevy::{
+    math::U64Vec2,
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task},
     utils::tracing,
@@ -863,18 +864,28 @@ fn sample_alignment_iterator(
     buffer: &mut Vec<VertexData>,
 ) -> usize {
     let [x_o, y_o] = seq_pair_offset;
+    let seq_o = bevy::math::DVec2::new(x_o, y_o);
 
     let bp_per_px = view.width() / canvas_size[0] as f64;
 
     let mut open_match_world: Option<[f64; 2]> = None;
     let mut last_item: Option<crate::paf::AlignmentIterItem> = None;
 
-    fn mk_segment<P: Into<[f32; 2]>>(p0: P, p1: P) -> VertexData {
+    fn mk_match<P: Into<[f32; 2]>>(p0: P, p1: P) -> VertexData {
         VertexData {
             p0: p0.into(),
             p1: p1.into(),
             z: 0.5,
             color: 0xFF000000,
+        }
+    }
+
+    fn mk_mismatch<P: Into<[f32; 2]>>(p0: P, p1: P) -> VertexData {
+        VertexData {
+            p0: p0.into(),
+            p1: p1.into(),
+            z: 0.75,
+            color: 0xFF0000FF,
         }
     }
 
@@ -897,50 +908,34 @@ fn sample_alignment_iterator(
         }
 
         if item.op.is_match_or_mismatch() {
-            if item_len > bp_per_px {
-                if let Some(w_prev) = open_match_world {
-                    // this item is big enough to be visible on its own and
-                    // we've already opened a line segment
-
-                    // do nothing?
-                } else {
-                    // this item is big enough to be visible and we haven't opened a line segment
-                    open_match_world = Some([x0 as f64 + x_o, y0 as f64 + y_o]);
-                }
-            } else {
-                if let Some(w_prev) = open_match_world {
-                    // this item is small, and there's already an open
-                    // line segment
-
-                    // do nothing?
-                } else {
-                    // this item is small, but could be the start of
-                    // a line segment continued by the next items
-                    open_match_world = Some([x0 as f64 + x_o, y0 as f64 + y_o]);
-                }
+            if open_match_world.is_none() {
+                open_match_world = Some([x0 as f64 + x_o, y0 as f64 + y_o]);
             }
         } else {
             if let Some(w0) = open_match_world {
                 if item_len > bp_per_px {
                     // open match, and this indel would be visible,
                     // so emit a line segment
-
                     let p0 = view.map_world_to_screen(canvas_size, w0);
 
                     let w1 = [x0 as f64 + x_o, y0 as f64 + y_o];
                     let p1 = view.map_world_to_screen(canvas_size, w1);
 
-                    let segment = mk_segment(p0, p1);
+                    let segment = mk_match(p0, p1);
                     buffer.push(segment);
                     open_match_world = None;
-                } else {
-                    // open match, but this indel would be invisible
-                    // do nothing?
                 }
-            } else {
-                // no line segment has been opened, and this is an indel,
-                // so there's nothing to do
             }
+        }
+
+        if item.op.is_mismatch() && item_len > bp_per_px {
+            let w0 = U64Vec2::from([x0, y0]).as_dvec2() + seq_o;
+            let w1 = U64Vec2::from([x1, y1]).as_dvec2() + seq_o;
+
+            let p0 = view.map_world_to_screen(canvas_size, w0);
+            let p1 = view.map_world_to_screen(canvas_size, w1);
+
+            buffer.push(mk_mismatch(p0, p1));
         }
 
         last_item = Some(item);
@@ -969,7 +964,7 @@ fn sample_alignment_iterator(
                 // emit segment [w0, last.op.start]
                 view.map_world_to_screen(canvas_size, [last_x0, last_y0])
             };
-            buffer.push(mk_segment(p0, p1));
+            buffer.push(mk_match(p0, p1));
         } else {
             if last.op.is_match_or_mismatch() {
                 // emit segment [last.op.start, last.op.end]
@@ -977,7 +972,7 @@ fn sample_alignment_iterator(
                 let p0 = view.map_world_to_screen(canvas_size, w0);
                 let w1 = [last_x1, last_y1];
                 let p1 = view.map_world_to_screen(canvas_size, w1);
-                buffer.push(mk_segment(p0, p1));
+                buffer.push(mk_match(p0, p1));
             }
         }
     }
