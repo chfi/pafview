@@ -524,6 +524,7 @@ fn update_projection(
 fn compute_vertex_transform(
     sampled: &VertexSamplingParams,
     next_view: &crate::view::View,
+    new_canvas_size: Vec2,
 ) -> Transform {
     let win_size = sampled.canvas_size;
     let last_view = sampled.view;
@@ -538,19 +539,23 @@ fn compute_vertex_transform(
 
     let w_rat_ = next_view.width() / last_view.width();
     let h_rat_ = next_view.height() / last_view.height();
+
     let screen_delta =
         norm_delta.to_f32() * [w_rat_ as f32 * win_size.x, h_rat_ as f32 * win_size.y].as_uv();
+
     let mut center = Transform::from_translation(Vec3::new(win_size.x, win_size.y, 0.0) * 0.5);
     let translate = Transform::from_translation(Vec3::new(-screen_delta.x, screen_delta.y, 0.0));
+
     let scale_vec = Vec3::new(w_rat as f32, h_rat as f32, 1.0);
     let scale = Transform::from_scale(scale_vec);
 
-    let mut transform = center.mul_transform(scale);
-    center.translation *= -1.0;
-    transform = transform.mul_transform(center);
-    transform = transform.mul_transform(translate);
+    let size_ratio = new_canvas_size / win_size;
 
-    transform
+    let transform = Transform::from_scale(Vec3::new(size_ratio.x, size_ratio.y, 1.0))
+        .mul_transform(center)
+        .mul_transform(scale);
+    center.translation *= -1.0;
+    transform.mul_transform(center).mul_transform(translate)
 }
 
 fn update_vertex_transform(
@@ -559,7 +564,13 @@ fn update_vertex_transform(
         &PolylineVertices,
         &mut PolylineModel,
     )>,
+
+    windows: Query<&Window>,
 ) {
+    let Ok(canvas_size) = windows.get_single().map(|win| win.size()) else {
+        return;
+    };
+
     for (viewer, vertices, mut model) in viewers.iter_mut() {
         let Some(next_view) = viewer.view else {
             continue;
@@ -569,7 +580,8 @@ fn update_vertex_transform(
             continue;
         };
 
-        model.model = compute_vertex_transform(&sampled, &next_view).compute_matrix();
+        model.model = compute_vertex_transform(&sampled, &next_view, canvas_size).compute_matrix();
+        // model.model = Transform::IDENTITY.compute_matrix();
     }
 }
 
@@ -602,8 +614,12 @@ fn update_viewer_sprite_transform(
     };
     let dpi_scale = window.scale_factor();
 
-    for (viewer, _vertices, mut transform, mut sprite) in viewers.iter_mut() {
+    for (viewer, vertices, mut transform, mut sprite) in viewers.iter_mut() {
         let Some(rendered) = viewer.last_rendered else {
+            continue;
+        };
+
+        let Some(vx_params) = vertices.params else {
             continue;
         };
 
@@ -617,7 +633,7 @@ fn update_viewer_sprite_transform(
         let last_view = rendered.view;
 
         let old_mid = last_view.center();
-        if last_view == next_view {
+        if last_view == next_view && vx_params.canvas_size == img_size {
             *transform = Transform::IDENTITY;
         } else {
             let new_mid = next_view.center();
@@ -680,7 +696,8 @@ fn trigger_render_operation(
             }
         }
 
-        let need_render = Some(view) != viewer.last_rendered.map(|p| p.view)
+        let need_render = Some((view, canvas_size))
+            != viewer.last_rendered.map(|p| (p.view, p.canvas_size))
             || Some(vx_params) != viewer.last_rendered_sampling_params;
 
         if !need_render {
