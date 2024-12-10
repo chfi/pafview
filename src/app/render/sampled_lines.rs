@@ -291,8 +291,7 @@ fn spawn_vertex_sampling_tasks(
         return;
     };
 
-    let canvas_size_u = window.physical_size();
-    let canvas_size = canvas_size_u.as_vec2();
+    let canvas_size = window.size();
 
     let task_pool = AsyncComputeTaskPool::get();
 
@@ -511,7 +510,8 @@ fn update_projection(
         return;
     };
 
-    let size = window.physical_size().as_vec2();
+    // let size = window.physical_size().as_vec2();
+    let size = window.size();
 
     for (_viewer, mut proj) in viewers.iter_mut() {
         let proj_uv =
@@ -633,7 +633,8 @@ fn update_viewer_sprite_transform(
         let last_view = rendered.view;
 
         let old_mid = last_view.center();
-        if last_view == next_view && vx_params.canvas_size == img_size {
+        // if last_view == next_view && vx_params.canvas_size == img_size {
+        if last_view == next_view {
             *transform = Transform::IDENTITY;
         } else {
             let new_mid = next_view.center();
