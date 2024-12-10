@@ -236,6 +236,7 @@ fn spawn_layout_children(
         commands.entity(root).despawn_descendants();
         entity_index.clear();
 
+        let max = layout.aabbs.len();
         let mut count = 0;
         commands.entity(root).with_children(|parent| {
             for (seq_pair, aabb) in layout.aabbs.iter() {
@@ -244,19 +245,21 @@ fn spawn_layout_children(
                 let size = aabb.extents();
                 let mesh = Rectangle::from_size([size.x as f32, size.y as f32].into());
 
+                let z = count as f32 / max as f32;
+
                 let id = parent
                     .spawn((
                         *seq_pair,
-                        SpatialBundle::INHERITED_IDENTITY,
+                        SpatialBundle {
+                            transform: Transform::from_xyz(0.0, 0.0, z),
+                            ..SpatialBundle::INHERITED_IDENTITY
+                        },
                         meshes.add(mesh),
                         border_rect_mat.clone(),
                         Pickable {
                             should_block_lower: false,
                             is_hoverable: true,
                         },
-                        // On::<Pointer<Over>>::run(|input: Res<ListenerInput<Pointer<Over>>>| {
-                        //     println!("hovering seq pair: {:?}", input.listener());
-                        // }),
                     ))
                     .id();
 
