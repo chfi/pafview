@@ -1,9 +1,4 @@
-use bimap::BiMap;
 use ultraviolet::DVec2;
-
-use anyhow::anyhow;
-
-use crate::sequences::SeqId;
 
 pub mod implicit;
 pub mod memmap;

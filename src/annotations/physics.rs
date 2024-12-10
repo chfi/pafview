@@ -1258,15 +1258,6 @@ impl LabelPhysics {
     */
 }
 
-fn choose_anchor_tile_for_world_x(
-    grid: &AlignmentGrid,
-    viewport: &Viewport,
-    target: f64,
-    label_width: f32,
-) -> Option<(SeqId, SeqId)> {
-    todo!();
-}
-
 #[derive(Default)]
 pub struct AlignmentHeightFields {
     heightfields: FxHashMap<(SeqId, SeqId), LabelHeightField>,

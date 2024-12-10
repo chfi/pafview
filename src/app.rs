@@ -30,7 +30,6 @@ impl Plugin for PafViewerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(bevy_egui::EguiPlugin)
             // .add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::default())
-            .init_resource::<AlignmentRenderConfig>()
             .add_plugins(assets::ViewerAssetsPlugin)
             .add_plugins(input::InputPlugin)
             .add_plugins(alignments::AlignmentsPlugin)
@@ -43,12 +42,11 @@ impl Plugin for PafViewerPlugin {
             .add_plugins(picking::PickingPlugin)
             // .add_plugins(figure_export::FigureExportPlugin)
             .add_plugins(render::bordered_rect::BorderedRectRenderPlugin)
-            .add_systems(Startup, (setup, setup_screenspace_camera).chain())
+            .add_systems(Startup, setup_cameras)
             .add_systems(Last, save_app_config);
 
         app.add_plugins(render::sampled_lines::SampledAlignmentRendererPlugin)
             .add_plugins(render::base_level::BaselevelCigarRenderPlugin);
-        // app.add_plugins(render::gpu_lines::AlignmentRendererPlugin)
 
         // #[cfg(feature = "tracy")]
         // {
@@ -105,80 +103,32 @@ impl Plugin for PafViewerPlugin {
     }
 }
 
-#[derive(Resource)]
-pub struct AlignmentColorSchemes {
-    pub colors: PafColorSchemes,
-}
-
-impl AlignmentColorSchemes {
-    pub(crate) fn get(
-        &self,
-        alignment: &alignments::AlignmentIndex,
-    ) -> &crate::render::color::AlignmentColorScheme {
-        self.colors.get(alignment)
-    }
-}
-
-#[derive(Resource)]
-pub struct AlignmentRenderConfig {
-    base_level_render_min_bp_per_px: f32,
-}
-
-impl std::default::Default for AlignmentRenderConfig {
-    fn default() -> Self {
-        Self {
-            base_level_render_min_bp_per_px: 1.0,
-        }
-    }
-}
-
 #[derive(Component, Debug)]
 pub struct AlignmentCamera;
 
 #[derive(Component, Debug)]
 pub struct ScreenspaceCamera;
 
-fn setup_screenspace_camera(
-    mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-    //
-    windows: Query<&Window>,
-) {
-    let window = windows.single();
-    let win_size = window.resolution.physical_size();
-
-    let size = Extent3d {
-        width: win_size.x,
-        height: win_size.y,
-        depth_or_array_layers: 1,
-    };
-
-    let mut image = Image {
-        texture_descriptor: TextureDescriptor {
-            label: None,
-            size,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Bgra8UnormSrgb,
-            mip_level_count: 1,
-            sample_count: 1,
-            usage: TextureUsages::TEXTURE_BINDING
-                | TextureUsages::COPY_DST
-                | TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
+fn setup_cameras(mut commands: Commands) {
+    // NB: initial values don't matter here as the camera will be updated
+    // from the AlignmentViewport resource
+    commands.spawn((
+        Camera3dBundle {
+            transform: Transform::from_xyz(0.0, 0.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
+            projection: OrthographicProjection {
+                scale: 100_000.0,
+                ..default()
+            }
+            .into(),
+            ..default()
         },
-        ..default()
-    };
-
-    // fill image.data with zeroes
-    image.resize(size);
-
-    let image_handle = images.add(image);
+        AlignmentCamera,
+    ));
 
     commands.spawn((
         Camera2dBundle {
             camera: Camera {
                 order: 1,
-                // target: bevy::render::camera::RenderTarget::Image(image_handle.clone()),
                 ..default()
             },
             ..default()
@@ -186,25 +136,6 @@ fn setup_screenspace_camera(
         bevy::render::view::RenderLayers::layer(1),
         ScreenspaceCamera,
         IsDefaultUiCamera,
-    ));
-}
-
-fn setup(mut commands: Commands) {
-    // NB: initial values don't matter here as the camera will be updated
-    // from the AlignmentViewport resource
-    commands.spawn((
-        Camera3dBundle {
-            transform: Transform::from_xyz(0.0, 0.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
-            projection: OrthographicProjection {
-                // scale: 1.0,
-                scale: 100_000.0,
-                // scaling_mode: W
-                ..default()
-            }
-            .into(),
-            ..default()
-        },
-        AlignmentCamera,
     ));
 }
 

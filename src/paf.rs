@@ -1,8 +1,6 @@
-use std::{collections::BTreeMap, hash::Hash, sync::Arc};
+use std::{hash::Hash, sync::Arc};
 
 use rustc_hash::{FxHashMap, FxHashSet};
-
-use ultraviolet::DVec2;
 
 use anyhow::anyhow;
 
@@ -10,7 +8,7 @@ use crate::app::alignments::AlignmentIndex;
 use crate::{
     cigar::implicit::ImpgIndex,
     sequences::{SeqId, Sequences},
-    CigarIndex, CigarIter, CigarOp, IndexedCigar, Strand,
+    CigarIndex, CigarOp, IndexedCigar, Strand,
 };
 
 /// Location and orientation of an alignment of two sequences of
@@ -199,51 +197,19 @@ impl<'cg> Iterator for AlignmentIter<'cg> {
     type Item = AlignmentIterItem;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // NB 2024-12-10: decide how and when/if clipping should be done
+        // (here? underlying cigar iter? consumer?)
         let cg_item = self.cigar_iter.next()?;
-        let mut target_range = self
+        let target_range = self
             .location
             .map_from_aligned_target_range(cg_item.target_range);
-        let mut query_range = self
+        let query_range = self
             .location
             .map_from_aligned_query_range(cg_item.query_range);
 
         let op = cg_item.op;
         let op_count = cg_item.op_count;
-        let mut len = op_count;
-        /*
-        println!("iter target range: {:?}", self.target_range);
-        println!();
-        println!("item: {}{op_count}", char::from(op));
-        println!("item target range: {:?}", target_range);
-        if target_range.start < self.target_range.start {
-            let clipped = self.target_range.start - target_range.start;
-            println!("clipping {clipped} from start");
-            len -= clipped as u32;
-
-            target_range.start = self.target_range.start;
-
-            if op.consumes_query() {
-                // ????
-                query_range.start += clipped;
-            }
-            println!("new target range: {:?}", target_range);
-        }
-
-        if target_range.end > self.target_range.end {
-
-            let clipped = target_range.end - self.target_range.end;
-            println!("clipping {clipped} from end");
-            len -= clipped as u32;
-
-            target_range.end = self.target_range.end;
-
-            if op.consumes_query() {
-                // ????
-                query_range.end -= clipped;
-            }
-            println!("new target range: {:?}", target_range);
-        }
-        */
+        let len = op_count;
 
         Some(AlignmentIterItem {
             op,
@@ -409,13 +375,6 @@ impl PafMetadata {
         pair.get(alignment.pair_index)
     }
 
-    pub fn from_memmap_paf(
-        sequences: &Sequences,
-        paf: &crate::cigar::memmap::IndexedPaf,
-    ) -> anyhow::Result<Self> {
-        todo!();
-    }
-
     pub fn from_paf(
         sequences: &Sequences,
         paf_path: impl AsRef<std::path::Path>,
@@ -444,7 +403,7 @@ impl PafMetadata {
             let qry_id = sequences.sequence_names.get_by_left(qry_name).copied();
             let tgt_id = sequences.sequence_names.get_by_left(tgt_name).copied();
 
-            let Some(pair @ (tgt_id, qry_id)) = tgt_id.zip(qry_id) else {
+            let Some(pair) = tgt_id.zip(qry_id) else {
                 continue;
             };
 

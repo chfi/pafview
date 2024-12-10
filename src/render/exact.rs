@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use rustc_hash::FxHashMap;
-use ultraviolet::{DVec2, UVec2, Vec2};
+use ultraviolet::{UVec2, Vec2};
 
 use crate::app::alignments::layout::SeqPairLayout;
 use crate::app::alignments::AlignmentIndex;

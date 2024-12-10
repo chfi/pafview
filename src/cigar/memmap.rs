@@ -1,7 +1,7 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::{collections::BTreeMap, ops::Deref};
 
-use std::io::{prelude::*, BufReader};
+use std::io::prelude::*;
 
 use bevy::utils::HashMap;
 use bgzip::index::BGZFIndex;
@@ -67,6 +67,7 @@ impl IndexedPaf {
         cigar_line_index: usize,
         target_range: std::ops::Range<u64>,
     ) -> std::io::Result<CigarReaderIter<Box<dyn BufRead + 'a>>> {
+        /*
         let Some((line_offset, record_offsets)) = self
             .byte_index
             .record_offsets
@@ -77,6 +78,7 @@ impl IndexedPaf {
                 "Cigar not found for line {cigar_line_index}"
             )));
         };
+        */
         let Some(pos_index) = position_index_map.get(&cigar_line_index) else {
             return Err(std::io::Error::other("Position index not found for cigar"));
         };
@@ -130,7 +132,6 @@ impl IndexedPaf {
         cg_iter.target_pos = tgt_start;
         cg_iter.query_pos = pos_index.query_offsets[start_ix];
 
-        let mut skip_count = 0;
         // skip inside the block to the correct starting block
         if tgt_start < target_range.start {
             loop {
@@ -148,7 +149,6 @@ impl IndexedPaf {
                 }
 
                 cg_iter.next_op()?;
-                skip_count += 1;
             }
         }
 
@@ -364,15 +364,11 @@ impl PafByteIndex {
 
 impl PafByteIndex {
     fn from_paf<R: BufRead>(mut paf_reader: R) -> std::io::Result<Self> {
-        use bstr::{io::BufReadExt, ByteSlice};
-
         let mut record_offsets = Vec::new();
         let mut record_indices = Vec::new();
 
         let mut buffer = Vec::new();
         let mut offset = 0u64;
-
-        let mut count = 0;
 
         loop {
             buffer.clear();
@@ -385,7 +381,6 @@ impl PafByteIndex {
             offset += bytes_read as u64;
 
             let line = buffer[..bytes_read].trim_ascii();
-            count += 1;
 
             if let Some(index) = PafRecordIndex::from_line(line) {
                 record_indices.push(index);
@@ -650,12 +645,12 @@ impl<S: BufRead> Iterator for CigarReaderIter<S> {
                 let tgt_end = tgt_start + op.target_delta(len) as u64;
                 let qry_end = qry_start + op.query_delta(len) as u64;
 
-                let mut target_range = tgt_start..tgt_end;
-                let mut query_range = qry_start..qry_end;
+                let target_range = tgt_start..tgt_end;
+                let query_range = qry_start..qry_end;
 
-                let mut op_count = len;
+                let op_count = len;
 
-                // NB: disabled as this is broken, but for compatibility with
+                // NB: clipping disabled as this is broken, but for compatibility with
                 // the other implementations it should clip (or the others not)
                 /*
                 if let Some(start_bound) = self.target_start {
@@ -746,9 +741,6 @@ impl CigarPositionIndex {
             let qry_delta = op.consumes_query().then_some(len as u64).unwrap_or(0);
 
             let last_byte_end = byte_offsets.last().copied().unwrap_or(0);
-            let next_byte_end = byte_offset + byte_delta;
-
-            let byte_dist = byte_offset + byte_delta - last_byte_end;
 
             if byte_offset + byte_delta - last_byte_end > min_byte_distance {
                 target_offsets.push(tgt_offset);
@@ -863,8 +855,6 @@ mod tests {
 
     #[test]
     fn test_cigar_reader_iter() {
-        use std::io::prelude::*;
-
         // let cigar = b"150=10I50=5X5=12D50=";
         // let cigar = super::super::tests::TEST_CIGAR;
         // let cigar = b"578=1X922=1X1135=1X334=1X194=1X653=1X90=1X32=1X715=1X41=1X29=1X92=1X368=1X";

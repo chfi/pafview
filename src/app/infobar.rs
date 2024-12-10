@@ -36,7 +36,7 @@ fn setup_infobar(
     bg_color: Res<ClearColor>,
     fg_color: Res<AppForegroundColor>,
 ) {
-    let infobar = commands
+    commands
         .spawn((
             Infobar,
             NodeBundle {
@@ -76,33 +76,18 @@ fn setup_infobar(
                 ),
                 InfobarText,
             ));
-        })
-        .id();
+        });
 }
 
 fn update_infobar(
-    mut commands: Commands,
     mut alignment_events: EventReader<InfobarAlignmentEvent>,
     // infobar: Query<Entity, With<Infobar>>,
     mut infobar_text: Query<&mut Text, With<InfobarText>>,
 
-    alignments: Res<crate::Alignments>,
+    // alignments: Res<crate::Alignments>,
     alignment_query: Query<&super::alignments::AlignmentIndex>,
     paf_opt_fields: Res<crate::paf::PafMetadata>,
 ) {
-    // let last_visible = alignment_events.read().fold(None, |last, ev| {
-    //     if let Some(last) = last {
-    //         if ev.cursor_over == false && last == ev.alignment {
-    //             *last = ev.alignment;
-    //         }
-    //     }
-
-    //     if ev.cursor_over = true {
-    //         *last = ev.alignment;
-    //     }
-    //     last
-    // });
-
     let mut last_hovered = None;
 
     for ev in alignment_events.read() {

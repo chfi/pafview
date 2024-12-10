@@ -1,13 +1,7 @@
-use std::sync::Arc;
-
 use anyhow::Result;
 use bimap::BiMap;
-use egui::Galley;
 
-use crate::{
-    grid::{AlignmentGrid, AxisRange},
-    sequences::SeqId,
-};
+use crate::sequences::SeqId;
 
 use self::draw::AnnotShapeId;
 
@@ -273,77 +267,6 @@ pub struct Record {
 
     pub color: egui::Color32,
     pub label: String,
-}
-
-impl RecordList {
-    fn prepare_annotation_shapes(
-        &self,
-        // app: &PafViewerApp,
-        alignment_grid: &AlignmentGrid,
-        painter: &mut draw::AnnotationPainter,
-    ) -> Vec<AnnotationShapes> {
-        let mut shapes = Vec::new();
-
-        let x_axis = &alignment_grid.x_axis;
-        let y_axis = &alignment_grid.y_axis;
-
-        for (record_id, record) in self.records.iter().enumerate() {
-            let tgt_range = AxisRange::Seq {
-                seq_id: record.tgt_id,
-                range: record.tgt_range.clone(),
-            };
-            let qry_range = AxisRange::Seq {
-                seq_id: record.qry_id,
-                range: record.qry_range.clone(),
-            };
-            let world_x_range = x_axis.axis_range_into_global(&tgt_range);
-            let world_y_range = y_axis.axis_range_into_global(&qry_range);
-
-            let color = record.color;
-
-            let target_shape = draw::AnnotationWorldRegion {
-                world_x_range: world_x_range.clone(),
-                world_y_range: None,
-                color,
-            };
-            let target_label = draw::AnnotationLabel {
-                // world_x_range: world_x_range.clone(),
-                // world_y_range: None,
-                // align: egui::Align2::CENTER_TOP,
-                screen_pos: None,
-                text: record.label.clone(),
-            };
-            let target =
-                painter.add_collection([Box::new(target_shape) as _, Box::new(target_label) as _]);
-
-            let query_shape = draw::AnnotationWorldRegion {
-                world_x_range: None,
-                world_y_range: world_y_range.clone(),
-                color,
-            };
-            let query_label = draw::AnnotationLabel {
-                // world_x_range: None,
-                // world_y_range,
-                // align: egui::Align2::CENTER_TOP,
-                screen_pos: None,
-                text: record.label.clone(),
-            };
-            let query =
-                painter.add_collection([Box::new(query_shape) as _, Box::new(query_label) as _]);
-
-            shapes.push(AnnotationShapes { target, query });
-        }
-
-        shapes
-    }
-}
-
-struct AnnotationState {
-    draw_target_region: bool,
-    draw_query_region: bool,
-
-    galley: Option<Arc<Galley>>,
-    seq_region: std::ops::RangeInclusive<f64>,
 }
 
 pub fn hashed_rgb(name: &str) -> [u8; 3] {

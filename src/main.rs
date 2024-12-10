@@ -9,17 +9,6 @@ use pafview::grid;
 
 use pafview::annotations::AnnotationStore;
 
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct AlignedSeq {
-    // name of the given sequence
-    name: String,
-    // its length
-    len: u64,
-    // its start offset in the global all-to-all alignment matrix
-    #[deprecated]
-    offset: u64,
-}
-
 pub fn main() -> anyhow::Result<()> {
     // #[cfg(feature = "tracy")]
     // {
@@ -37,19 +26,7 @@ pub fn main() -> anyhow::Result<()> {
     // Load PAF and optional FASTA
     let (alignments, sequences) = pafview::paf::load_input_files_mmap(&args)?;
 
-    // let align_count = alignments.pairs.values().map(|al| al.len()).sum::<usize>();
-    // println!(
-    //     "drawing {align_count} alignments across {} sequence pairs",
-    //     alignments.pairs.len()
-    // );
-
     let alignment_grid = AlignmentGrid::from_alignments(&alignments, sequences.names().clone());
-    // let alignment_grid = AlignmentGrid::from_axes(&alignments, sequences.names().clone(), x_axis, y_axis);
-    // let alignment_grid = AlignmentGrid {
-    //     x_axis,
-    //     y_axis,
-    //     sequence_names: sequences.names().clone(),
-    // };
 
     let app_config = config::load_app_config().unwrap_or_default();
 

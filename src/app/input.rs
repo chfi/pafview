@@ -1,10 +1,6 @@
 use bevy::{input::touch::touch_screen_input_system, prelude::*};
 use leafwing_input_manager::prelude::*;
 
-use bevy_inspector_egui::prelude::*;
-
-use super::view::AlignmentViewport;
-
 pub struct InputPlugin;
 
 impl Plugin for InputPlugin {

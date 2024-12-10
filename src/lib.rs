@@ -20,10 +20,11 @@ pub mod view;
 
 pub use cigar::*;
 pub use paf::{Alignment, Alignments, PafLine};
-pub use pixels::*;
+pub(crate) use pixels::*;
+
+pub use grid::AlignmentGrid;
 
 pub use config::AppConfig;
-pub use grid::AlignmentGrid;
 pub use sequences::Sequences;
 
 pub struct PafViewerApp {
@@ -37,15 +38,3 @@ pub struct PafViewerApp {
 
     pub app_config: config::AppConfig,
 }
-
-// #[derive(Debug, Clone)]
-// pub enum AppEvent {
-//     LoadAnnotationFile { path: std::path::PathBuf },
-//     // AnnotationShapeDisplay {
-//     //     shape_id: annotations::draw::AnnotShapeId,
-//     //     enable: Option<bool>,
-//     // },
-
-//     // idk if this is a good idea but worth a try
-//     RequestSelection { target: regions::SelectionTarget },
-// }

@@ -4,7 +4,7 @@ pub struct ViewerAssetsPlugin;
 
 impl Plugin for ViewerAssetsPlugin {
     fn build(&self, app: &mut App) {
-        // TODO: fix the paths
+        // TODO: fix the paths so the embedded URIs don't include `../../`
         embedded_asset!(app, "../../assets/icons/xmark-circle.png");
         embedded_asset!(app, "../../assets/icons/xmark-circle-solid.png");
         embedded_asset!(app, "../../assets/icons/paste-clipboard.png");
