@@ -1,5 +1,3 @@
-use std::sync::{atomic::AtomicBool, Arc};
-
 use bevy::{
     ecs::system::SystemParam,
     math::U64Vec2,
@@ -10,16 +8,13 @@ use bevy::{
 use bevy_mod_picking::prelude::*;
 
 use super::render::bordered_rect::BorderedRectMaterial;
-use crate::{render::color::PafColorSchemes, sequences::SeqId, Alignments, PafViewerApp};
+use crate::{sequences::SeqId, Alignments};
 
 pub mod layout;
 
-use layout::{AabbQbvh, DefaultLayout, LayoutEntityIndex, SeqPairLayout};
+use layout::{AabbQbvh, LayoutEntityIndex, SeqPairLayout};
 
-use avian2d::parry::{
-    self,
-    bounding_volume::{Aabb, BoundingVolume},
-};
+use avian2d::parry::bounding_volume::Aabb;
 
 /*
 
@@ -36,7 +31,6 @@ impl Plugin for AlignmentsPlugin {
             .add_plugins(layout::AlignmentLayoutPlugin)
             .add_plugins(AlignmentAabbPlugin);
 
-        // app.add_systems(Startup, initialize_default_layout);
         app.add_systems(Startup, initialize_grid_material);
         app.add_systems(
             Startup,
@@ -50,25 +44,10 @@ impl Plugin for AlignmentsPlugin {
                     spawn_alignments_in_tiles,
                     spawn_layout_children,
                     update_layout_tile_positions,
-                    prepare_alignment_vertices,
-                )
-                    .chain(),
-            )
-            .add_systems(
-                PreUpdate,
-                (
-                    insert_alignment_polyline_materials.after(spawn_layout_children),
-                    update_alignment_polyline_materials,
+                    // prepare_alignment_vertices,
                 )
                     .chain(),
             );
-
-        // app.add_systems(
-        //     Startup,
-        //     prepare_alignments.after(super::setup_screenspace_camera),
-        // )
-        // .add_systems(PreUpdate, update_seq_pair_transforms);
-        //
     }
 }
 
@@ -340,151 +319,6 @@ pub(super) fn spawn_alignments_in_tiles(
             })
             .insert(SequencePairAlignmentEntities(children));
         println!("spawned {count} alignment entities");
-    }
-}
-
-pub(super) fn prepare_alignment_vertices(
-    mut commands: Commands,
-
-    cli_args: Res<crate::cli::Cli>,
-
-    alignments: Res<crate::Alignments>,
-    alignment_query: Query<
-        (Entity, &AlignmentIndex),
-        Without<Handle<super::render::gpu_lines::AlignmentVertices>>,
-        // (Without<Handle<super::render::AlignmentVertices>>,),
-    >,
-
-    mut alignment_vertices_map: ResMut<super::render::gpu_lines::AlignmentVerticesIndex>,
-    mut alignment_vertices: ResMut<Assets<super::render::gpu_lines::AlignmentVertices>>,
-
-    // might want to do multiple alignments per task
-    mut tasks: Local<HashMap<AlignmentIndex, Task<super::render::gpu_lines::AlignmentVertices>>>,
-    // mut tasks: Local<HashMap<AlignmentIndex, Task<Vec<(Vec2, Vec2, crate::CigarOp)>>>>,
-    // processing: Local<HashMap<AlignmentIndex, Arc<AtomicBool>>>,
-) {
-    if cli_args.low_mem {
-        return;
-    }
-
-    let task_pool = AsyncComputeTaskPool::get();
-
-    for (al_ent, al_ix) in alignment_query.iter() {
-        // dbg!();
-        if alignment_vertices_map.vertices.contains_key(al_ix) || tasks.contains_key(al_ix) {
-            continue;
-        }
-
-        // dbg!();
-        let Some((location, cigar)) = alignments
-            .get(*al_ix)
-            .map(|al| (al.location.clone(), al.cigar.clone()))
-        else {
-            continue;
-        };
-
-        let task = task_pool.spawn(async move {
-            super::render::gpu_lines::AlignmentVertices::from_location_and_cigar(&location, &cigar)
-        });
-
-        tasks.insert(*al_ix, task);
-    }
-
-    let mut complete_tasks = Vec::new();
-
-    for (&al_ix, task) in tasks.iter_mut() {
-        if !task.is_finished() {
-            continue;
-        }
-
-        let Some(vertices) = bevy::tasks::block_on(bevy::tasks::poll_once(task)) else {
-            continue;
-        };
-
-        alignment_vertices_map
-            .vertices
-            .insert(al_ix, alignment_vertices.add(vertices));
-
-        complete_tasks.push(al_ix);
-    }
-
-    for al_ix in complete_tasks {
-        tasks.remove(&al_ix);
-    }
-}
-
-pub(super) fn insert_alignment_polyline_materials(
-    mut commands: Commands,
-
-    // alignments: Res<crate::Alignments>,
-    vertex_index: Res<super::render::gpu_lines::AlignmentVerticesIndex>,
-    mut alignment_materials: ResMut<Assets<super::render::gpu_lines::AlignmentPolylineMaterial>>,
-    color_schemes: Res<PafColorSchemes>,
-
-    cli_args: Res<crate::cli::Cli>,
-
-    // layout_roots: Query<(Entity, &Handle<SeqPairLayout>, &Children)>,
-    // seq_pair_tiles: Query<(&SequencePairTile, &Children)>,
-    alignment_query: Query<
-        (Entity, &AlignmentIndex),
-        (
-            Without<Handle<super::render::gpu_lines::AlignmentPolylineMaterial>>,
-            Without<Handle<super::render::gpu_lines::AlignmentVertices>>,
-        ),
-    >,
-) {
-    if cli_args.low_mem {
-        return;
-    }
-
-    for (entity, al_ix) in alignment_query.iter() {
-        let Some(vertices) = vertex_index.vertices.get(al_ix) else {
-            continue;
-        };
-
-        // create the polyline material; place at origin since `update_polyline_materials` should run after
-        let color_scheme = color_schemes.get(al_ix);
-        let material = super::render::gpu_lines::AlignmentPolylineMaterial::from_offset_and_colors(
-            [0.0, 0.0],
-            color_scheme.clone(),
-        );
-
-        commands
-            .entity(entity)
-            .insert((vertices.clone(), alignment_materials.add(material)));
-    }
-}
-
-pub(super) fn update_alignment_polyline_materials(
-    layouts: Res<Assets<SeqPairLayout>>,
-    mut alignment_materials: ResMut<Assets<super::render::gpu_lines::AlignmentPolylineMaterial>>,
-
-    layout_roots: Query<(Entity, &Handle<SeqPairLayout>)>,
-    seq_pair_tiles: Query<(&SequencePairTile, &Children)>,
-    alignments_query: Query<(
-        Entity,
-        &Handle<super::render::gpu_lines::AlignmentPolylineMaterial>,
-    )>,
-) {
-    for (root_ent, layout_handle) in layout_roots.iter() {
-        let Some(layout) = layouts.get(layout_handle) else {
-            continue;
-        };
-
-        for (seq_pair, children) in seq_pair_tiles.iter() {
-            let Some(aabb) = layout.aabbs.get(seq_pair) else {
-                continue;
-            };
-
-            let pos = aabb.center() - aabb.half_extents();
-            let new_model = Transform::from_xyz(pos.x as f32, pos.y as f32, 0.0).compute_matrix();
-
-            for (_ent, mat_handle) in alignments_query.iter_many(children) {
-                if let Some(mat) = alignment_materials.get_mut(mat_handle) {
-                    mat.model = new_model;
-                }
-            }
-        }
     }
 }
 

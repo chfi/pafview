@@ -46,10 +46,9 @@ impl Plugin for PafViewerPlugin {
             .add_systems(Startup, (setup, setup_screenspace_camera).chain())
             .add_systems(Last, save_app_config);
 
-        // TODO: create a plugin that combines & manages all the render plugins
-
-        app.add_plugins(render::gpu_lines::AlignmentRendererPlugin)
+        app.add_plugins(render::sampled_lines::SampledAlignmentRendererPlugin)
             .add_plugins(render::base_level::BaselevelCigarRenderPlugin);
+        // app.add_plugins(render::gpu_lines::AlignmentRendererPlugin)
 
         // #[cfg(feature = "tracy")]
         // {
@@ -93,36 +92,6 @@ impl Plugin for PafViewerPlugin {
                 )
         }
 
-        // NB: these should all be replaced or are otherwise vestigial
-        // app.add_systems(PreUpdate, config_update_grid_material)
-        //     .add_systems(Startup, setup_base_level_display_image)
-        //     .add_systems(
-        //         Update,
-        //         (
-        //             send_base_level_view_events,
-        //             update_base_level_display_visibility,
-        //         )
-        //             .after(view::update_camera_from_viewport),
-        //     )
-        // .add_systems(PreUpdate, resize_screenspace_camera_target)
-        // .add_systems(
-        //     Update,
-        //     (
-        //         resize_base_level_image_handle,
-        //         run_base_level_cpu_rasterizer,
-        //         update_base_level_image,
-        //     )
-        //         .chain()
-        //         .after(send_base_level_view_events),
-        // );
-
-        let args = crate::cli::Cli::parse();
-
-        if args.low_mem {
-            app.add_plugins(render::sampled_lines::SampledAlignmentRendererPlugin);
-            // app.add_plugins(render::cigar_sampling::CigarSamplingRenderPlugin);
-        }
-
         #[cfg(debug_assertions)]
         app.add_plugins(bevy::dev_tools::fps_overlay::FpsOverlayPlugin {
             config: bevy::dev_tools::fps_overlay::FpsOverlayConfig {
@@ -135,11 +104,6 @@ impl Plugin for PafViewerPlugin {
         });
     }
 }
-
-// #[derive(Resource)]
-// pub struct PafViewer {
-//     pub app: PafViewerApp,
-// }
 
 #[derive(Resource)]
 pub struct AlignmentColorSchemes {
