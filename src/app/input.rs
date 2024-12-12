@@ -21,7 +21,6 @@ impl Plugin for InputPlugin {
             )
                 .chain()
                 .in_set(leafwing_input_manager::plugin::InputManagerSystem::ManualControl),
-            // .after(leafwing_input_manager::plugin::InputManagerSystem::ManualControl),
         )
         .configure_sets(
             PreUpdate,
@@ -219,6 +218,23 @@ fn add_cursor_zoom_origin(
     }
 }
 
+/*
+fn egui_block_mouse_inputs(mut inputs: ResMut<CentralInputStore>, egui_focus: Res<EguiFocus>) {
+    // if egui_focus.cursor_over_egui {
+    //     println!("blocking...");
+    //     for button in [MouseButton::Left, MouseButton::Right, MouseButton::Middle] {
+    //         if inputs.pressed(&button) {
+    //             inputs.update_buttonlike(button, false);
+    //         }
+    //     }
+
+    //     // if inputs.pressed(&MouseButton::Left) {
+    //     //     inputs.update_buttonlike(MouseButton::Left, false)
+    //     // }
+    // }
+}
+*/
+
 fn forward_view_actions(
     user_actions: Res<ActionState<UserAction>>,
     mut view_actions: ResMut<ActionState<ViewAction>>,
@@ -355,11 +371,11 @@ fn default_input_map() -> InputMap<UserAction> {
 
     input_map.insert_dual_axis(
         UserAction::View(ViewAction::Pan),
-        KeyboardVirtualDPad::new(KeyCode::KeyW, KeyCode::KeyS, KeyCode::KeyA, KeyCode::KeyD),
+        VirtualDPad::new(KeyCode::KeyW, KeyCode::KeyS, KeyCode::KeyA, KeyCode::KeyD),
     );
     input_map.insert_dual_axis(
         UserAction::View(ViewAction::Pan),
-        KeyboardVirtualDPad::new(
+        VirtualDPad::new(
             KeyCode::ArrowUp,
             KeyCode::ArrowDown,
             KeyCode::ArrowLeft,
@@ -368,7 +384,7 @@ fn default_input_map() -> InputMap<UserAction> {
     );
     input_map.insert_axis(
         UserAction::View(ViewAction::Zoom),
-        KeyboardVirtualAxis::new(KeyCode::PageDown, KeyCode::PageUp), // .with_processor(input_processors::ScalingAxisProcessor),
+        VirtualAxis::new(KeyCode::PageDown, KeyCode::PageUp), // .with_processor(input_processors::ScalingAxisProcessor),
     );
 
     input_map.insert_axis(

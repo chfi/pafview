@@ -292,7 +292,7 @@ pub mod gui {
                 .init_resource::<LiveLayoutBuilder>()
                 .add_systems(
                     PreUpdate,
-                    show_live_layout_editor.after(bevy_egui::EguiSet::BeginFrame),
+                    show_live_layout_editor.after(bevy_egui::EguiSet::BeginPass),
                 );
         }
     }

@@ -25,10 +25,10 @@ crossbeam = "0.8.4"
 ctrlc = "3.4.4"
 directories = "5.0.1"
 dirs = "5.0.1"
-egui = { version = "0.28", features = ["mint"] }
-egui-wgpu = { version = "0.28", features = ["winit", "wayland", "x11"] }
-egui-winit = "0.28"
-egui_extras = { version = "0.28", features = [
+egui = { version = "0.29", features = ["mint"] }
+egui-wgpu = { version = "0.29", features = ["winit", "wayland", "x11"] }
+egui-winit = "0.29"
+egui_extras = { version = "0.29", features = [
     "file",
     "image",
     "svg",
@@ -88,9 +88,12 @@ bevy = { version = "0.14.2", features = [
     "webgl2",
     "x11",              # X11 display server support
 ], default-features = false }
-bevy_egui = "0.28.0"
+bevy_egui = "0.30"
 bevy_polyline = "0.10.0"
-leafwing-input-manager = "0.15.1"
+# leafwing-input-manager = { version = "0.15.1", features = ["egui"] }
+leafwing-input-manager = { git = "https://github.com/Leafwing-Studios/leafwing-input-manager.git", rev = "212ff695b0bd27e5b92af2c713028829059e26ab", features = [
+    "egui",
+] }
 bevy_mod_picking = "0.20.1"
 bevy-inspector-egui = "0.25.2"
 rand = "0.8.5"

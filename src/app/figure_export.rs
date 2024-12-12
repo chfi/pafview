@@ -44,7 +44,7 @@ impl Plugin for FigureExportPlugin {
                 PreUpdate,
                 (update_egui_textures, show_figure_export_window)
                     .chain()
-                    .after(bevy_egui::EguiSet::BeginFrame),
+                    .after(bevy_egui::EguiSet::BeginPass),
             )
             .add_systems(
                 PreUpdate,

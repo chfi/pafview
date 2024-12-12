@@ -12,7 +12,6 @@ impl Plugin for MenubarPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<MenubarSize>()
             .init_resource::<AnnotationsWindow>()
-            .init_resource::<EguiFocus>()
             .add_systems(Startup, setup)
             .add_systems(
                 PreUpdate,
@@ -23,11 +22,7 @@ impl Plugin for MenubarPlugin {
                     settings_window,
                     goto_region_window,
                 )
-                    .after(bevy_egui::EguiSet::BeginFrame),
-            )
-            .add_systems(
-                PreUpdate,
-                update_egui_focus_resource.before(crate::app::input::InputSet::BuildUserActions),
+                    .after(bevy_egui::EguiSet::BeginPass),
             );
         // .add_systems(
         //     Update,
@@ -39,21 +34,6 @@ impl Plugin for MenubarPlugin {
         //     ),
         // );
         // .add_systems(Update, (menubar_system, regions_of_interest_system).chain());
-    }
-}
-
-#[derive(Default, Resource)]
-pub struct EguiFocus {
-    pub cursor_over_egui: bool,
-}
-
-fn update_egui_focus_resource(mut focus: ResMut<EguiFocus>, mut contexts: EguiContexts) {
-    let Some(ctx) = contexts.try_ctx_mut() else {
-        return;
-    };
-
-    if ctx.wants_pointer_input() {
-        focus.cursor_over_egui = true;
     }
 }
 
