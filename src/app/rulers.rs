@@ -695,11 +695,6 @@ impl Plugin for ViewerRulersPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(InteractiveRulersPlugin)
             .add_plugins(cursor_information::CursorRulerPlugin);
-        // .add_plugins(MeasurePlugin)
-        // .add_systems(Startup, setup_ruler_gizmo_config)
-        // .add_systems(Startup, setup)
-        // .add_systems(Update, update_cursor_ruler)
-        // .add_systems(PostUpdate, draw_cursor_ruler_gizmos);
     }
 }
 

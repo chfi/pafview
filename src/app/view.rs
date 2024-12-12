@@ -56,15 +56,17 @@ impl Plugin for AlignmentViewPlugin {
                     .chain(),
             )
             .add_systems(Update, update_cursor_world)
-            .add_systems(
-                Update,
-                (
-                    super::selection::selection_action_input_system::<RectangleZoomSelection>,
-                    rectangle_select_zoom_apply,
-                )
-                    .chain(),
-            )
+            // .add_systems(
+            //     Update,
+            //     (
+            //         super::selection::selection_action_input_system::<RectangleZoomSelection>,
+            //         rectangle_select_zoom_apply,
+            //     )
+            //         .chain(),
+            // )
             .add_systems(Update, (handle_view_events, view_history_input));
+
+        app.add_plugins(rectangle_zoom::RectangleZoomViewPlugin);
     }
 }
 
@@ -416,5 +418,226 @@ fn view_history_input(
             view_history.past.push_back(app_view.view);
             app_view.view = new_view;
         }
+    }
+}
+
+mod rectangle_zoom {
+    use bevy::{math::DVec2, render::view::RenderLayers, sprite::Mesh2dHandle};
+
+    use crate::{
+        app::{
+            input::{cursor::CursorPosition, InputSet, RectangleSelectAction, UserAction},
+            render::bordered_rect::BorderedRectMaterial,
+        },
+        view::View,
+    };
+
+    use super::*;
+
+    pub(super) struct RectangleZoomViewPlugin;
+
+    impl Plugin for RectangleZoomViewPlugin {
+        fn build(&self, app: &mut App) {
+            // app.add_systems(Startup, prepare_assets);
+            app.add_systems(Startup, spawn_zoom_entity)
+                .add_systems(
+                    PreUpdate,
+                    forward_selection_cancel_action.in_set(InputSet::BuildUserActions),
+                )
+                .add_systems(
+                    PreUpdate,
+                    (
+                        handle_actions.in_set(InputSet::HandleActions),
+                        update_rectangle,
+                    )
+                        .chain(),
+                );
+        }
+    }
+
+    // #[derive(Resource)]
+    // struct RectangleZoomAssets {
+    //     mesh: Handle<Mesh>,
+    //     material: Handle<BorderedRectMaterial>,
+    // }
+
+    #[derive(Component)]
+    struct RectangleZoomEntity;
+
+    #[derive(Component)]
+    struct RectangleZoomEndpoints {
+        origin: DVec2,
+        end: DVec2,
+    }
+
+    // fn prepare_assets(
+    //     mut commands: Commands,
+    //     mut meshes: ResMut<Assets<Mesh>>,
+    //     mut materials: ResMut<Assets<BorderedRectMaterial>>,
+    // ) {
+    //     let material = materials.add(BorderedRectMaterial {
+    //         // fill_color: todo!(),
+    //         // border_color: todo!(),
+    //         border_width_px: 1.0,
+    //         ..default()
+    //     });
+
+    //     let mesh = meshes.add(Rectangle::from_length(1.0));
+
+    //     commands.insert_resource(RectangleZoomAssets { mesh, material })
+    // }
+
+    fn spawn_zoom_entity(
+        mut commands: Commands,
+        mut meshes: ResMut<Assets<Mesh>>,
+        mut materials: ResMut<Assets<BorderedRectMaterial>>,
+    ) {
+        let material = materials.add(BorderedRectMaterial {
+            // fill_color: todo!(),
+            // border_color: todo!(),
+            border_width_px: 1.0,
+            ..default()
+        });
+        let mesh = meshes.add(Rectangle::from_length(1.0));
+
+        commands.spawn((
+            RectangleZoomEntity,
+            RenderLayers::layer(1),
+            Mesh2dHandle(mesh.clone()),
+            material.clone(),
+            SpatialBundle {
+                visibility: Visibility::Hidden,
+                ..default()
+            },
+        ));
+
+        // commands.insert_resource(RectangleZoomAssets { mesh, material })
+    }
+
+    fn forward_selection_cancel_action(
+        mut user_actions: ResMut<ActionState<UserAction>>,
+        mut view_actions: ResMut<ActionState<ViewAction>>,
+
+        endpoints: Query<&RectangleZoomEndpoints>,
+    ) {
+        let Ok(_endpoint) = endpoints.get_single() else {
+            return;
+        };
+
+        let cancel_data = user_actions.button_data_mut_or_default(&UserAction::Cancel);
+        let select_cancel_data = view_actions.button_data_mut_or_default(
+            &ViewAction::RectangleZoom(RectangleSelectAction::CancelSelect),
+        );
+        *select_cancel_data = cancel_data.clone();
+        *cancel_data = leafwing_input_manager::action_state::ButtonData::default();
+    }
+
+    fn update_rectangle(
+        view: Res<AlignmentViewport>,
+        cursor: Res<CursorPosition>,
+
+        mut zoom_rect: Query<
+            (Entity, &mut Transform, &mut RectangleZoomEndpoints),
+            With<RectangleZoomEntity>,
+        >,
+        windows: Query<&Window>,
+    ) {
+        let Some(world_cursor) = cursor.world else {
+            return;
+        };
+        let Ok(screen_dims) = windows.get_single().map(|w| w.size()) else {
+            return;
+        };
+
+        for (_ent, mut transform, mut endpoints) in zoom_rect.iter_mut() {
+            endpoints.end = world_cursor;
+
+            let s0 = view.view.map_view_to_screen(screen_dims, endpoints.origin);
+            let s1 = view.view.map_view_to_screen(screen_dims, endpoints.end);
+            let mid = 0.5 * (s0 + s1);
+            let dims = (s1 - s0).abs();
+
+            transform.translation.x = mid.x;
+            transform.translation.y = mid.y;
+            transform.scale = Vec3::new(dims.x, dims.y, 1.0);
+        }
+    }
+
+    fn handle_actions(
+        mut commands: Commands,
+        cursor: Res<CursorPosition>,
+        actions: Res<ActionState<ViewAction>>,
+        mut view_events: EventWriter<ViewEvent>,
+
+        mut zoom_rect: Query<
+            (
+                Entity,
+                // &Transform,
+                &mut Visibility,
+                // Option<Mut<RectangleZoomEndpoints>>,
+            ),
+            With<RectangleZoomEntity>,
+        >,
+
+        endpoints: Query<&RectangleZoomEndpoints>,
+    ) {
+        let Ok((zoom_ent, /*mut transform,*/ mut visibility)) = zoom_rect.get_single_mut() else {
+            return;
+        };
+
+        let Some(world_cursor) = cursor.world else {
+            return;
+        };
+
+        if let Ok(endpoints) = endpoints.get(zoom_ent) {
+            // the user is currently moving the `endpoints.end` point with their cursor
+            //
+            //
+            // make sure to hide the rectangle when there are no endpoints
+
+            if actions.just_pressed(&ViewAction::RectangleZoom(
+                RectangleSelectAction::CancelSelect,
+            )) {
+                println!("canceling");
+                // if the selection is *canceled*, just remove the endpoints
+                commands.entity(zoom_ent).remove::<RectangleZoomEndpoints>();
+                *visibility = Visibility::Hidden;
+            }
+
+            if actions.just_released(&ViewAction::RectangleZoom(
+                RectangleSelectAction::StartOrEndSelect,
+            )) {
+                println!("finishing rectangle zoom");
+                // if the selection action is *released*, send a view event and remove the endpoints component
+                let mins = endpoints.origin.min(endpoints.end);
+                let maxs = endpoints.origin.max(endpoints.end);
+
+                let new_view = View {
+                    x_min: mins.x,
+                    y_min: mins.y,
+                    x_max: maxs.x,
+                    y_max: maxs.y,
+                };
+                view_events.send(ViewEvent { view: new_view });
+
+                commands.entity(zoom_ent).remove::<RectangleZoomEndpoints>();
+                *visibility = Visibility::Hidden;
+            }
+        } else {
+            if actions.just_pressed(&ViewAction::RectangleZoom(
+                RectangleSelectAction::StartOrEndSelect,
+            )) {
+                println!("creating endpoints");
+                // add the endpoints component
+                commands.entity(zoom_ent).insert(RectangleZoomEndpoints {
+                    origin: world_cursor,
+                    end: world_cursor,
+                });
+
+                *visibility = Visibility::Visible;
+            }
+        }
+
+        //
     }
 }

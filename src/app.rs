@@ -38,7 +38,7 @@ impl Plugin for PafViewerPlugin {
             .add_plugins(view::AlignmentViewPlugin)
             .add_plugins(annotations::AnnotationsPlugin)
             .add_plugins(rulers::ViewerRulersPlugin)
-            .add_plugins(selection::RegionSelectionPlugin)
+            // .add_plugins(selection::RegionSelectionPlugin)
             .add_plugins(picking::PickingPlugin)
             // .add_plugins(figure_export::FigureExportPlugin)
             .add_plugins(render::bordered_rect::BorderedRectRenderPlugin)

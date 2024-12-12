@@ -100,6 +100,7 @@ pub enum ViewAction {
     ZoomOrigin,
     AnchoredPan, // for click & drag, exact
     Reset,
+    RectangleZoom(RectangleSelectAction),
 }
 
 #[derive(Default, Resource)]
@@ -251,7 +252,10 @@ fn forward_view_actions(
         .unwrap_or_default();
     *view_actions.button_data_mut_or_default(&ViewAction::Reset) = cancel;
 
-    for btnlike in [ViewAction::AnchoredPan] {
+    for btnlike in [
+        ViewAction::AnchoredPan,
+        ViewAction::RectangleZoom(RectangleSelectAction::StartOrEndSelect),
+    ] {
         view_actions.set_button_data(
             btnlike,
             user_actions
@@ -319,10 +323,17 @@ fn default_input_map() -> InputMap<UserAction> {
         UserAction::SelectedTool(SelectedToolAction::Primary),
         MouseButton::Left,
     );
+
     input_map.insert(
-        UserAction::SelectedTool(SelectedToolAction::Secondary),
+        UserAction::View(ViewAction::RectangleZoom(
+            RectangleSelectAction::StartOrEndSelect,
+        )),
         MouseButton::Right,
     );
+    // input_map.insert(
+    //     UserAction::SelectedTool(SelectedToolAction::Secondary),
+    //     MouseButton::Right,
+    // );
 
     input_map.insert(
         UserAction::Paste,
