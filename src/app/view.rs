@@ -4,18 +4,10 @@ use bevy::prelude::*;
 use leafwing_input_manager::action_state::ActionState;
 
 use super::{
+    alignments::layout::{DefaultLayout, SeqPairLayout},
     input::ViewAction,
-    // selection::{Selection, SelectionActionTrait, SelectionComplete},
     AlignmentCamera,
 };
-
-/*
-
-one plugin for the input-agnostic view update logic
-
-another for view-related inputs...
-
-*/
 
 /*
 
@@ -23,8 +15,8 @@ The alignment viewport is defined using the grid of the sequence pairs,
 and allows for the main camera to be updated in terms of world/base-level units.
 
 
-
 */
+
 pub(super) struct AlignmentViewPlugin;
 
 impl Plugin for AlignmentViewPlugin {
@@ -34,7 +26,10 @@ impl Plugin for AlignmentViewPlugin {
             .add_systems(Startup, setup)
             .add_systems(
                 PreUpdate,
-                (pan_viewport_anchored, handle_input_update_viewport)
+                (
+                    pan_viewport_anchored,
+                    (handle_input_update_viewport, handle_view_reset),
+                )
                     .chain()
                     .before(enforce_alignment_viewport_limits)
                     .in_set(super::input::InputSet::HandleActions),
@@ -43,88 +38,21 @@ impl Plugin for AlignmentViewPlugin {
                 PreUpdate,
                 (
                     update_viewport_for_window_resize,
-                    // click_drag_pan_viewport,
-                    // input_update_viewport,
                     enforce_alignment_viewport_limits,
                     update_camera_from_viewport,
                 )
                     .chain(),
             )
-            .add_systems(Update, update_cursor_world)
-            // .add_systems(
-            //     Update,
-            //     (
-            //         super::selection::selection_action_input_system::<RectangleZoomSelection>,
-            //         rectangle_select_zoom_apply,
-            //     )
-            //         .chain(),
-            // )
             .add_systems(Update, (handle_view_events, view_history_input));
 
         app.add_plugins(rectangle_zoom::RectangleZoomViewPlugin);
     }
 }
 
-#[derive(Default, Resource)]
-pub struct CursorAlignmentPosition {
-    pub world_pos: Option<bevy::math::DVec2>,
-    pub screen_pos: Option<bevy::math::Vec2>,
-    // pub target_pos: Option<(SeqId, u64)>,
-    // pub query_pos: Option<(SeqId, u64)>,
-}
-
-// TODO rewrite to use layouts instead of AlignmentGrid
-pub fn update_cursor_world(
-    mut cursor_world: ResMut<CursorAlignmentPosition>,
-    grid: Res<crate::AlignmentGrid>,
-    view: Res<AlignmentViewport>,
-    windows: Query<&Window>,
-) {
-    let Ok(window) = windows.get_single() else {
-        return;
-    };
-    let res = &window.resolution;
-    let dims = [res.width(), res.height()];
-
-    let mut new_al_cursor = CursorAlignmentPosition::default();
-
-    if let Some(cursor_pos) = window.cursor_position() {
-        let world_pos = {
-            let p: [f32; 2] = cursor_pos.into();
-            let wp: [f64; 2] = view.view.map_screen_to_world(dims, p).into();
-            bevy::math::DVec2::from(wp)
-        };
-
-        let screen_pos = Vec2::new(
-            cursor_pos.x - res.width() * 0.5,
-            res.height() - cursor_pos.y - res.height() * 0.5,
-        );
-        new_al_cursor.screen_pos = Some(screen_pos);
-        new_al_cursor.world_pos = Some(world_pos);
-
-        // new_al_cursor.target_pos = grid.x_axis.global_to_axis_exact(world_pos.x.round() as u64);
-        // new_al_cursor.query_pos = grid.y_axis.global_to_axis_exact(world_pos.y.round() as u64);
-    }
-
-    *cursor_world = new_al_cursor;
-}
-
 #[derive(Resource, Component, Debug, Clone, Copy)]
 pub struct AlignmentViewport {
     pub view: crate::view::View,
-    // pub initial_view: crate::view::View,
 }
-
-#[derive(Resource, Component, Debug, Clone, Copy)]
-pub struct LayoutBounds {
-    pub bounds: crate::view::View,
-}
-
-// impl AlignmentViewport {
-//     pub fn initial_view(&self) -> &crate::view::View {
-//         &self.initial_view
-//     }
-// }
 
 fn setup(mut commands: Commands, grid: Res<crate::AlignmentGrid>) {
     let initial_view = crate::view::View {
@@ -134,16 +62,9 @@ fn setup(mut commands: Commands, grid: Res<crate::AlignmentGrid>) {
         y_max: grid.y_axis.total_len as f64,
     };
 
-    let viewport = AlignmentViewport {
-        view: initial_view,
-        // initial_view,
-    };
+    let viewport = AlignmentViewport { view: initial_view };
 
     commands.insert_resource(viewport);
-    commands.insert_resource(LayoutBounds {
-        bounds: initial_view,
-    });
-    commands.init_resource::<CursorAlignmentPosition>();
 }
 
 fn update_viewport_for_window_resize(
@@ -227,63 +148,35 @@ pub(super) fn update_camera_from_viewport(
     proj.scale = scale;
 }
 
-// #[derive(Component, Default)]
-// pub(crate) struct RectangleZoomSelection;
+fn handle_view_reset(
+    view_actions: Res<ActionState<ViewAction>>,
+    mut view_events: EventWriter<ViewEvent>,
 
-// impl SelectionActionTrait for RectangleZoomSelection {
-//     fn action() -> super::selection::SelectionAction {
-//         super::selection::SelectionAction::ZoomRectangle
-//     }
-// }
+    layouts: Res<Assets<SeqPairLayout>>,
+    default_layout: Res<DefaultLayout>,
+) {
+    if view_actions.just_pressed(&ViewAction::Reset) {
+        if let Some(layout) = layouts.get(&default_layout.layout) {
+            let bounds = crate::view::View {
+                x_min: layout.mins.x,
+                y_min: layout.mins.y,
+                x_max: layout.maxs.x,
+                y_max: layout.maxs.y,
+            };
 
-// fn rectangle_select_zoom_apply(
-//     mut commands: Commands,
-//     app_view: Res<AlignmentViewport>,
-//     selections: Query<
-//         (Entity, &Selection),
-//         (With<RectangleZoomSelection>, With<SelectionComplete>),
-//     >,
-
-//     mut view_events: EventWriter<ViewEvent>,
-// ) {
-//     for (sel_entity, selection) in selections.iter() {
-//         let Selection {
-//             start_world,
-//             end_world,
-//         } = selection;
-
-//         let min = start_world.min(*end_world);
-//         let max = start_world.max(*end_world);
-
-//         if max.x - min.x > 100.0 && max.y - min.y > 100.0 {
-//             let new_view = app_view
-//                 .view
-//                 .fit_ranges_in_view_f64(Some(min.x..=max.x), Some(min.y..=max.y));
-
-//             view_events.send(ViewEvent { view: new_view });
-//         }
-
-//         commands.entity(sel_entity).despawn();
-//     }
-// }
+            view_events.send(ViewEvent { view: bounds });
+        }
+    }
+}
 
 fn handle_input_update_viewport(
     time: Res<Time>,
 
-    // cursor: Res<super::input::cursor::CursorPosition>,
     view_actions: Res<ActionState<ViewAction>>,
 
-    layout_bounds: Res<LayoutBounds>,
     mut alignment_view: ResMut<AlignmentViewport>,
-    mut view_events: EventWriter<ViewEvent>,
 ) {
     let dt = time.delta_seconds_f64();
-
-    if view_actions.just_pressed(&ViewAction::Reset) {
-        view_events.send(ViewEvent {
-            view: layout_bounds.bounds,
-        });
-    }
 
     if let Some(pan_delta) = view_actions.dual_axis_data(&ViewAction::Pan) {
         let dv = pan_delta.pair.as_dvec2();

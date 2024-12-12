@@ -23,6 +23,9 @@ pub struct SeqPairLayout {
     pub aabbs: HashMap<SequencePairTile, Aabb>,
 
     pub layout_qbvh: AabbQbvh<SequencePairTile>,
+
+    pub mins: DVec2,
+    pub maxs: DVec2,
 }
 
 #[derive(Resource, Clone)]
@@ -59,6 +62,9 @@ pub struct LayoutBuilder {
 
 impl LayoutBuilder {
     pub fn build(self, sequences: &crate::Sequences) -> SeqPairLayout {
+        let mut mins = DVec2::INFINITY;
+        let mut maxs = DVec2::NEG_INFINITY;
+
         let aabbs = match self.data {
             LayoutInput::Axes { targets, queries } => {
                 let mut aabbs = HashMap::default();
@@ -92,6 +98,11 @@ impl LayoutBuilder {
                         let half_extents = [tgt_len * 0.5, qry_len * 0.5];
 
                         let aabb = Aabb::from_half_extents(center.into(), half_extents.into());
+                        let max = aabb.maxs;
+                        let min = aabb.mins;
+
+                        mins = mins.min(DVec2::new(min.x, min.y));
+                        maxs = maxs.max(DVec2::new(max.x, max.y));
 
                         aabbs.insert(SequencePairTile { target, query }, aabb);
                     }
@@ -107,6 +118,13 @@ impl LayoutBuilder {
                     let half_extents = [tgt_len * 0.5, qry_len * 0.5];
                     let aabb =
                         Aabb::from_half_extents([offset.x, offset.y].into(), half_extents.into());
+
+                    let max = aabb.maxs;
+                    let min = aabb.mins;
+
+                    mins = mins.min(DVec2::new(min.x, min.y));
+                    maxs = maxs.max(DVec2::new(max.x, max.y));
+
                     Some((seq_pair, aabb))
                 })
                 .collect(),
@@ -114,7 +132,12 @@ impl LayoutBuilder {
 
         let layout_qbvh = AabbQbvh::from_aabbs(aabbs.iter().map(|(&sp, &aabb)| (sp, aabb)));
 
-        SeqPairLayout { aabbs, layout_qbvh }
+        SeqPairLayout {
+            aabbs,
+            layout_qbvh,
+            mins,
+            maxs,
+        }
     }
 
     pub fn from_axes<T, Q>(targets: T, queries: Q) -> Self
@@ -122,8 +145,8 @@ impl LayoutBuilder {
         T: IntoIterator<Item = SeqId>,
         Q: IntoIterator<Item = SeqId>,
     {
-        let mut targets = targets.into_iter().collect::<Vec<_>>();
-        let mut queries = queries.into_iter().collect::<Vec<_>>();
+        let targets = targets.into_iter().collect::<Vec<_>>();
+        let queries = queries.into_iter().collect::<Vec<_>>();
 
         let data = LayoutInput::Axes { targets, queries };
         Self {
