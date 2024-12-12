@@ -163,13 +163,20 @@ pub(super) fn initialize_default_layout(
 
     targets.sort_by_key(|(_, l)| (std::cmp::Reverse(*l)));
     targets.dedup();
+
     queries.sort_by_key(|(_, l)| (std::cmp::Reverse(*l)));
     queries.dedup();
+
+    let sum_axis = |lens: &[(SeqId, u64)]| -> u64 { lens.iter().map(|(_, l)| l).sum() };
+    let total_target = sum_axis(&targets);
+    let total_query = sum_axis(&queries);
 
     let targets = targets.iter().map(|(i, _)| *i);
     let queries = queries.iter().map(|(i, _)| *i);
 
-    let builder = layout::LayoutBuilder::from_axes(targets, queries);
+    let mut builder = layout::LayoutBuilder::from_axes(targets, queries);
+    builder.vertical_limit = Some(total_query as f64);
+    builder.horizontal_limit = Some(total_target as f64);
     // LayoutBuilder::from_axes(targets, queries).with_vertical_offset(Some(10_000_000.0));
 
     let layout = builder.clone().build(&sequences);

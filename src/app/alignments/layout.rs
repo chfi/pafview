@@ -53,9 +53,11 @@ pub struct LayoutBuilder {
     /// instead of lining them up side-by-side
     /// ignored if builder was created from tile positions
     pub vertical_offset: Option<f64>,
+    pub vertical_limit: Option<f64>,
 
     /// see vertical_offset
     pub horizontal_offset: Option<f64>,
+    pub horizontal_limit: Option<f64>,
 
     data: LayoutInput,
 }
@@ -67,6 +69,24 @@ impl LayoutBuilder {
 
         let aabbs = match self.data {
             LayoutInput::Axes { targets, queries } => {
+                let sum_axis = |seqs: &[SeqId]| -> u64 {
+                    seqs.iter()
+                        .filter_map(|s| {
+                            let seq = sequences.get(*s)?;
+                            Some(seq.len())
+                        })
+                        .sum()
+                };
+
+                let total_target_len = sum_axis(&targets);
+                let total_query_len = sum_axis(&queries);
+
+                let h_limit = self.horizontal_limit.unwrap_or(total_target_len as f64);
+                let v_limit = self.vertical_limit.unwrap_or(total_query_len as f64);
+
+                let h_prop = h_limit / total_target_len as f64;
+                let v_prop = v_limit / total_query_len as f64;
+
                 let mut aabbs = HashMap::default();
 
                 let mut x_offset = 0.0;
@@ -79,7 +99,13 @@ impl LayoutBuilder {
                     let tgt_len = tgt_seq.len() as f64;
 
                     let x0 = x_offset;
-                    x_offset += self.horizontal_offset.unwrap_or(tgt_len);
+
+                    // let h_offset = self.horizontal_limit.unwrap_or(total_target_len as f64)
+
+                    x_offset += tgt_len * h_prop;
+                    // x_offset += tgt_len / h_limit;
+
+                    // x_offset += self.horizontal_offset.unwrap_or(tgt_len);
 
                     let mut y_offset = 0.0;
 
@@ -90,7 +116,10 @@ impl LayoutBuilder {
                         let qry_len = qry_seq.len() as f64;
 
                         let y0 = y_offset;
-                        y_offset += self.vertical_offset.unwrap_or(qry_len);
+
+                        y_offset += qry_len * v_prop;
+
+                        // y_offset += self.vertical_offset.unwrap_or(qry_len);
 
                         // let center = [x0, y0];
                         let center = [x0 + tgt_len * 0.5, y0 + qry_len * 0.5];
@@ -151,7 +180,9 @@ impl LayoutBuilder {
         let data = LayoutInput::Axes { targets, queries };
         Self {
             vertical_offset: None,
+            vertical_limit: None,
             horizontal_offset: None,
+            horizontal_limit: None,
             data,
         }
     }
@@ -166,7 +197,9 @@ impl LayoutBuilder {
 
         Self {
             vertical_offset: None,
+            vertical_limit: None,
             horizontal_offset: None,
+            horizontal_limit: None,
             data: LayoutInput::TilePositions { offsets },
         }
     }
@@ -325,8 +358,8 @@ pub mod gui {
 
     #[derive(Default, PartialEq)]
     struct LayoutEditorState {
-        vertical_offset_on: bool,
-        vertical_offset: f64,
+        vertical_limit_on: bool,
+        vertical_limit: f64,
 
         horizontal_offset_on: bool,
         horizontal_offset: f64,
@@ -367,11 +400,11 @@ pub mod gui {
                 //
                 ui.vertical(|ui| {
                     ui.horizontal(|ui| {
-                        ui.label("Vertical offset");
-                        ui.checkbox(&mut editor_state.vertical_offset_on, "Enable");
+                        ui.label("Vertical limit");
+                        ui.checkbox(&mut editor_state.vertical_limit_on, "Enable");
                         ui.add_enabled(
-                            editor_state.vertical_offset_on,
-                            egui::DragValue::new(&mut editor_state.vertical_offset),
+                            editor_state.vertical_limit_on,
+                            egui::DragValue::new(&mut editor_state.vertical_limit),
                         );
                     });
 
@@ -395,8 +428,8 @@ pub mod gui {
             .builder
             .as_ref()
             .map(|b| LayoutEditorState {
-                vertical_offset_on: b.vertical_offset.is_some(),
-                vertical_offset: b.vertical_offset.unwrap_or_default(),
+                vertical_limit_on: b.vertical_offset.is_some(),
+                vertical_limit: b.vertical_offset.unwrap_or_default(),
                 horizontal_offset_on: b.horizontal_offset.is_some(),
                 horizontal_offset: b.horizontal_offset.unwrap_or_default(),
             });
@@ -405,14 +438,16 @@ pub mod gui {
             let editor_state: &LayoutEditorState = &editor_state;
             if builder_state.map(|s| &s != editor_state).unwrap_or(false) {
                 if let Some(builder) = builder.builder.as_mut() {
-                    if editor_state.vertical_offset_on {
-                        if Some(editor_state.vertical_offset) != builder.vertical_offset {
-                            builder.vertical_offset = Some(editor_state.vertical_offset);
+                    if editor_state.vertical_limit_on {
+                        if Some(editor_state.vertical_limit) != builder.vertical_limit {
+                            builder.vertical_limit = Some(editor_state.vertical_limit);
                             builder_changed = true;
                         }
-                    } else if builder.vertical_offset.is_some() {
-                        builder.vertical_offset = None;
-                        builder_changed = true;
+                    } else {
+                        if builder.vertical_limit.is_some() {
+                            builder.vertical_limit = None;
+                            builder_changed = true;
+                        }
                     }
 
                     if editor_state.horizontal_offset_on {
