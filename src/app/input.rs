@@ -100,6 +100,9 @@ pub enum ViewAction {
     AnchoredPan, // for click & drag, exact
     Reset,
     RectangleZoom(RectangleSelectAction),
+
+    ViewHistoryBack,
+    ViewHistoryForward,
 }
 
 #[derive(Default, Resource)]
@@ -271,6 +274,8 @@ fn forward_view_actions(
     for btnlike in [
         ViewAction::AnchoredPan,
         ViewAction::RectangleZoom(RectangleSelectAction::StartOrEndSelect),
+        ViewAction::ViewHistoryBack,
+        ViewAction::ViewHistoryForward,
     ] {
         view_actions.set_button_data(
             btnlike,
@@ -392,6 +397,24 @@ fn default_input_map() -> InputMap<UserAction> {
         MouseScrollAxis::Y,
         // .with_processor(input_processors::ScalingAxisProcessor),
         // .replace_processing_pipeline([input_processors::ScalingAxisProcessor.into()]),
+    );
+
+    for ctrl in [KeyCode::ControlLeft, KeyCode::ControlRight] {
+        for (action, key) in [
+            (ViewAction::ViewHistoryBack, KeyCode::KeyZ),
+            (ViewAction::ViewHistoryForward, KeyCode::KeyR),
+        ] {
+            input_map.insert(UserAction::View(action), ButtonlikeChord::new([ctrl, key]));
+        }
+    }
+
+    input_map.insert(
+        UserAction::View(ViewAction::ViewHistoryBack),
+        MouseButton::Back,
+    );
+    input_map.insert(
+        UserAction::View(ViewAction::ViewHistoryForward),
+        MouseButton::Forward,
     );
 
     input_map

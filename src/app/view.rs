@@ -1,12 +1,7 @@
 use std::collections::VecDeque;
 
-use bevy::{
-    input::mouse::{MouseMotion, MouseWheel},
-    prelude::*,
-};
+use bevy::prelude::*;
 use leafwing_input_manager::action_state::ActionState;
-
-use crate::sequences::SeqId;
 
 use super::{
     input::ViewAction,
@@ -389,31 +384,18 @@ fn handle_view_events(
 }
 
 fn view_history_input(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mouse: Res<ButtonInput<MouseButton>>,
+    view_actions: Res<ActionState<ViewAction>>,
+
     mut view_history: ResMut<ViewHistoryCursor>,
     mut app_view: ResMut<AlignmentViewport>,
 ) {
-    let ctrl = keyboard.pressed(KeyCode::ControlLeft) || keyboard.pressed(KeyCode::ControlRight);
-
-    let back_key_input =
-        ctrl && (keyboard.just_pressed(KeyCode::KeyZ) || keyboard.just_pressed(KeyCode::ArrowLeft));
-    let forward_key_input = ctrl
-        && (keyboard.just_pressed(KeyCode::KeyR) || keyboard.just_pressed(KeyCode::ArrowRight));
-
-    let back_mouse_input = mouse.just_pressed(MouseButton::Back);
-    let forward_mouse_input = mouse.just_pressed(MouseButton::Forward);
-
-    if back_key_input || back_mouse_input {
-        // move back in history
+    if view_actions.just_pressed(&ViewAction::ViewHistoryBack) {
         if let Some(new_view) = view_history.past.pop_back() {
             view_history.future.push_front(app_view.view);
             app_view.view = new_view;
         }
     }
-
-    if forward_key_input || forward_mouse_input {
-        // move forward in history
+    if view_actions.just_pressed(&ViewAction::ViewHistoryForward) {
         if let Some(new_view) = view_history.future.pop_front() {
             view_history.past.push_back(app_view.view);
             app_view.view = new_view;
@@ -427,7 +409,7 @@ mod rectangle_zoom {
     use crate::{
         app::{
             input::{cursor::CursorPosition, InputSet, RectangleSelectAction, UserAction},
-            render::bordered_rect::{BorderedRectMaterial, BorderedRectMaterial2d},
+            render::bordered_rect::BorderedRectMaterial2d,
         },
         view::View,
     };
