@@ -113,6 +113,18 @@ pub struct BorderedRectMaterial2d {
     pub alpha_mode: AlphaMode,
 }
 
+impl Default for BorderedRectMaterial2d {
+    fn default() -> Self {
+        Self {
+            fill_color: Color::NONE.into(),
+            border_color: Color::BLACK.into(),
+            border_opacities: 0xFFFFFFFF,
+            border_width_px: 1.0,
+            alpha_mode: AlphaMode::Blend,
+        }
+    }
+}
+
 impl Material2d for BorderedRectMaterial2d {
     fn fragment_shader() -> bevy::render::render_resource::ShaderRef {
         BORDERED_RECT_2D_SHADER_HANDLE.into()

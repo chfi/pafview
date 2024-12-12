@@ -427,7 +427,7 @@ mod rectangle_zoom {
     use crate::{
         app::{
             input::{cursor::CursorPosition, InputSet, RectangleSelectAction, UserAction},
-            render::bordered_rect::BorderedRectMaterial,
+            render::bordered_rect::{BorderedRectMaterial, BorderedRectMaterial2d},
         },
         view::View,
     };
@@ -454,13 +454,6 @@ mod rectangle_zoom {
                 );
         }
     }
-
-    // #[derive(Resource)]
-    // struct RectangleZoomAssets {
-    //     mesh: Handle<Mesh>,
-    //     material: Handle<BorderedRectMaterial>,
-    // }
-
     #[derive(Component)]
     struct RectangleZoomEntity;
 
@@ -470,31 +463,12 @@ mod rectangle_zoom {
         end: DVec2,
     }
 
-    // fn prepare_assets(
-    //     mut commands: Commands,
-    //     mut meshes: ResMut<Assets<Mesh>>,
-    //     mut materials: ResMut<Assets<BorderedRectMaterial>>,
-    // ) {
-    //     let material = materials.add(BorderedRectMaterial {
-    //         // fill_color: todo!(),
-    //         // border_color: todo!(),
-    //         border_width_px: 1.0,
-    //         ..default()
-    //     });
-
-    //     let mesh = meshes.add(Rectangle::from_length(1.0));
-
-    //     commands.insert_resource(RectangleZoomAssets { mesh, material })
-    // }
-
     fn spawn_zoom_entity(
         mut commands: Commands,
         mut meshes: ResMut<Assets<Mesh>>,
-        mut materials: ResMut<Assets<BorderedRectMaterial>>,
+        mut materials: ResMut<Assets<BorderedRectMaterial2d>>,
     ) {
-        let material = materials.add(BorderedRectMaterial {
-            // fill_color: todo!(),
-            // border_color: todo!(),
+        let material = materials.add(BorderedRectMaterial2d {
             border_width_px: 1.0,
             ..default()
         });
@@ -510,8 +484,6 @@ mod rectangle_zoom {
                 ..default()
             },
         ));
-
-        // commands.insert_resource(RectangleZoomAssets { mesh, material })
     }
 
     fn forward_selection_cancel_action(
@@ -552,13 +524,16 @@ mod rectangle_zoom {
         for (_ent, mut transform, mut endpoints) in zoom_rect.iter_mut() {
             endpoints.end = world_cursor;
 
-            let s0 = view.view.map_view_to_screen(screen_dims, endpoints.origin);
-            let s1 = view.view.map_view_to_screen(screen_dims, endpoints.end);
+            let s0 = view.view.map_world_to_screen(screen_dims, endpoints.origin);
+            let s1 = view.view.map_world_to_screen(screen_dims, endpoints.end);
             let mid = 0.5 * (s0 + s1);
             let dims = (s1 - s0).abs();
 
-            transform.translation.x = mid.x;
-            transform.translation.y = mid.y;
+            let pt = Vec3::new(mid.x, screen_dims.y - mid.y, 1.0)
+                - Vec3::new(screen_dims.x, screen_dims.y, 0.0) * 0.5;
+
+            transform.translation.x = pt.x;
+            transform.translation.y = pt.y;
             transform.scale = Vec3::new(dims.x, dims.y, 1.0);
         }
     }
@@ -569,19 +544,11 @@ mod rectangle_zoom {
         actions: Res<ActionState<ViewAction>>,
         mut view_events: EventWriter<ViewEvent>,
 
-        mut zoom_rect: Query<
-            (
-                Entity,
-                // &Transform,
-                &mut Visibility,
-                // Option<Mut<RectangleZoomEndpoints>>,
-            ),
-            With<RectangleZoomEntity>,
-        >,
+        mut zoom_rect: Query<(Entity, &mut Visibility), With<RectangleZoomEntity>>,
 
         endpoints: Query<&RectangleZoomEndpoints>,
     ) {
-        let Ok((zoom_ent, /*mut transform,*/ mut visibility)) = zoom_rect.get_single_mut() else {
+        let Ok((zoom_ent, mut visibility)) = zoom_rect.get_single_mut() else {
             return;
         };
 
