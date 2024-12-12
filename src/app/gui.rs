@@ -56,7 +56,7 @@ fn setup(mut commands: Commands, annotations: Res<super::annotations::Annotation
 pub(crate) fn menubar_system(
     mut contexts: EguiContexts,
     mut window_states: ResMut<WindowStates>,
-    mut figure_export_open: Option<ResMut<super::figure_export::FigureExportWindowOpen>>,
+    // mut figure_export_open: Option<ResMut<super::figure_export::FigureExportWindowOpen>>,
     mut layout_editor_open: ResMut<super::alignments::layout::gui::LayoutEditorOpen>,
     mut menubar_size: ResMut<MenubarSize>,
 ) {
@@ -98,12 +98,12 @@ pub(crate) fn menubar_system(
                     }
                 }
 
-                if let Some(fig_export) = figure_export_open.as_mut() {
-                    let open = &mut fig_export.is_open;
-                    if ui.button("Figure Export").clicked() {
-                        *open = !*open;
-                    }
-                }
+                // if let Some(fig_export) = figure_export_open.as_mut() {
+                //     let open = &mut fig_export.is_open;
+                //     if ui.button("Figure Export").clicked() {
+                //         *open = !*open;
+                //     }
+                // }
             });
             // ui.spacing()
         })

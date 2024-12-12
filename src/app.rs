@@ -1,14 +1,14 @@
 pub mod alignments;
 pub mod annotations;
 pub mod assets;
-pub mod figure_export;
+// pub mod figure_export;
 pub mod gui;
 pub mod infobar;
 pub mod input;
 pub mod picking;
 pub mod render;
 pub mod rulers;
-pub mod selection;
+// pub mod selection;
 pub mod view;
 
 pub use alignments::{AlignmentIndex, SequencePairTile};

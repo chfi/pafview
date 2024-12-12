@@ -420,14 +420,30 @@ fn forward_ruler_cancel_action(
     mut ruler_actions: ResMut<ActionState<RulerAction>>,
 
     held_ruler: Res<HeldRulerState>,
+
+    mut debounce: Local<bool>,
 ) {
     if held_ruler.held_endpoint.is_some() {
+        *debounce = false;
+
         let cancel_data = user_actions.button_data_mut_or_default(&UserAction::Cancel);
         let ruler_data = ruler_actions
             .button_data_mut_or_default(&RulerAction(RectangleSelectAction::CancelSelect));
 
         *ruler_data = cancel_data.clone();
+        if cancel_data.pressed() {
+            *debounce = true;
+        }
         *cancel_data = leafwing_input_manager::action_state::ButtonData::default();
+    } else {
+        if *debounce {
+            let cancel_data = user_actions.button_data_mut_or_default(&UserAction::Cancel);
+            if cancel_data.released() {
+                *debounce = false;
+            } else {
+                *cancel_data = default();
+            }
+        }
     }
 }
 

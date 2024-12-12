@@ -10,7 +10,7 @@ use crate::sequences::SeqId;
 
 use super::{
     input::ViewAction,
-    selection::{Selection, SelectionActionTrait, SelectionComplete},
+    // selection::{Selection, SelectionActionTrait, SelectionComplete},
     AlignmentCamera,
 };
 
@@ -232,45 +232,45 @@ pub(super) fn update_camera_from_viewport(
     proj.scale = scale;
 }
 
-#[derive(Component, Default)]
-pub(crate) struct RectangleZoomSelection;
+// #[derive(Component, Default)]
+// pub(crate) struct RectangleZoomSelection;
 
-impl SelectionActionTrait for RectangleZoomSelection {
-    fn action() -> super::selection::SelectionAction {
-        super::selection::SelectionAction::ZoomRectangle
-    }
-}
+// impl SelectionActionTrait for RectangleZoomSelection {
+//     fn action() -> super::selection::SelectionAction {
+//         super::selection::SelectionAction::ZoomRectangle
+//     }
+// }
 
-fn rectangle_select_zoom_apply(
-    mut commands: Commands,
-    app_view: Res<AlignmentViewport>,
-    selections: Query<
-        (Entity, &Selection),
-        (With<RectangleZoomSelection>, With<SelectionComplete>),
-    >,
+// fn rectangle_select_zoom_apply(
+//     mut commands: Commands,
+//     app_view: Res<AlignmentViewport>,
+//     selections: Query<
+//         (Entity, &Selection),
+//         (With<RectangleZoomSelection>, With<SelectionComplete>),
+//     >,
 
-    mut view_events: EventWriter<ViewEvent>,
-) {
-    for (sel_entity, selection) in selections.iter() {
-        let Selection {
-            start_world,
-            end_world,
-        } = selection;
+//     mut view_events: EventWriter<ViewEvent>,
+// ) {
+//     for (sel_entity, selection) in selections.iter() {
+//         let Selection {
+//             start_world,
+//             end_world,
+//         } = selection;
 
-        let min = start_world.min(*end_world);
-        let max = start_world.max(*end_world);
+//         let min = start_world.min(*end_world);
+//         let max = start_world.max(*end_world);
 
-        if max.x - min.x > 100.0 && max.y - min.y > 100.0 {
-            let new_view = app_view
-                .view
-                .fit_ranges_in_view_f64(Some(min.x..=max.x), Some(min.y..=max.y));
+//         if max.x - min.x > 100.0 && max.y - min.y > 100.0 {
+//             let new_view = app_view
+//                 .view
+//                 .fit_ranges_in_view_f64(Some(min.x..=max.x), Some(min.y..=max.y));
 
-            view_events.send(ViewEvent { view: new_view });
-        }
+//             view_events.send(ViewEvent { view: new_view });
+//         }
 
-        commands.entity(sel_entity).despawn();
-    }
-}
+//         commands.entity(sel_entity).despawn();
+//     }
+// }
 
 fn handle_input_update_viewport(
     time: Res<Time>,
@@ -491,16 +491,31 @@ mod rectangle_zoom {
         mut view_actions: ResMut<ActionState<ViewAction>>,
 
         endpoints: Query<&RectangleZoomEndpoints>,
+
+        mut debounce: Local<bool>,
     ) {
         let Ok(_endpoint) = endpoints.get_single() else {
+            if *debounce {
+                let cancel_data = user_actions.button_data_mut_or_default(&UserAction::Cancel);
+                if cancel_data.released() {
+                    *debounce = false;
+                } else {
+                    *cancel_data = default();
+                }
+            }
             return;
         };
+        *debounce = false;
 
         let cancel_data = user_actions.button_data_mut_or_default(&UserAction::Cancel);
         let select_cancel_data = view_actions.button_data_mut_or_default(
             &ViewAction::RectangleZoom(RectangleSelectAction::CancelSelect),
         );
         *select_cancel_data = cancel_data.clone();
+
+        if cancel_data.pressed() {
+            *debounce = true;
+        }
         *cancel_data = leafwing_input_manager::action_state::ButtonData::default();
     }
 
