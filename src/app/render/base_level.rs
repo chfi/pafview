@@ -183,8 +183,8 @@ fn render_base_level_views(
 
             if let Some(image) = images.get_mut(viewer_image) {
                 let pixels: &[u8] = bytemuck::cast_slice(&pixel_buffer.pixels);
-                image.texture_descriptor.size.width = canvas_size.x;
-                image.texture_descriptor.size.height = canvas_size.y;
+                image.texture_descriptor.size.width = pixel_buffer.width;
+                image.texture_descriptor.size.height = pixel_buffer.height;
                 image.data = pixels.to_vec();
                 viewer_sprite.custom_size = Some(image.size_f32() / dpi_factor);
 

@@ -331,9 +331,9 @@ fn draw_alignments_at_offset<'a>(
                 let world_offset = seq_pair_offset + bevy::math::DVec2::new(tgt as f64, qry as f64);
 
                 if world_offset.x < view.x_min
-                    || world_offset.x > view.x_max
+                    || world_offset.x >= view.x_max
                     || world_offset.y < view.y_min
-                    || world_offset.y > view.y_max
+                    || world_offset.y >= view.y_max
                 {
                     continue;
                 }
@@ -370,10 +370,16 @@ pub(crate) fn draw_seq_pair_layouts_with_color_schemes<'a>(
     layouts: impl IntoIterator<Item = &'a SeqPairLayout>,
 ) -> PixelBuffer {
     let canvas_size = canvas_size.into();
-    let screen_dims = [canvas_size.x as f32, canvas_size.y as f32];
+
+    let px_per_bp = canvas_size.x as f64 / view.width();
+
+    let extended_size = UVec2::new(
+        canvas_size.x + px_per_bp.ceil() as u32 * 4,
+        canvas_size.y + px_per_bp.ceil() as u32 * 4,
+    );
 
     let mut dst_pixels =
-        PixelBuffer::new_color(canvas_size.x, canvas_size.y, egui::Color32::TRANSPARENT);
+        PixelBuffer::new_color(extended_size.x, extended_size.y, egui::Color32::TRANSPARENT);
 
     for layout in layouts {
         for (tile, aabb) in layout.aabbs.iter() {
@@ -399,7 +405,7 @@ pub(crate) fn draw_seq_pair_layouts_with_color_schemes<'a>(
                 alignment_colors,
                 sequences,
                 view,
-                canvas_size,
+                extended_size,
                 offset,
                 &mut dst_pixels,
                 alignments_iter,

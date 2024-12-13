@@ -70,6 +70,10 @@ impl PixelBuffer {
             let src_y = src_offset[1] as usize + (y_t * src_h).round() as usize;
 
             for (x_i, dst_x) in dst_x_range.clone().enumerate() {
+                if x_i >= dst.width as usize || y_i >= dst.height as usize {
+                    continue;
+                }
+
                 let x_t = (x_i as f32) / (dst_x1 - dst_x0);
                 let src_x = src_offset[0] as usize + (x_t * src_w).round() as usize;
 
