@@ -57,7 +57,7 @@ pub(crate) fn menubar_system(
     mut contexts: EguiContexts,
     mut window_states: ResMut<WindowStates>,
     // mut figure_export_open: Option<ResMut<super::figure_export::FigureExportWindowOpen>>,
-    mut layout_editor_open: ResMut<super::alignments::layout::gui::LayoutEditorOpen>,
+    mut layout_editor_open: ResMut<super::alignments::layout::editor::LayoutEditorOpen>,
     mut menubar_size: ResMut<MenubarSize>,
 ) {
     let window_states = &mut window_states.window_states;

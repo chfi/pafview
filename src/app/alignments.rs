@@ -65,6 +65,8 @@ pub struct AlignmentLayoutQuery<'w, 's> {
             &'static LayoutEntityIndex,
         ),
     >,
+
+    pub default_layout: Res<'w, layout::DefaultLayout>,
 }
 
 impl<'w, 's> AlignmentLayoutQuery<'w, 's> {

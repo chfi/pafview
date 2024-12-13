@@ -14,7 +14,7 @@ impl Plugin for AlignmentLayoutPlugin {
     fn build(&self, app: &mut App) {
         app.init_asset::<SeqPairLayout>()
             .add_event::<LayoutChangedEvent>()
-            .add_plugins(gui::AlignmentLayoutGuiPlugin);
+            .add_plugins(editor::AlignmentLayoutGuiPlugin);
     }
 }
 
@@ -363,10 +363,14 @@ pub struct LayoutChangedEvent {
     pub need_respawn: bool,
 }
 
-pub mod gui {
+pub mod editor {
+
+    use crate::app::{alignments::AlignmentLayoutQuery, view::AlignmentViewport};
 
     use super::*;
+    use bevy::{render::view::RenderLayers, sprite::Mesh2dHandle};
     use bevy_egui::EguiContexts;
+    use bevy_mod_picking::PickableBundle;
 
     pub struct AlignmentLayoutGuiPlugin;
 
@@ -378,6 +382,10 @@ pub mod gui {
                 //     PreUpdate,
                 //     show_live_layout_editor.after(bevy_egui::EguiSet::BeginPass),
                 // );
+                .add_systems(
+                    PreUpdate,
+                    (prepare_layout_gizmos, update_layout_gizmos).chain(),
+                )
                 .add_systems(
                     PreUpdate,
                     (prepare_layout_editor, layout_config_editor)
@@ -401,10 +409,10 @@ pub mod gui {
         // horizontal_limit: f64,
     }
 
-    #[derive(Resource, Default, Clone, PartialEq)]
-    pub struct LiveLayoutBuilder {
-        builder: Option<LayoutBuilder>,
-    }
+    // #[derive(Resource, Default, Clone, PartialEq)]
+    // pub struct LiveLayoutBuilder {
+    //     builder: Option<LayoutBuilder>,
+    // }
 
     #[derive(Resource, Default)]
     struct LayoutEditor {
@@ -412,7 +420,127 @@ pub mod gui {
         target_layout_entity: Option<Entity>,
         builder: Option<LayoutBuilder>,
         state: LayoutEditorState,
+
+        enable_drag_gizmos: bool,
     }
+
+    // #[derive(Resource)]
+    // struct LayoutDragGizmos {
+    //     horizontal: Entity,
+    //     vertical: Entity,
+    // }
+
+    #[derive(Component)]
+    struct VerticalDragGizmo;
+
+    #[derive(Component)]
+    struct HorizontalDragGizmo;
+
+    fn prepare_layout_gizmos(
+        mut commands: Commands,
+        mut meshes: ResMut<Assets<Mesh>>,
+        mut materials: ResMut<Assets<ColorMaterial>>,
+    ) {
+        let rect_mesh = Mesh2dHandle(meshes.add(Rectangle::from_length(1.0)));
+        let material = materials.add(Color::from(LinearRgba::rgb(1.0, 0.0, 0.0)));
+
+        let bundle = (
+            RenderLayers::layer(1),
+            rect_mesh.clone(),
+            material.clone(),
+            SpatialBundle {
+                visibility: Visibility::Hidden,
+                ..default()
+            },
+        );
+
+        commands
+            .spawn(bundle.clone())
+            .insert((VerticalDragGizmo, PickableBundle::default()));
+        commands
+            .spawn(bundle.clone())
+            .insert((HorizontalDragGizmo, PickableBundle::default()));
+    }
+
+    fn update_layout_gizmos(
+        editor: Res<LayoutEditor>,
+        mut drag_gizmos: Query<
+            (
+                Entity,
+                &mut Transform,
+                &mut Visibility,
+                Has<VerticalDragGizmo>,
+                Has<HorizontalDragGizmo>,
+            ),
+            (
+                Or<(With<VerticalDragGizmo>, With<HorizontalDragGizmo>)>,
+                Without<Handle<SeqPairLayout>>,
+            ),
+        >,
+
+        layouts: AlignmentLayoutQuery,
+
+        view: Res<AlignmentViewport>,
+        window: Query<&Window>,
+    ) {
+        let Ok(screen_dims) = window.get_single().map(|w| w.size()) else {
+            return;
+        };
+
+        let Some(layout) = layouts.layout_assets.get(&layouts.default_layout.layout) else {
+            return;
+        };
+
+        for (_gizmo_ent, mut transform, mut visibility, is_vert, is_horiz) in drag_gizmos.iter_mut()
+        {
+            if editor.enable_drag_gizmos {
+                *visibility = Visibility::Visible;
+            } else {
+                *visibility = Visibility::Hidden;
+            }
+
+            let mins = view.view.map_world_to_screen(screen_dims, layout.mins);
+            let maxs = view.view.map_world_to_screen(screen_dims, layout.maxs);
+
+            if is_vert {
+                let x = (mins.x + maxs.x) * 0.5;
+                let y = maxs.y;
+
+                transform.translation = Vec3::new(x as f32, y as f32, 100.0);
+                transform.scale = Vec3::new((maxs.x - mins.x) as f32, 2.0, 1.0);
+                println!("vertical gizmo transform: {:?}", *transform);
+            } else if is_horiz {
+                let x = maxs.x;
+                let y = (mins.y + maxs.y) * 0.5;
+
+                transform.translation = Vec3::new(x as f32, y as f32, 100.0);
+                transform.scale = Vec3::new(2.0, (maxs.y - mins.y) as f32, 1.0);
+            }
+        }
+    }
+
+    /*
+    fn spawn_despawn_drag_widgets(
+        mut commands: Commands,
+        editor: Res<LayoutEditor>,
+
+        drag_widgets: Query<(), ()>,
+
+        assets: Local<Option<(Mesh2dHandle, ColorMaterial)>>,
+    ) {
+
+        if assets.is_none() {
+
+        }
+
+        if editor.enable_drag_widgets {
+            //
+        } else {
+            //
+        }
+
+    }
+    */
 
     fn prepare_layout_editor(
         // mut commands: Commands,
@@ -442,11 +570,17 @@ pub mod gui {
             return;
         };
 
+        let mut enable_drag_gizmos = editor.enable_drag_gizmos;
+
         egui::Window::new("Layout Editor")
             .open(&mut editor_open.0)
             .show(ctx, |ui| {
                 //
                 ui.vertical(|ui| {
+                    ui.checkbox(&mut enable_drag_gizmos, "Enable layout gizmos");
+
+                    ui.separator();
+
                     ui.horizontal(|ui| {
                         ui.label("Vertical limit");
 
@@ -518,6 +652,8 @@ pub mod gui {
                     //
                 });
             });
+
+        editor.enable_drag_gizmos = enable_drag_gizmos;
 
         if *state != editor.state {
             // apply changes
