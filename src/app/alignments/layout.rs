@@ -59,6 +59,9 @@ pub struct LayoutBuilder {
     pub horizontal_offset: Option<f64>,
     pub horizontal_limit: Option<f64>,
 
+    pub query_total: u64,
+    pub target_total: u64,
+
     data: LayoutInput,
 }
 
@@ -169,27 +172,51 @@ impl LayoutBuilder {
         }
     }
 
-    pub fn from_axes<T, Q>(targets: T, queries: Q) -> Self
+    pub fn from_axes<T, Q>(sequences: &crate::Sequences, targets: T, queries: Q) -> Self
     where
         T: IntoIterator<Item = SeqId>,
         Q: IntoIterator<Item = SeqId>,
     {
-        let targets = targets.into_iter().collect::<Vec<_>>();
-        let queries = queries.into_iter().collect::<Vec<_>>();
+        let mut target_total = 0;
+        let mut query_total = 0;
+
+        let targets = targets
+            .into_iter()
+            .inspect(|s| {
+                if let Some(seq) = sequences.get(*s) {
+                    target_total += seq.len();
+                }
+            })
+            .collect::<Vec<_>>();
+        let queries = queries
+            .into_iter()
+            .inspect(|s| {
+                if let Some(seq) = sequences.get(*s) {
+                    query_total += seq.len();
+                }
+            })
+            .collect::<Vec<_>>();
+
+        println!("axis lengths: {target_total}, {query_total}");
 
         let data = LayoutInput::Axes { targets, queries };
         Self {
             vertical_offset: None,
-            vertical_limit: None,
+            vertical_limit: Some(query_total as f64),
             horizontal_offset: None,
-            horizontal_limit: None,
+            horizontal_limit: Some(target_total as f64),
+            query_total,
+            target_total,
             data,
         }
     }
 
+    /*
     pub fn from_positions<P: Into<DVec2>>(
         tile_positions: impl IntoIterator<Item = (SequencePairTile, P)>,
     ) -> Self {
+
+
         let offsets = tile_positions
             .into_iter()
             .map(|(t, p)| (t, p.into()))
@@ -203,6 +230,7 @@ impl LayoutBuilder {
             data: LayoutInput::TilePositions { offsets },
         }
     }
+    */
 
     pub fn with_vertical_offset(mut self, offset: Option<f64>) -> Self {
         self.vertical_offset = offset;
@@ -345,10 +373,16 @@ pub mod gui {
     impl Plugin for AlignmentLayoutGuiPlugin {
         fn build(&self, app: &mut App) {
             app.insert_resource(LayoutEditorOpen(false))
-                .init_resource::<LiveLayoutBuilder>()
+                .init_resource::<LayoutEditor>()
+                // .add_systems(
+                //     PreUpdate,
+                //     show_live_layout_editor.after(bevy_egui::EguiSet::BeginPass),
+                // );
                 .add_systems(
                     PreUpdate,
-                    show_live_layout_editor.after(bevy_egui::EguiSet::BeginPass),
+                    (prepare_layout_editor, layout_config_editor)
+                        .chain()
+                        .after(bevy_egui::EguiSet::BeginPass),
                 );
         }
     }
@@ -356,13 +390,15 @@ pub mod gui {
     #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Reflect)]
     pub struct LayoutEditorOpen(pub bool);
 
-    #[derive(Default, PartialEq)]
+    #[derive(Default, PartialEq, Clone)]
     struct LayoutEditorState {
-        vertical_limit_on: bool,
-        vertical_limit: f64,
+        custom_vertical_limit: Option<f64>,
+        custom_horizontal_limit: Option<f64>,
+        // vertical_limit_on: bool,
+        // vertical_limit: f64,
 
-        horizontal_offset_on: bool,
-        horizontal_offset: f64,
+        // horizontal_limit_on: bool,
+        // horizontal_limit: f64,
     }
 
     #[derive(Resource, Default, Clone, PartialEq)]
@@ -370,6 +406,126 @@ pub mod gui {
         builder: Option<LayoutBuilder>,
     }
 
+    #[derive(Resource, Default)]
+    struct LayoutEditor {
+        // layout root entity to modify; if None, modify the default layout
+        target_layout_entity: Option<Entity>,
+        builder: Option<LayoutBuilder>,
+        state: LayoutEditorState,
+    }
+
+    fn prepare_layout_editor(
+        // mut commands: Commands,
+        mut editor: ResMut<LayoutEditor>,
+        // layouts...
+        layouts: Res<Assets<SeqPairLayout>>,
+        default_layout: Res<DefaultLayout>,
+        layout_roots: Query<&Handle<SeqPairLayout>>,
+    ) {
+        if editor.builder.is_none() {
+            editor.builder = Some(default_layout.builder().clone());
+        }
+    }
+
+    fn layout_config_editor(
+        mut editor: ResMut<LayoutEditor>,
+        mut contexts: EguiContexts,
+        mut editor_open: ResMut<LayoutEditorOpen>,
+
+        mut state: Local<LayoutEditorState>,
+    ) {
+        let ctx = contexts.ctx_mut();
+
+        *state = editor.state.clone();
+
+        let Some(builder) = editor.builder.as_ref() else {
+            return;
+        };
+
+        egui::Window::new("Layout Editor")
+            .open(&mut editor_open.0)
+            .show(ctx, |ui| {
+                //
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Vertical limit");
+
+                        let mut limit_on = state.custom_vertical_limit.is_some();
+                        ui.checkbox(&mut limit_on, "Enable");
+
+                        if limit_on && state.custom_vertical_limit.is_none() {
+                            state.custom_vertical_limit = Some(builder.query_total as f64);
+                        }
+
+                        ui.add_enabled(
+                            limit_on,
+                            egui::DragValue::from_get_set(|val: Option<f64>| -> f64 {
+                                if let Some(limit) = state.custom_vertical_limit.as_mut() {
+                                    if let Some(val) = val {
+                                        *limit = val;
+                                    }
+                                    *limit
+                                } else {
+                                    if let Some(val) = val {
+                                        state.custom_vertical_limit = Some(val);
+                                        val
+                                    } else {
+                                        builder.query_total as f64
+                                    }
+                                }
+                            }),
+                        );
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("Horizontal offset");
+
+                        let mut limit_on = state.custom_horizontal_limit.is_some();
+                        ui.checkbox(&mut limit_on, "Enable");
+
+                        if limit_on && state.custom_horizontal_limit.is_none() {
+                            state.custom_horizontal_limit = Some(builder.target_total as f64);
+                        }
+
+                        ui.add_enabled(
+                            limit_on,
+                            egui::DragValue::from_get_set(|val: Option<f64>| -> f64 {
+                                if let Some(limit) = state.custom_horizontal_limit.as_mut() {
+                                    if let Some(val) = val {
+                                        *limit = val;
+                                    }
+                                    *limit
+                                } else {
+                                    if let Some(val) = val {
+                                        state.custom_horizontal_limit = Some(val);
+
+                                        val
+                                    } else {
+                                        builder.target_total as f64
+                                    }
+                                }
+                            }),
+                        );
+                        /*
+                        ui.checkbox(&mut editor_state.horizontal_limit_on, "Enable");
+                        ui.add_enabled(
+                            editor_state.horizontal_limit_on,
+                            egui::DragValue::new(&mut editor_state.horizontal_limit),
+                        );
+                        */
+                    });
+
+                    //
+                });
+            });
+
+        if *state != editor.state {
+            // apply changes
+            editor.state = state.clone();
+        }
+    }
+
+    /*
     fn show_live_layout_editor(
         mut contexts: EguiContexts,
         mut editor_open: ResMut<LayoutEditorOpen>,
@@ -406,14 +562,16 @@ pub mod gui {
                             editor_state.vertical_limit_on,
                             egui::DragValue::new(&mut editor_state.vertical_limit),
                         );
+                        // if ui.button("Reset").clicked() {
+                        // }
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("Horizontal offset");
-                        ui.checkbox(&mut editor_state.horizontal_offset_on, "Enable");
+                        ui.checkbox(&mut editor_state.horizontal_limit_on, "Enable");
                         ui.add_enabled(
-                            editor_state.horizontal_offset_on,
-                            egui::DragValue::new(&mut editor_state.horizontal_offset),
+                            editor_state.horizontal_limit_on,
+                            egui::DragValue::new(&mut editor_state.horizontal_limit),
                         );
                     });
 
@@ -428,10 +586,10 @@ pub mod gui {
             .builder
             .as_ref()
             .map(|b| LayoutEditorState {
-                vertical_limit_on: b.vertical_offset.is_some(),
-                vertical_limit: b.vertical_offset.unwrap_or_default(),
-                horizontal_offset_on: b.horizontal_offset.is_some(),
-                horizontal_offset: b.horizontal_offset.unwrap_or_default(),
+                vertical_limit_on: b.vertical_limit.is_some(),
+                vertical_limit: b.query_total as f64,
+                horizontal_limit_on: b.horizontal_limit.is_some(),
+                horizontal_limit: b.target_total as f64,
             });
 
         {
@@ -446,17 +604,18 @@ pub mod gui {
                     } else {
                         if builder.vertical_limit.is_some() {
                             builder.vertical_limit = None;
+                            // builder.vertical_limit = Some(builder.query_total as f64);
                             builder_changed = true;
                         }
                     }
 
-                    if editor_state.horizontal_offset_on {
-                        if Some(editor_state.horizontal_offset) != builder.horizontal_offset {
-                            builder.horizontal_offset = Some(editor_state.horizontal_offset);
+                    if editor_state.horizontal_limit_on {
+                        if Some(editor_state.horizontal_limit) != builder.horizontal_offset {
+                            builder.horizontal_offset = Some(editor_state.horizontal_limit);
                             builder_changed = true;
                         }
-                    } else if builder.horizontal_offset.is_some() {
-                        builder.horizontal_offset = None;
+                    } else if builder.horizontal_limit.is_some() {
+                        builder.horizontal_limit = None;
                         builder_changed = true;
                     }
                 }
@@ -484,4 +643,9 @@ pub mod gui {
             }
         }
     }
+    */
 }
+
+// pub struct NewLayoutBuilder {
+//     tile_sizes: HashMap<SequencePairTile, U64Vec2>,
+// }

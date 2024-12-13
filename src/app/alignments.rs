@@ -174,9 +174,9 @@ pub(super) fn initialize_default_layout(
     let targets = targets.iter().map(|(i, _)| *i);
     let queries = queries.iter().map(|(i, _)| *i);
 
-    let mut builder = layout::LayoutBuilder::from_axes(targets, queries);
-    builder.vertical_limit = Some(total_query as f64);
-    builder.horizontal_limit = Some(total_target as f64);
+    let mut builder = layout::LayoutBuilder::from_axes(&sequences, targets, queries);
+    // builder.vertical_limit = Some(total_query as f64);
+    // builder.horizontal_limit = Some(total_target as f64);
     // LayoutBuilder::from_axes(targets, queries).with_vertical_offset(Some(10_000_000.0));
 
     let layout = builder.clone().build(&sequences);
