@@ -365,12 +365,19 @@ pub struct LayoutChangedEvent {
 
 pub mod editor {
 
-    use crate::app::{alignments::AlignmentLayoutQuery, view::AlignmentViewport};
+    use crate::app::{
+        alignments::AlignmentLayoutQuery, input::cursor::CursorPosition, view::AlignmentViewport,
+    };
 
     use super::*;
     use bevy::{render::view::RenderLayers, sprite::Mesh2dHandle};
     use bevy_egui::EguiContexts;
-    use bevy_mod_picking::PickableBundle;
+    use bevy_mod_picking::{
+        backend,
+        pointer::{PointerId, PointerLocation},
+        prelude::*,
+    };
+    use events::{send_click_and_drag_events, DragMap};
 
     pub struct AlignmentLayoutGuiPlugin;
 
@@ -384,13 +391,27 @@ pub mod editor {
                 // );
                 .add_systems(
                     PreUpdate,
-                    (prepare_layout_gizmos, update_layout_gizmos).chain(),
+                    (
+                        prepare_layout_gizmos,
+                        update_layout_gizmos.after(send_click_and_drag_events),
+                    )
+                        .chain(),
                 )
                 .add_systems(
                     PreUpdate,
                     (prepare_layout_editor, layout_config_editor)
                         .chain()
                         .after(bevy_egui::EguiSet::BeginPass),
+                )
+                .add_systems(
+                    PreUpdate,
+                    layout_gizmo_picker.in_set(bevy_mod_picking::picking_core::PickSet::Backend),
+                    // )
+                    // .add_systems(
+                    //     PreUpdate,
+                    //     drag_gizmos
+                    //         .after(update_layout_gizmos)
+                    //         .after(send_click_and_drag_events),
                 );
         }
     }
@@ -436,6 +457,9 @@ pub mod editor {
     #[derive(Component)]
     struct HorizontalDragGizmo;
 
+    #[derive(Component, Clone)]
+    struct BeingDragged;
+
     fn prepare_layout_gizmos(
         mut commands: Commands,
         mut meshes: ResMut<Assets<Mesh>>,
@@ -454,21 +478,83 @@ pub mod editor {
             },
         );
 
-        commands
-            .spawn(bundle.clone())
-            .insert((VerticalDragGizmo, PickableBundle::default()));
-        commands
-            .spawn(bundle.clone())
-            .insert((HorizontalDragGizmo, PickableBundle::default()));
+        commands.spawn(bundle.clone()).insert((
+            VerticalDragGizmo,
+            PickableBundle::default(),
+            On::<Pointer<DragStart>>::target_insert(BeingDragged),
+            On::<Pointer<DragEnd>>::target_remove::<BeingDragged>(),
+            // On::<Pointer<Over>>::run(|| {
+            // println!("hovering vertical gizmo");
+            // }),
+        ));
+        commands.spawn(bundle.clone()).insert((
+            HorizontalDragGizmo,
+            PickableBundle::default(),
+            On::<Pointer<DragStart>>::target_insert(BeingDragged),
+            On::<Pointer<DragEnd>>::target_remove::<BeingDragged>(),
+        ));
+    }
+
+    fn layout_gizmo_picker(
+        pointers: Query<(&PointerId, &PointerLocation)>,
+        camera: Query<(Entity, &Camera), With<crate::app::ScreenspaceCamera>>,
+        editor: Res<LayoutEditor>,
+        drag_gizmos: Query<
+            (Entity, &Transform),
+            Or<(With<VerticalDragGizmo>, With<HorizontalDragGizmo>)>,
+        >,
+
+        mut pointer_hits: EventWriter<backend::PointerHits>,
+    ) {
+        if !editor.enable_drag_gizmos {
+            return;
+        }
+
+        let Ok((camera_ent, _camera)) = camera.get_single() else {
+            return;
+        };
+
+        for (gizmo_ent, transform) in drag_gizmos.iter() {
+            let gizmo_aabb = Aabb::from_half_extents(
+                transform.translation.xy().as_dvec2().to_array().into(),
+                (transform.scale.xy().as_dvec2() * 0.5).to_array().into(),
+            );
+
+            for (ptr_id, ptr_loc) in pointers.iter() {
+                let Some(loc) = ptr_loc.location() else {
+                    continue;
+                };
+
+                if gizmo_aabb
+                    .contains_local_point(&[loc.position.x as f64, loc.position.y as f64].into())
+                {
+                    let hit_data = backend::HitData::new(
+                        camera_ent,
+                        100.0,
+                        Some(Vec3::new(loc.position.x, loc.position.y as f32, 100.0)),
+                        None,
+                    );
+                    pointer_hits.send(backend::PointerHits::new(
+                        *ptr_id,
+                        vec![(gizmo_ent, hit_data)],
+                        1.0,
+                    ));
+                }
+            }
+        }
     }
 
     fn update_layout_gizmos(
         editor: Res<LayoutEditor>,
+
+        cursor: Res<CursorPosition>,
+        // drag_map: Res<DragMap>,
         mut drag_gizmos: Query<
             (
                 Entity,
                 &mut Transform,
                 &mut Visibility,
+                Has<BeingDragged>,
                 Has<VerticalDragGizmo>,
                 Has<HorizontalDragGizmo>,
             ),
@@ -481,8 +567,13 @@ pub mod editor {
         layouts: AlignmentLayoutQuery,
 
         view: Res<AlignmentViewport>,
+        camera: Query<&Camera, With<crate::app::ScreenspaceCamera>>,
         window: Query<&Window>,
     ) {
+        let Ok(_camera) = camera.get_single() else {
+            return;
+        };
+
         let Ok(screen_dims) = window.get_single().map(|w| w.size()) else {
             return;
         };
@@ -491,7 +582,8 @@ pub mod editor {
             return;
         };
 
-        for (_gizmo_ent, mut transform, mut visibility, is_vert, is_horiz) in drag_gizmos.iter_mut()
+        for (_gizmo_ent, mut transform, mut visibility, is_dragged, is_vert, is_horiz) in
+            drag_gizmos.iter_mut()
         {
             if editor.enable_drag_gizmos {
                 *visibility = Visibility::Visible;
@@ -504,52 +596,42 @@ pub mod editor {
 
             if is_vert {
                 let x = (mins.x + maxs.x) * 0.5;
-                let y = maxs.y;
+                let mut y = maxs.y;
 
-                transform.translation = Vec3::new(x as f32, y as f32, 100.0);
+                if is_dragged {
+                    if let Some(cursor) = cursor.screen {
+                        y = cursor.y;
+                    }
+                }
+
+                transform.translation = Vec3::new(x as f32, screen_dims.y - y as f32, 100.0);
                 transform.scale = Vec3::new((maxs.x - mins.x) as f32, 2.0, 1.0);
-                println!("vertical gizmo transform: {:?}", *transform);
             } else if is_horiz {
-                let x = maxs.x;
+                let mut x = maxs.x;
                 let y = (mins.y + maxs.y) * 0.5;
 
-                transform.translation = Vec3::new(x as f32, y as f32, 100.0);
+                if is_dragged {
+                    if let Some(cursor) = cursor.screen {
+                        x = cursor.x;
+                    }
+                }
+
+                transform.translation = Vec3::new(x as f32, screen_dims.y - y as f32, 100.0);
                 transform.scale = Vec3::new(2.0, (maxs.y - mins.y) as f32, 1.0);
             }
         }
     }
 
-    /*
-    fn spawn_despawn_drag_widgets(
-        mut commands: Commands,
-        editor: Res<LayoutEditor>,
+    // fn block_pan_action(
+    //     mut user_actions: ResMut<ActionState<UserAction>>,
+    //     dragged: Query<&BeingDragged>,
+    // ) {
+    //     if !dragged.is_empty() {
+    //         // let action = UserAction::
+    //     }
+    // }
 
-        drag_widgets: Query<(), ()>,
-
-        assets: Local<Option<(Mesh2dHandle, ColorMaterial)>>,
-    ) {
-
-        if assets.is_none() {
-
-        }
-
-        if editor.enable_drag_widgets {
-            //
-        } else {
-            //
-        }
-
-    }
-    */
-
-    fn prepare_layout_editor(
-        // mut commands: Commands,
-        mut editor: ResMut<LayoutEditor>,
-        // layouts...
-        layouts: Res<Assets<SeqPairLayout>>,
-        default_layout: Res<DefaultLayout>,
-        layout_roots: Query<&Handle<SeqPairLayout>>,
-    ) {
+    fn prepare_layout_editor(mut editor: ResMut<LayoutEditor>, default_layout: Res<DefaultLayout>) {
         if editor.builder.is_none() {
             editor.builder = Some(default_layout.builder().clone());
         }
