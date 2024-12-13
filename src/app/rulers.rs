@@ -891,10 +891,10 @@ mod cursor_information {
             }
 
             if let Ok(mut transform) = transforms.get_mut(cursor_labels.target_seq) {
-                transform.translation = Vec3::new(screen_point.x, screen_dims.y * 0.5 - 30.0, 0.0);
+                transform.translation = Vec3::new(screen_point.x, screen_dims.y - 30.0, 0.0);
             }
             if let Ok(mut transform) = transforms.get_mut(cursor_labels.query_seq) {
-                transform.translation = Vec3::new(10.0 - screen_dims.x * 0.5, screen_point.y, 0.0);
+                transform.translation = Vec3::new(10.0, screen_point.y, 0.0);
             }
 
             if let Ok(mut text) = texts.get_mut(cursor_labels.target_seq) {
