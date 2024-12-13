@@ -92,19 +92,29 @@ fn setup_base_level_viewer(
 
 fn update_base_level_viewer_view(
     viewport: Res<AlignmentViewport>,
-    mut viewers: Query<&mut BaselevelViewer>,
-    // windows: Query<&Window>,
+    mut viewers: Query<(&mut Transform, &mut BaselevelViewer)>,
+    windows: Query<&Window>,
 ) {
     // TODO maybe take viewer transform into account; doesn't matter for now
-    // let Ok(window) = windows.get_single() else { return; };
+    let Ok(win_size) = windows.get_single().map(|w| w.size()) else {
+        return;
+    };
 
     // let canvas_size = window.physical_size();
     let view = viewport.view;
 
-    for mut viewer in viewers.iter_mut() {
+    for (mut transform, mut viewer) in viewers.iter_mut() {
+        transform.translation.x = win_size.x * 0.5;
+        transform.translation.y = win_size.y * 0.5;
         viewer.view = Some(view);
     }
 }
+
+// fn update_base_level_viewer_transform(
+//     mut viewers: Query<&mut Transform, With<BaseLevelViewer>>,
+// ) {
+
+// }
 
 // hide when zoomed out
 fn set_base_level_viewer_visibility(

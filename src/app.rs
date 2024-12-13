@@ -43,6 +43,7 @@ impl Plugin for PafViewerPlugin {
             // .add_plugins(figure_export::FigureExportPlugin)
             .add_plugins(render::bordered_rect::BorderedRectRenderPlugin)
             .add_systems(Startup, setup_cameras)
+            .add_systems(PreUpdate, update_screenspace_camera)
             .add_systems(Last, save_app_config);
 
         app.add_plugins(render::sampled_lines::SampledAlignmentRendererPlugin)
@@ -137,6 +138,17 @@ fn setup_cameras(mut commands: Commands) {
         ScreenspaceCamera,
         IsDefaultUiCamera,
     ));
+}
+
+fn update_screenspace_camera(
+    mut camera: Query<(&mut Transform, &Camera), With<ScreenspaceCamera>>,
+) {
+    for (mut transform, camera) in camera.iter_mut() {
+        if let Some(size) = camera.logical_target_size() {
+            transform.translation.x = size.x * 0.5;
+            transform.translation.y = size.y * 0.5;
+        }
+    }
 }
 
 #[derive(Resource)]

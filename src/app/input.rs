@@ -473,14 +473,15 @@ pub mod cursor {
                 let wp: [f64; 2] = view.map_screen_to_world(win_dims, p).into();
                 bevy::math::DVec2::from(wp)
             };
-            let screen_pos = Vec2::new(
+            let screen_pos = Vec2::new(cursor_pos.x, win_dims.y - cursor_pos.y);
+            let screen_centered_pos = Vec2::new(
                 cursor_pos.x - win_dims.x * 0.5,
                 win_dims.y - cursor_pos.y - win_dims.y * 0.5,
             );
 
             cursor.world = Some(world_pos);
             cursor.screen = Some(screen_pos);
-            cursor.unit = Some(screen_pos / win_dims);
+            cursor.unit = Some(screen_centered_pos / win_dims);
         } else {
             cursor.world = None;
             cursor.screen = None;

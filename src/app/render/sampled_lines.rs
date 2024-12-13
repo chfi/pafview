@@ -635,7 +635,7 @@ fn update_viewer_sprite_transform(
         let old_mid = last_view.center();
         // if last_view == next_view && vx_params.canvas_size == img_size {
         if last_view == next_view {
-            *transform = Transform::IDENTITY;
+            *transform = Transform::from_xyz(img_size.x * 0.5, img_size.y * 0.5, 0.0);
         } else {
             let new_mid = next_view.center();
 
@@ -647,8 +647,12 @@ fn update_viewer_sprite_transform(
 
             let screen_delta = norm_delta.to_f32() * [img_size.x, img_size.y].as_uv() / dpi_scale;
 
+            let translation = Vec3::new(-screen_delta.x, -screen_delta.y, 0.0)
+                + Vec3::new(img_size.x, img_size.y, 0.0) * 0.5;
+
             *transform =
-                Transform::from_translation(Vec3::new(-screen_delta.x, -screen_delta.y, 0.0))
+                // Transform::from_translation(Vec3::new(-screen_delta.x, -screen_delta.y, 0.0))
+                Transform::from_translation(translation)
                     .with_scale(Vec3::new(w_rat as f32, h_rat as f32, 1.0));
         }
     }

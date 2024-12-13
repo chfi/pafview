@@ -347,8 +347,8 @@ fn update_rulers(
 
         // the root of the ruler is at the middle of the rectangle defined by its endpoints
         if let Ok(mut transform) = transforms.get_mut(ruler_entity) {
-            transform.translation = Vec3::new(mid.x, screen_dims.y - mid.y, 1.0)
-                - Vec3::new(screen_dims.x, screen_dims.y, 0.0) * 0.5;
+            transform.translation = Vec3::new(mid.x, screen_dims.y - mid.y, 1.0);
+            // - Vec3::new(screen_dims.x, screen_dims.y, 0.0) * 0.5;
         }
 
         // the text labels are placed on the outside of the corresponding rectangle side,

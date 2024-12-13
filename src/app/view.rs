@@ -419,8 +419,7 @@ mod rectangle_zoom {
             let mid = 0.5 * (s0 + s1);
             let dims = (s1 - s0).abs();
 
-            let pt = Vec3::new(mid.x, screen_dims.y - mid.y, 1.0)
-                - Vec3::new(screen_dims.x, screen_dims.y, 0.0) * 0.5;
+            let pt = Vec3::new(mid.x, screen_dims.y - mid.y, 1.0);
 
             transform.translation.x = pt.x;
             transform.translation.y = pt.y;
