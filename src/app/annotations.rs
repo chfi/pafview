@@ -2,9 +2,10 @@ use bevy::{
     math::{DVec2, U64Vec2},
     prelude::*,
     render::view::RenderLayers,
-    sprite::MaterialMesh2dBundle,
+    sprite::{Anchor, MaterialMesh2dBundle},
     utils::HashMap,
 };
+use bevy_mod_picking::picking_core::Pickable;
 
 use crate::{
     annotations::{AnnotationId, RecordEntryId, RecordListId},
@@ -180,6 +181,9 @@ fn load_annotation_file(
     labels_to_prepare
 }
 
+#[derive(Component, Clone)]
+struct AnnotationLabel;
+
 fn prepare_annotations(
     In(labels_to_prepare): In<Vec<crate::annotations::AnnotationId>>,
     mut commands: Commands,
@@ -198,7 +202,8 @@ fn prepare_annotations(
         let color = record.color;
         let annot_color = Color::srgba_u8(color.r(), color.g(), color.b(), color.a());
 
-        let fill_color = LinearRgba::from(annot_color.with_alpha(0.4));
+        // let fill_color = LinearRgba::from(annot_color.with_alpha(0.4));
+        let fill_color = LinearRgba::from(annot_color);
         let border_color = LinearRgba::BLACK;
 
         let mat = BorderedRectMaterial2d {
@@ -243,9 +248,33 @@ fn prepare_annotations(
             .insert(SpatialBundle::INHERITED_IDENTITY)
             .id();
 
+        let text_color = Color::BLACK;
+
         // TODO labels
-        let query_label = commands.spawn(()).id();
-        let target_label = commands.spawn(()).id();
+        let label_bundle = (
+            AnnotationLabel,
+            RenderLayers::layer(1),
+            Text2dBundle {
+                text: Text::from_section(
+                    &record.label,
+                    TextStyle {
+                        color: text_color.into(),
+                        ..default()
+                    },
+                ),
+                text_anchor: Anchor::TopLeft,
+                visibility: Visibility::Visible,
+                ..default()
+            },
+        );
+        let query_label = commands
+            .spawn(label_bundle.clone())
+            .insert((Pickable::IGNORE, Anchor::TopLeft))
+            .id();
+        let target_label = commands
+            .spawn(label_bundle)
+            .insert((Pickable::IGNORE, Anchor::TopLeft))
+            .id();
 
         let mut annot_ent = commands.spawn(Annotation {
             record_list: list_id,
@@ -328,6 +357,14 @@ fn update_annotation_regions(
 
             let width = (s0.x - s1.x).abs().max(0.5);
             transform.scale = Vec3::new(width, screen_dims.y, 1.0);
+        }
+
+        if let Ok(mut transform) = transforms.get_mut(entities.query_label) {
+            transform.translation = Vec3::new(10.0, mid.y, z + 1.0);
+        }
+
+        if let Ok(mut transform) = transforms.get_mut(entities.target_label) {
+            transform.translation = Vec3::new(mid.x, screen_dims.y - 30.0, z + 1.0);
         }
     }
 }
