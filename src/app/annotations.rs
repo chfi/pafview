@@ -17,7 +17,7 @@ pub mod gui;
 
 impl Plugin for AnnotationsPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<LabelPhysics>()
+        app //.init_resource::<LabelPhysics>()
             .init_resource::<AnnotationPainter>()
             .init_resource::<Annotations>()
             .init_resource::<AnnotationEntityMap>()
@@ -30,7 +30,10 @@ impl Plugin for AnnotationsPlugin {
             .register_type::<DisplayEntities>()
             .add_systems(Startup, setup)
             .add_systems(PreUpdate, load_annotation_file.pipe(prepare_annotations))
-            .add_systems(PreUpdate, update_annotation_regions);
+            .add_systems(
+                PreUpdate,
+                update_annotation_regions.after(super::view::enforce_alignment_viewport_limits),
+            );
         // .add_systems(
         //     Update,
         //     (update_annotation_labels, draw_annotations)
@@ -76,8 +79,8 @@ pub enum AnnotationEvent {
     ChangeVisibility { annot_id: Annotation, visible: bool },
 }
 
-#[derive(Resource, Default)]
-struct LabelPhysics(crate::annotations::physics::LabelPhysics);
+// #[derive(Resource, Default)]
+// struct LabelPhysics(crate::annotations::physics::LabelPhysics);
 
 // NB: probably want to replace the egui painter-based annotation drawing
 // with something cleaner & more integrated into bevy
@@ -96,13 +99,13 @@ fn setup(
     // mut materials: ResMut<Assets<ColorMaterial>>,
     alignments: Res<crate::Alignments>,
     mut load_events: EventWriter<LoadAnnotationFile>,
-    mut label_physics: ResMut<LabelPhysics>,
+    // mut label_physics: ResMut<LabelPhysics>,
 ) {
     let mesh = meshes.add(Mesh::from(Rectangle::default()));
     commands.insert_resource(DisplayHandles { mesh: mesh.into() });
 
-    label_physics.0.heightfields =
-        crate::annotations::physics::AlignmentHeightFields::from_alignments(&alignments);
+    // label_physics.0.heightfields =
+    //     crate::annotations::physics::AlignmentHeightFields::from_alignments(&alignments);
 
     use clap::Parser;
     let args = crate::cli::Cli::parse();
@@ -309,23 +312,24 @@ fn update_annotation_regions(
             .view
             .map_world_to_screen(screen_dims, [*world_x_range.end(), *world_y_range.end()]);
 
-        let s0 = Vec2::new(
-            s0.x - screen_dims.x * 0.5,
-            screen_dims.y - s0.y - screen_dims.y * 0.5,
-        );
-        let s1 = Vec2::new(
-            s1.x - screen_dims.x * 0.5,
-            screen_dims.y - s1.y - screen_dims.y * 0.5,
-        );
+        // let s0 = Vec2::new(
+        //     s0.x - screen_dims.x * 0.5,
+        //     screen_dims.y - s0.y - screen_dims.y * 0.5,
+        // );
+        // let s1 = Vec2::new(
+        //     s1.x - screen_dims.x * 0.5,
+        //     screen_dims.y - s1.y - screen_dims.y * 0.5,
+        // );
 
-        let mid = (s0 + s1) * 0.5;
+        let mut mid = (s0 + s1) * 0.5;
+        mid.y = screen_dims.y - mid.y;
 
         // hacky fix to avoid z-fighting
         let z = -1.0 - (annot_id.list_index as f32) / 1_000_000.0;
 
         if !empty_y {
             if let Ok(mut transform) = transforms.get_mut(entities.query_region) {
-                transform.translation = Vec3::new(0.0, mid.y, z);
+                transform.translation = Vec3::new(screen_dims.x * 0.5, mid.y, z);
 
                 let width = (s0.y - s1.y).abs().max(0.5);
                 transform.scale = Vec3::new(screen_dims.x, width, 1.0);
@@ -334,7 +338,7 @@ fn update_annotation_regions(
 
         if !empty_x {
             if let Ok(mut transform) = transforms.get_mut(entities.target_region) {
-                transform.translation = Vec3::new(mid.x, 0.0, z - 1.0);
+                transform.translation = Vec3::new(mid.x, screen_dims.y * 0.5, z - 1.0);
 
                 let width = (s0.x - s1.x).abs().max(0.5);
                 transform.scale = Vec3::new(width, screen_dims.y, 1.0);
