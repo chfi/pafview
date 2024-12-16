@@ -26,6 +26,11 @@ pub struct SeqPairLayout {
 
     pub mins: DVec2,
     pub maxs: DVec2,
+
+    // TODO: this will have to change if/when arbitrarily placed tile layouts
+    // are enabled again
+    pub target_offsets: HashMap<SeqId, f64>,
+    pub query_offsets: HashMap<SeqId, f64>,
 }
 
 #[derive(Resource, Clone)]
@@ -70,6 +75,9 @@ impl LayoutBuilder {
         let mut mins = DVec2::INFINITY;
         let mut maxs = DVec2::NEG_INFINITY;
 
+        let mut target_offsets = HashMap::default();
+        let mut query_offsets = HashMap::default();
+
         let aabbs = match self.data {
             LayoutInput::Axes { targets, queries } => {
                 let sum_axis = |seqs: &[SeqId]| -> u64 {
@@ -112,6 +120,8 @@ impl LayoutBuilder {
 
                     let mut y_offset = 0.0;
 
+                    target_offsets.insert(target, x0);
+
                     for &query in &queries {
                         let Some(qry_seq) = sequences.get(query) else {
                             continue;
@@ -119,6 +129,8 @@ impl LayoutBuilder {
                         let qry_len = qry_seq.len() as f64;
 
                         let y0 = y_offset;
+
+                        query_offsets.insert(target, y0);
 
                         y_offset += qry_len * v_prop;
 
@@ -141,25 +153,24 @@ impl LayoutBuilder {
                 }
 
                 aabbs
-            }
-            LayoutInput::TilePositions { offsets } => offsets
-                .iter()
-                .filter_map(|(&seq_pair, &offset)| {
-                    let tgt_len = sequences.get(seq_pair.target)?.len() as f64;
-                    let qry_len = sequences.get(seq_pair.query)?.len() as f64;
-                    let half_extents = [tgt_len * 0.5, qry_len * 0.5];
-                    let aabb =
-                        Aabb::from_half_extents([offset.x, offset.y].into(), half_extents.into());
+            } // LayoutInput::TilePositions { offsets } => offsets
+              //     .iter()
+              //     .filter_map(|(&seq_pair, &offset)| {
+              //         let tgt_len = sequences.get(seq_pair.target)?.len() as f64;
+              //         let qry_len = sequences.get(seq_pair.query)?.len() as f64;
+              //         let half_extents = [tgt_len * 0.5, qry_len * 0.5];
+              //         let aabb =
+              //             Aabb::from_half_extents([offset.x, offset.y].into(), half_extents.into());
 
-                    let max = aabb.maxs;
-                    let min = aabb.mins;
+              //         let max = aabb.maxs;
+              //         let min = aabb.mins;
 
-                    mins = mins.min(DVec2::new(min.x, min.y));
-                    maxs = maxs.max(DVec2::new(max.x, max.y));
+              //         mins = mins.min(DVec2::new(min.x, min.y));
+              //         maxs = maxs.max(DVec2::new(max.x, max.y));
 
-                    Some((seq_pair, aabb))
-                })
-                .collect(),
+              //         Some((seq_pair, aabb))
+              //     })
+              //     .collect(),
         };
 
         let layout_qbvh = AabbQbvh::from_aabbs(aabbs.iter().map(|(&sp, &aabb)| (sp, aabb)));
@@ -169,6 +180,9 @@ impl LayoutBuilder {
             layout_qbvh,
             mins,
             maxs,
+
+            target_offsets,
+            query_offsets,
         }
     }
 
@@ -249,9 +263,10 @@ enum LayoutInput {
         targets: Vec<SeqId>,
         queries: Vec<SeqId>,
     },
-    TilePositions {
-        offsets: HashMap<SequencePairTile, DVec2>,
-    },
+    // NB: disabled to ensure that annotated regions are kept simple
+    // TilePositions {
+    //     offsets: HashMap<SequencePairTile, DVec2>,
+    // },
 }
 
 #[derive(Clone)]

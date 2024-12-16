@@ -1,11 +1,21 @@
-use bevy::{prelude::*, render::view::RenderLayers, sprite::MaterialMesh2dBundle, utils::HashMap};
+use bevy::{
+    math::{DVec2, U64Vec2},
+    prelude::*,
+    render::view::RenderLayers,
+    sprite::MaterialMesh2dBundle,
+    utils::HashMap,
+};
 
 use crate::{
     annotations::{AnnotationId, RecordEntryId, RecordListId},
     grid::AxisRange,
 };
 
-use super::{render::bordered_rect::BorderedRectMaterial2d, view::AlignmentViewport};
+use super::{
+    alignments::{layout::SeqPairLayout, AlignmentLayoutQuery},
+    render::bordered_rect::BorderedRectMaterial2d,
+    view::AlignmentViewport,
+};
 
 pub(super) struct AnnotationsPlugin;
 
@@ -173,7 +183,6 @@ fn load_annotation_file(
 fn prepare_annotations(
     In(labels_to_prepare): In<Vec<crate::annotations::AnnotationId>>,
     mut commands: Commands,
-    mut old_materials: ResMut<Assets<ColorMaterial>>,
     mut materials: ResMut<Assets<BorderedRectMaterial2d>>,
 
     annotations: Res<Annotations>,
@@ -258,18 +267,21 @@ fn prepare_annotations(
 }
 
 fn update_annotation_regions(
-    alignment_grid: Res<crate::AlignmentGrid>,
     annotations: Res<Annotations>,
+
+    layouts: AlignmentLayoutQuery,
 
     alignment_view: Res<AlignmentViewport>,
 
     windows: Query<&Window>,
 
     display_ents: Query<(&Annotation, &DisplayEntities)>,
-    mut transforms: Query<&mut Transform>,
+    mut transforms: Query<&mut Transform, Without<Handle<SeqPairLayout>>>,
 ) {
-    let x_axis = &alignment_grid.x_axis;
-    let y_axis = &alignment_grid.y_axis;
+    // TODO actually use layout roots, not just the default layout asset w/o transform
+    let Some(layout) = layouts.layout_assets.get(&layouts.default_layout.layout) else {
+        return;
+    };
 
     let Ok(window) = windows.get_single() else {
         return;
@@ -280,46 +292,23 @@ fn update_annotation_regions(
         let list = annotations.list_by_id(annot_id.record_list).unwrap();
         let record = &list.records[annot_id.list_index];
 
-        let qry_range = AxisRange::Seq {
-            seq_id: record.qry_id,
-            range: record.qry_range.clone(),
+        let tgt_seq_offset = layout.target_offsets.get(&record.tgt_id);
+        let qry_seq_offset = layout.query_offsets.get(&record.qry_id);
+
+        let Some((tgt_seq_offset, qry_seq_offset)) = tgt_seq_offset.zip(qry_seq_offset) else {
+            return;
         };
-        let tgt_range = AxisRange::Seq {
-            seq_id: record.tgt_id,
-            range: record.tgt_range.clone(),
-        };
-        let world_x_range = x_axis.axis_range_into_global(&tgt_range);
-        let world_y_range = y_axis.axis_range_into_global(&qry_range);
 
-        if world_x_range.is_none() && world_y_range.is_none() {
-            continue;
-        }
+        let seq_offsets = DVec2::new(*tgt_seq_offset, *qry_seq_offset);
 
-        let empty_x = world_x_range.is_none();
-        let empty_y = world_y_range.is_none();
+        let local_p0 = U64Vec2::new(record.tgt_range.start, record.qry_range.start);
+        let local_p1 = U64Vec2::new(record.tgt_range.end, record.qry_range.end);
 
-        // TODO this could be handled better
-        let world_x_range = world_x_range.unwrap_or(0f64..=x_axis.total_len as f64);
-        let world_y_range = world_y_range.unwrap_or(0f64..=y_axis.total_len as f64);
+        let p0 = seq_offsets + local_p0.as_dvec2();
+        let p1 = seq_offsets + local_p1.as_dvec2();
 
-        // update region transforms (screenspace) based on current view
-
-        let s0 = alignment_view.view.map_world_to_screen(
-            screen_dims,
-            [*world_x_range.start(), *world_y_range.start()],
-        );
-        let s1 = alignment_view
-            .view
-            .map_world_to_screen(screen_dims, [*world_x_range.end(), *world_y_range.end()]);
-
-        // let s0 = Vec2::new(
-        //     s0.x - screen_dims.x * 0.5,
-        //     screen_dims.y - s0.y - screen_dims.y * 0.5,
-        // );
-        // let s1 = Vec2::new(
-        //     s1.x - screen_dims.x * 0.5,
-        //     screen_dims.y - s1.y - screen_dims.y * 0.5,
-        // );
+        let s0 = alignment_view.view.map_world_to_screen(screen_dims, p0);
+        let s1 = alignment_view.view.map_world_to_screen(screen_dims, p1);
 
         let mut mid = (s0 + s1) * 0.5;
         mid.y = screen_dims.y - mid.y;
@@ -327,22 +316,18 @@ fn update_annotation_regions(
         // hacky fix to avoid z-fighting
         let z = -1.0 - (annot_id.list_index as f32) / 1_000_000.0;
 
-        if !empty_y {
-            if let Ok(mut transform) = transforms.get_mut(entities.query_region) {
-                transform.translation = Vec3::new(screen_dims.x * 0.5, mid.y, z);
+        if let Ok(mut transform) = transforms.get_mut(entities.query_region) {
+            transform.translation = Vec3::new(screen_dims.x * 0.5, mid.y, z);
 
-                let width = (s0.y - s1.y).abs().max(0.5);
-                transform.scale = Vec3::new(screen_dims.x, width, 1.0);
-            }
+            let width = (s0.y - s1.y).abs().max(0.5);
+            transform.scale = Vec3::new(screen_dims.x, width, 1.0);
         }
 
-        if !empty_x {
-            if let Ok(mut transform) = transforms.get_mut(entities.target_region) {
-                transform.translation = Vec3::new(mid.x, screen_dims.y * 0.5, z - 1.0);
+        if let Ok(mut transform) = transforms.get_mut(entities.target_region) {
+            transform.translation = Vec3::new(mid.x, screen_dims.y * 0.5, z - 1.0);
 
-                let width = (s0.x - s1.x).abs().max(0.5);
-                transform.scale = Vec3::new(width, screen_dims.y, 1.0);
-            }
+            let width = (s0.x - s1.x).abs().max(0.5);
+            transform.scale = Vec3::new(width, screen_dims.y, 1.0);
         }
     }
 }

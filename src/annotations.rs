@@ -8,7 +8,7 @@ use self::draw::AnnotShapeId;
 pub mod draw;
 // pub mod label_layout;
 
-pub mod physics;
+// pub mod physics;
 
 // TODO newtype these
 pub type RecordListId = usize;
