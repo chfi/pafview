@@ -204,7 +204,8 @@ fn prepare_annotations(
 
         // let fill_color = LinearRgba::from(annot_color.with_alpha(0.4));
         let fill_color = LinearRgba::from(annot_color);
-        let border_color = LinearRgba::BLACK;
+        let border_color = fill_color;
+        // let border_color = LinearRgba::BLACK;
 
         let mat = BorderedRectMaterial2d {
             fill_color,
@@ -215,11 +216,12 @@ fn prepare_annotations(
         };
 
         let tgt_mat = materials.add(BorderedRectMaterial2d {
-            border_opacities: 0xAA00AA00,
+            border_opacities: 0xFFFFFF00,
             ..mat.clone()
         });
         let qry_mat = materials.add(BorderedRectMaterial2d {
-            border_opacities: 0x00AA00AA,
+            border_opacities: 0xFF00FFFF,
+            // border_opacities: 0x00AA00AA,
             ..mat
         });
 
@@ -349,14 +351,16 @@ fn update_annotation_regions(
             transform.translation = Vec3::new(screen_dims.x * 0.5, mid.y, z);
 
             let width = (s0.y - s1.y).abs().max(0.5);
-            transform.scale = Vec3::new(screen_dims.x, width, 1.0);
+            transform.scale = Vec3::new(screen_dims.x * 0.5, width, 1.0);
+            // transform.scale = Vec3::new(screen_dims.x, width, 1.0);
         }
 
         if let Ok(mut transform) = transforms.get_mut(entities.target_region) {
             transform.translation = Vec3::new(mid.x, screen_dims.y * 0.5, z - 1.0);
 
             let width = (s0.x - s1.x).abs().max(0.5);
-            transform.scale = Vec3::new(width, screen_dims.y, 1.0);
+            transform.scale = Vec3::new(width, screen_dims.y * 0.5, 1.0);
+            // transform.scale = Vec3::new(width, screen_dims.y, 1.0);
         }
 
         if let Ok(mut transform) = transforms.get_mut(entities.query_label) {
