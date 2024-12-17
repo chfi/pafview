@@ -57,6 +57,11 @@ pub struct BorderedRectMaterial {
     #[uniform(3)]
     pub border_width_px: f32,
 
+    // encoded the same way as `border_opacities`, values treated as [0..=1]
+    // & multiplied with `border_width_px` to get actual border width for the side
+    #[uniform(4)]
+    pub border_width_modifiers: u32,
+
     pub alpha_mode: AlphaMode,
 }
 
@@ -67,6 +72,7 @@ impl Default for BorderedRectMaterial {
             border_color: Color::BLACK.into(),
             border_opacities: 0xFFFFFFFF,
             border_width_px: 1.0,
+            border_width_modifiers: 0xFFFFFFFF,
             alpha_mode: AlphaMode::Blend,
         }
     }
@@ -103,12 +109,17 @@ pub struct BorderedRectMaterial2d {
     #[uniform(1)]
     pub border_color: LinearRgba,
 
-    // 8 bits/0-255 for each of the four sides: N/E/S/W
+    // 8 bits/0-255 for each of the four sides: E/W/N/S
     #[uniform(2)]
     pub border_opacities: u32,
 
     #[uniform(3)]
     pub border_width_px: f32,
+
+    // encoded the same way as `border_opacities`, values treated as [0..=1]
+    // & multiplied with `border_width_px` to get actual border width for the side
+    #[uniform(4)]
+    pub border_width_modifiers: u32,
 
     pub alpha_mode: AlphaMode,
 }
@@ -120,6 +131,7 @@ impl Default for BorderedRectMaterial2d {
             border_color: Color::BLACK.into(),
             border_opacities: 0xFFFFFFFF,
             border_width_px: 1.0,
+            border_width_modifiers: 0xFFFFFFFF,
             alpha_mode: AlphaMode::Blend,
         }
     }

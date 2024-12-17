@@ -371,11 +371,19 @@ fn initialize_grid_material(
     mut commands: Commands,
     mut materials: ResMut<Assets<BorderedRectMaterial>>,
 ) {
+    // TODO need several materials depending on tile's relative position in the grid
+    // & whether the layout has been "compressed" & tiles are overlapping
     let material = materials.add(crate::app::render::bordered_rect::BorderedRectMaterial {
         fill_color: LinearRgba::new(0.0, 0.0, 0.0, 0.0),
         border_color: LinearRgba::new(0.0, 0.0, 0.0, 1.0),
         border_opacities: 0xFFFFFFFF,
-        border_width_px: 2.0,
+        // border_width_px: 2.0,
+        border_width_px: 20.0,
+        // border_width_modifiers: 0xFFFFFFFF,
+        // border_width_modifiers: 0x336699BB,
+        // S/N/E/W??????
+        border_width_modifiers: 0xFFAA0000,
+
         alpha_mode: AlphaMode::Blend,
     });
 

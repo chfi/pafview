@@ -9,6 +9,8 @@
 @group(2) @binding(1) var<uniform> border_color_u: vec4<f32>;
 @group(2) @binding(2) var<uniform> border_opacities_u: u32;
 @group(2) @binding(3) var<uniform> border_width_px_u: f32;
+@group(2) @binding(4) var<uniform> border_width_modifiers_u: u32;
+
 
 
 
