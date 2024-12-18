@@ -225,6 +225,8 @@ fn spawn_layout_children(
     mut meshes: ResMut<Assets<Mesh>>,
 
     grid_mat: Res<GridMaterial>,
+
+    grid_materials: Res<GridMaterials>,
 ) {
     let border_rect_mat = &grid_mat.material;
 
@@ -363,8 +365,99 @@ pub(super) fn update_layout_tile_positions(
 }
 
 #[derive(Resource)]
+#[deprecated]
 struct GridMaterial {
     material: Handle<BorderedRectMaterial>,
+}
+
+#[derive(Resource, Default)]
+struct GridMaterials {
+    materials: HashMap<GridMaterialKey, Handle<BorderedRectMaterial>>,
+}
+
+// the tiles in a grid layout should not all have the same material; while it's a relatively
+// minor visual issue, it makes the "inner" tile edges twice the width of the outer edges.
+// the material in question supports customizing the width per-side.
+//
+// to generate all possible (relevant) permutations, we need to consider grids of sizes up to 3
+// along each axis. this struct encodes the necessary data, with the `columns` and `rows` fields
+// corresponding to the size of these "small" grids, and the `pos` is a tile in the small/material grid
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct GridMaterialKey {
+    columns: u32,
+    rows: u32,
+    pos: UVec2,
+}
+
+impl GridMaterials {
+    // TODO these are probably incorrect; make sure they match the `border_width_modifiers_u` in the shader
+    const LEFT_MASK: u32 = 0xFF000000;
+    const RIGHT_MASK: u32 = 0x00FF0000;
+    const TOP_MASK: u32 = 0x0000FF00;
+    const BOTTOM_MASK: u32 = 0x000000FF;
+
+    fn initialize_materials(&mut self, assets: &mut Assets<BorderedRectMaterial>) {
+        for columns in 1..=3 {
+            for rows in 1..=3 {
+                let keys = Self::generate_material_keys_for_grid_size(columns, rows);
+
+                for key in keys {
+                    let material = Self::material_for_key(key);
+                    self.materials.insert(key, assets.add(material));
+                }
+            }
+        }
+    }
+
+    fn material_for_key(key: GridMaterialKey) -> BorderedRectMaterial {
+        let mut width_modifiers = 0u32;
+
+        if key.pos.x == 0 {
+            width_modifiers |= Self::LEFT_MASK;
+        } else {
+            width_modifiers |= Self::LEFT_MASK & 0x7F7F7F7F;
+        }
+
+        if key.pos.x == key.columns - 1 {
+            width_modifiers |= Self::RIGHT_MASK;
+        } else {
+            width_modifiers |= Self::RIGHT_MASK & 0x7F7F7F7F;
+        }
+
+        if key.pos.y == 0 {
+            width_modifiers |= Self::TOP_MASK;
+        } else {
+            width_modifiers |= Self::TOP_MASK & 0x7F7F7F7F;
+        }
+
+        if key.pos.y == key.rows - 1 {
+            width_modifiers |= Self::BOTTOM_MASK;
+        } else {
+            width_modifiers |= Self::BOTTOM_MASK & 0x7F7F7F7F;
+        }
+
+        BorderedRectMaterial {
+            border_width_modifiers: width_modifiers,
+            ..default()
+        }
+    }
+
+    fn generate_material_keys_for_grid_size(columns: u32, rows: u32) -> Vec<GridMaterialKey> {
+        let mut result = Vec::new();
+
+        for x in 0..columns {
+            for y in 0..rows {
+                let key = GridMaterialKey {
+                    columns,
+                    rows,
+                    pos: UVec2::new(x, y),
+                };
+                result.push(key);
+            }
+        }
+
+        result
+    }
 }
 
 fn initialize_grid_material(
@@ -388,6 +481,9 @@ fn initialize_grid_material(
     });
 
     commands.insert_resource(GridMaterial { material });
+
+    let mut grid_mats = GridMaterials::default();
+    grid_mats.initialize_materials(materials.as_mut());
 }
 
 fn update_grid_material_from_config(

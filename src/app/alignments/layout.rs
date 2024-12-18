@@ -31,6 +31,11 @@ pub struct SeqPairLayout {
     // are enabled again
     pub target_offsets: HashMap<SeqId, f64>,
     pub query_offsets: HashMap<SeqId, f64>,
+
+    // TODO: don't really like storing these like this, but for now used to compute
+    // which grid material to use for the sequence pair tiles
+    pub target_edges: [SeqId; 2],
+    pub query_edges: [SeqId; 2],
 }
 
 #[derive(Resource, Clone)]
