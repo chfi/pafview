@@ -253,6 +253,46 @@ fn spawn_layout_children(
             for (seq_pair, aabb) in layout.aabbs.iter() {
                 count += 1;
 
+                let is_left = seq_pair.target == layout.target_edges[0];
+                let is_right = seq_pair.target == layout.target_edges[1];
+
+                let is_top = seq_pair.query == layout.query_edges[0];
+                let is_bottom = seq_pair.query == layout.query_edges[1];
+
+                let (columns, x) = match (is_left, is_right) {
+                    (false, false) => (3, 1),
+                    (true, false) => (3, 0),
+                    (false, true) => (3, 2),
+                    (true, true) => (1, 0),
+                };
+
+                let (rows, y) = match (is_top, is_bottom) {
+                    (false, false) => (3, 1),
+                    (true, false) => (3, 0),
+                    (false, true) => (3, 2),
+                    (true, true) => (1, 0),
+                };
+
+                // let columns = match (is_left, is_right) {
+                //     (false, false) => 3
+
+                // }
+
+                // let columns = if layout.target_edges[0] == layout.target_edges[1] {
+                //     if is
+                //     }
+
+                let grid_key = GridMaterialKey {
+                    columns,
+                    rows,
+                    pos: UVec2::new(x, y),
+                };
+
+                let Some(material) = grid_materials.materials.get(&grid_key) else {
+                    error!("Could not get grid material");
+                    continue;
+                };
+
                 let size = aabb.extents();
                 let mesh = Rectangle::from_size([size.x as f32, size.y as f32].into());
 
@@ -266,7 +306,8 @@ fn spawn_layout_children(
                             ..SpatialBundle::INHERITED_IDENTITY
                         },
                         meshes.add(mesh),
-                        border_rect_mat.clone(),
+                        material.clone(),
+                        // border_rect_mat.clone(),
                         Pickable {
                             should_block_lower: false,
                             is_hoverable: true,
@@ -412,28 +453,31 @@ impl GridMaterials {
     fn material_for_key(key: GridMaterialKey) -> BorderedRectMaterial {
         let mut width_modifiers = 0u32;
 
+        // let half = 0x7F7F7F7F;
+        let half = 0x00000000;
+
         if key.pos.x == 0 {
             width_modifiers |= Self::LEFT_MASK;
         } else {
-            width_modifiers |= Self::LEFT_MASK & 0x7F7F7F7F;
+            width_modifiers |= Self::LEFT_MASK & half;
         }
 
         if key.pos.x == key.columns - 1 {
             width_modifiers |= Self::RIGHT_MASK;
         } else {
-            width_modifiers |= Self::RIGHT_MASK & 0x7F7F7F7F;
+            width_modifiers |= Self::RIGHT_MASK & half;
         }
 
         if key.pos.y == 0 {
             width_modifiers |= Self::TOP_MASK;
         } else {
-            width_modifiers |= Self::TOP_MASK & 0x7F7F7F7F;
+            width_modifiers |= Self::TOP_MASK & half;
         }
 
         if key.pos.y == key.rows - 1 {
             width_modifiers |= Self::BOTTOM_MASK;
         } else {
-            width_modifiers |= Self::BOTTOM_MASK & 0x7F7F7F7F;
+            width_modifiers |= Self::BOTTOM_MASK & half;
         }
 
         BorderedRectMaterial {
@@ -484,6 +528,7 @@ fn initialize_grid_material(
 
     let mut grid_mats = GridMaterials::default();
     grid_mats.initialize_materials(materials.as_mut());
+    commands.insert_resource(grid_mats);
 }
 
 fn update_grid_material_from_config(

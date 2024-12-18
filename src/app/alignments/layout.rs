@@ -83,6 +83,12 @@ impl LayoutBuilder {
         let mut target_offsets = HashMap::default();
         let mut query_offsets = HashMap::default();
 
+        let mut left_edge: Option<SeqId> = None;
+        let mut right_edge: Option<SeqId> = None;
+
+        let mut top_edge: Option<SeqId> = None;
+        let mut bottom_edge: Option<SeqId> = None;
+
         let aabbs = match self.data {
             LayoutInput::Axes { targets, queries } => {
                 let sum_axis = |seqs: &[SeqId]| -> u64 {
@@ -112,6 +118,11 @@ impl LayoutBuilder {
                         continue;
                     };
 
+                    if left_edge.is_none() {
+                        left_edge = Some(target);
+                    }
+                    right_edge = Some(target);
+
                     let tgt_len = tgt_seq.len() as f64;
 
                     let x0 = x_offset;
@@ -131,6 +142,12 @@ impl LayoutBuilder {
                         let Some(qry_seq) = sequences.get(query) else {
                             continue;
                         };
+
+                        if top_edge.is_none() {
+                            top_edge = Some(query);
+                        }
+                        bottom_edge = Some(query);
+
                         let qry_len = qry_seq.len() as f64;
 
                         let y0 = y_offset;
@@ -180,6 +197,9 @@ impl LayoutBuilder {
 
         let layout_qbvh = AabbQbvh::from_aabbs(aabbs.iter().map(|(&sp, &aabb)| (sp, aabb)));
 
+        let target_edges = left_edge.zip(right_edge).map(|(l, r)| [l, r]).unwrap();
+        let query_edges = top_edge.zip(bottom_edge).map(|(l, r)| [l, r]).unwrap();
+
         SeqPairLayout {
             aabbs,
             layout_qbvh,
@@ -188,6 +208,9 @@ impl LayoutBuilder {
 
             target_offsets,
             query_offsets,
+
+            target_edges,
+            query_edges,
         }
     }
 
