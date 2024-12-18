@@ -224,12 +224,8 @@ fn spawn_layout_children(
 
     mut meshes: ResMut<Assets<Mesh>>,
 
-    grid_mat: Res<GridMaterial>,
-
     grid_materials: Res<GridMaterials>,
 ) {
-    let border_rect_mat = &grid_mat.material;
-
     for layout_event in layout_events.read() {
         if !layout_event.need_respawn {
             continue;
@@ -273,15 +269,6 @@ fn spawn_layout_children(
                     (true, true) => (1, 0),
                 };
 
-                // let columns = match (is_left, is_right) {
-                //     (false, false) => 3
-
-                // }
-
-                // let columns = if layout.target_edges[0] == layout.target_edges[1] {
-                //     if is
-                //     }
-
                 let grid_key = GridMaterialKey {
                     columns,
                     rows,
@@ -307,7 +294,6 @@ fn spawn_layout_children(
                         },
                         meshes.add(mesh),
                         material.clone(),
-                        // border_rect_mat.clone(),
                         Pickable {
                             should_block_lower: false,
                             is_hoverable: true,
@@ -405,12 +391,6 @@ pub(super) fn update_layout_tile_positions(
     }
 }
 
-#[derive(Resource)]
-#[deprecated]
-struct GridMaterial {
-    material: Handle<BorderedRectMaterial>,
-}
-
 #[derive(Resource, Default)]
 struct GridMaterials {
     materials: HashMap<GridMaterialKey, Handle<BorderedRectMaterial>>,
@@ -431,11 +411,10 @@ struct GridMaterialKey {
 }
 
 impl GridMaterials {
-    // TODO these are probably incorrect; make sure they match the `border_width_modifiers_u` in the shader
-    const LEFT_MASK: u32 = 0xFF000000;
-    const RIGHT_MASK: u32 = 0x00FF0000;
-    const TOP_MASK: u32 = 0x0000FF00;
-    const BOTTOM_MASK: u32 = 0x000000FF;
+    const LEFT_MASK: u32 = 0x000000FF;
+    const RIGHT_MASK: u32 = 0x0000FF00;
+    const BOTTOM_MASK: u32 = 0x00FF0000;
+    const TOP_MASK: u32 = 0xFF000000;
 
     fn initialize_materials(&mut self, assets: &mut Assets<BorderedRectMaterial>) {
         for columns in 1..=3 {
@@ -453,8 +432,8 @@ impl GridMaterials {
     fn material_for_key(key: GridMaterialKey) -> BorderedRectMaterial {
         let mut width_modifiers = 0u32;
 
-        // let half = 0x7F7F7F7F;
-        let half = 0x00000000;
+        let half = 0x7F7F7F7F;
+        // let half = 0x00000000;
 
         if key.pos.x == 0 {
             width_modifiers |= Self::LEFT_MASK;
@@ -524,8 +503,6 @@ fn initialize_grid_material(
         alpha_mode: AlphaMode::Blend,
     });
 
-    commands.insert_resource(GridMaterial { material });
-
     let mut grid_mats = GridMaterials::default();
     grid_mats.initialize_materials(materials.as_mut());
     commands.insert_resource(grid_mats);
@@ -535,17 +512,18 @@ fn update_grid_material_from_config(
     config: Res<crate::AppConfig>,
 
     mut materials: ResMut<Assets<BorderedRectMaterial>>,
-    grid_mat: Res<GridMaterial>,
+    grid_materials: Res<GridMaterials>,
 ) {
     if !config.is_changed() {
         return;
     }
 
-    let Some(mat) = materials.get_mut(&grid_mat.material) else {
-        return;
-    };
-
-    mat.border_width_px = config.grid_line_width;
+    for handle in grid_materials.materials.values() {
+        let Some(mat) = materials.get_mut(handle) else {
+            return;
+        };
+        mat.border_width_px = config.grid_line_width;
+    }
 }
 
 struct AlignmentAabbPlugin;
