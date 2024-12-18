@@ -1,4 +1,5 @@
 use bevy::{input::touch::touch_screen_input_system, prelude::*};
+use bevy_egui::EguiContexts;
 use leafwing_input_manager::prelude::*;
 
 pub struct InputPlugin;
@@ -44,8 +45,58 @@ impl Plugin for InputPlugin {
             (forward_view_actions, forward_tool_actions)
                 .chain()
                 .in_set(InputSet::ForwardUserActions),
+        )
+        .add_systems(
+            PreUpdate,
+            debug_hover_drag_map.after(bevy_egui::EguiSet::BeginPass),
         );
     }
+}
+
+fn debug_hover_drag_map(
+    mut egui: EguiContexts,
+
+    names: Query<&Name>,
+
+    hover_map: Res<bevy_mod_picking::focus::HoverMap>,
+    drag_map: Res<bevy_mod_picking::events::DragMap>,
+) {
+    use bevy_egui::egui;
+    let ctx = egui.ctx_mut();
+
+    egui::Window::new("pointer debug").show(ctx, |ui| {
+        ui.label("hover map");
+        for (ptr, hits) in hover_map.0.iter() {
+            ui.label(format!("{ptr:?}"));
+            ui.separator();
+            for (hit_entity, hit_data) in hits.iter() {
+                let name = if let Ok(name) = names.get(*hit_entity) {
+                    name.to_string()
+                } else {
+                    hit_entity.to_string()
+                };
+
+                ui.label(format!("> {name} - {hit_data:?}"));
+            }
+        }
+        ui.separator();
+        ui.separator();
+
+        ui.label("drag map");
+        for (ptr, hits) in drag_map.0.iter() {
+            ui.label(format!("{ptr:?}"));
+            ui.separator();
+            for (hit_entity, hit_data) in hits.iter() {
+                let name = if let Ok(name) = names.get(*hit_entity) {
+                    name.to_string()
+                } else {
+                    hit_entity.to_string()
+                };
+
+                ui.label(format!("> {name} - {hit_data:?}"));
+            }
+        }
+    });
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]

@@ -144,6 +144,8 @@ fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMu
 
     commands
         .spawn((
+            Name::new("SampledAlignmentViewer"),
+            bevy_mod_picking::prelude::Pickable::IGNORE,
             SampledAlignmentViewer::default(),
             PolylineVertices::new(),
             BackGpuBuffer::default(),

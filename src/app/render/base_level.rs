@@ -83,6 +83,8 @@ fn setup_base_level_viewer(
 
     commands
         .spawn((
+            Name::new("BaselevelAlignmentViewer"),
+            bevy_mod_picking::prelude::Pickable::IGNORE,
             BaselevelViewer::default(),
             SpriteBundle::default(),
             RenderLayers::layer(1),

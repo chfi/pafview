@@ -784,6 +784,7 @@ mod cursor_information {
 
         commands
             .spawn((
+                Name::new("CrosshairRoot"),
                 Pickable::IGNORE,
                 CursorRulerLabels {
                     target_seq,
@@ -793,6 +794,7 @@ mod cursor_information {
             ))
             .with_children(|parent| {
                 parent.spawn((
+                    Name::new("CrosshairAxisA"),
                     Pickable::IGNORE,
                     RenderLayers::layer(1),
                     SpatialBundle::default(),
@@ -800,6 +802,7 @@ mod cursor_information {
                     material.clone(),
                 ));
                 parent.spawn((
+                    Name::new("CrosshairAxisB"),
                     Pickable::IGNORE,
                     RenderLayers::layer(1),
                     SpatialBundle::default(),

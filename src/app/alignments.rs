@@ -288,6 +288,7 @@ fn spawn_layout_children(
                 let id = parent
                     .spawn((
                         *seq_pair,
+                        Name::new(format!("Tile {:?}, {:?}", seq_pair.target, seq_pair.query)),
                         SpatialBundle {
                             transform: Transform::from_xyz(0.0, 0.0, z),
                             ..SpatialBundle::INHERITED_IDENTITY
