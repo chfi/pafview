@@ -371,6 +371,11 @@ pub(crate) fn draw_seq_pair_layouts_with_color_schemes<'a>(
 ) -> PixelBuffer {
     let canvas_size = canvas_size.into();
 
+    // hacky fix to avoid crash
+    if view.width() < 1.0 {
+        // TODO this should be handled better
+        return PixelBuffer::new_color(1, 1, egui::Color32::TRANSPARENT);
+    }
     let px_per_bp = canvas_size.x as f64 / view.width();
 
     let extended_size = UVec2::new(

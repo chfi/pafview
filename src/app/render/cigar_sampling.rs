@@ -4,10 +4,6 @@ use bevy::{
     prelude::*,
     render::view::RenderLayers,
     tasks::{AsyncComputeTaskPool, Task},
-    utils::{HashMap, HashSet},
-};
-use bevy_inspector_egui::{
-    inspector_options::ReflectInspectorOptions, quick::ResourceInspectorPlugin, InspectorOptions,
 };
 use bevy_mod_picking::prelude::Pickable;
 
