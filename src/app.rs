@@ -118,6 +118,8 @@ fn setup_cameras(mut commands: Commands) {
             transform: Transform::from_xyz(0.0, 0.0, 2.0).looking_at(Vec3::ZERO, Vec3::Y),
             projection: OrthographicProjection {
                 scale: 100_000.0,
+                near: -1000.0,
+                far: 1000.0,
                 ..default()
             }
             .into(),

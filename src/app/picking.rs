@@ -27,7 +27,7 @@ impl Plugin for PickingPlugin {
 
 fn seq_pair_and_alignment_picking(
     pointers: Query<(&PointerId, &PointerLocation)>,
-    cameras: Query<(Entity, &Camera), With<super::AlignmentCamera>>,
+    cameras: Query<(Entity, &Camera, &Projection), With<super::AlignmentCamera>>,
     windows: Query<&Window>,
 
     alignment_viewport: Res<AlignmentViewport>,
@@ -35,12 +35,19 @@ fn seq_pair_and_alignment_picking(
 
     layouts: Res<Assets<SeqPairLayout>>,
     layout_roots: Query<(&Transform, &Handle<SeqPairLayout>, &LayoutEntityIndex)>,
-    seq_pair_tiles: Query<&SequencePairAlignmentEntities, With<SequencePairTile>>,
+    seq_pair_tiles: Query<
+        (&SequencePairAlignmentEntities, &GlobalTransform),
+        With<SequencePairTile>,
+    >,
 
     mut output: EventWriter<backend::PointerHits>,
 ) {
-    let (camera_ent, _camera) = cameras.single();
+    let (camera_ent, _camera, proj) = cameras.single();
     let view = alignment_viewport.view;
+
+    let Projection::Orthographic(proj) = proj else {
+        panic!("Main camera did not have orthographic projection, this should never happen");
+    };
 
     for (root_transform, layout_handle, entity_index) in layout_roots.iter() {
         let Some(layout) = layouts.get(layout_handle) else {
@@ -80,10 +87,18 @@ fn seq_pair_and_alignment_picking(
                     continue;
                 };
 
+                let Ok((alignment_entities, tile_transform)) = seq_pair_tiles.get(*seq_entity)
+                else {
+                    continue;
+                };
+
+                let world_z = tile_transform.translation().z;
+                let depth = -proj.near - world_z;
+
                 let hit_data = backend::HitData::new(
                     camera_ent,
-                    10.0,
-                    Some(Vec3::new(world_pos.x as f32, world_pos.y as f32, 10.0)),
+                    depth,
+                    Some(Vec3::new(world_pos.x as f32, world_pos.y as f32, world_z)),
                     None,
                 );
                 output.send(backend::PointerHits::new(
@@ -95,10 +110,6 @@ fn seq_pair_and_alignment_picking(
                 let Some(tile_alignments) =
                     alignments.pair_alignments((hit_tile.target, hit_tile.query))
                 else {
-                    continue;
-                };
-
-                let Ok(alignment_entities) = seq_pair_tiles.get(*seq_entity) else {
                     continue;
                 };
 
@@ -130,12 +141,21 @@ fn seq_pair_and_alignment_picking(
                         continue;
                     }
 
+                    // NB: this is kind of hacky, but probably fine for now
+                    // (Alignments don't actually have a transform at this point)
+                    let alignment_depth = depth - 1.0;
+                    let alignment_z = world_z + 1.0;
+
                     // TODO actually iterate part of the cigar to find the exact
                     // position; as it is this will "hit" the entire alignment AABB
                     let hit_data = backend::HitData::new(
                         camera_ent,
-                        8.0,
-                        Some(Vec3::new(world_pos.x as f32, world_pos.y as f32, 10.0)),
+                        alignment_depth,
+                        Some(Vec3::new(
+                            world_pos.x as f32,
+                            world_pos.y as f32,
+                            alignment_z,
+                        )),
                         None,
                     );
                     let al_entity = alignment_entities[pair_index];

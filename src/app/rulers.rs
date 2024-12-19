@@ -338,17 +338,19 @@ fn update_rulers(
             let x = if start_s.x > end_s.x { width } else { -width };
             let y = if start_s.y > end_s.y { -height } else { height };
             transform.translation = Vec3::new(x, y, 0.0) * 0.5;
+            // set Z > 100 to block panning on hover
+            transform.translation.z = 200.0;
         }
         if let Ok(mut transform) = transforms.get_mut(ruler.end) {
             let x = if start_s.x > end_s.x { -width } else { width };
             let y = if start_s.y > end_s.y { height } else { -height };
             transform.translation = Vec3::new(x, y, 0.0) * 0.5;
+            transform.translation.z = 200.0;
         }
 
         // the root of the ruler is at the middle of the rectangle defined by its endpoints
         if let Ok(mut transform) = transforms.get_mut(ruler_entity) {
-            transform.translation = Vec3::new(mid.x, screen_dims.y - mid.y, 1.0);
-            // - Vec3::new(screen_dims.x, screen_dims.y, 0.0) * 0.5;
+            transform.translation = Vec3::new(mid.x, screen_dims.y - mid.y, 0.0);
         }
 
         // the text labels are placed on the outside of the corresponding rectangle side,
@@ -398,7 +400,7 @@ fn update_rulers(
 
         // the button(s) are on a child of the root entity, so its transform must also be set
         if let Ok(mut transform) = transforms.get_mut(ruler.buttons_root) {
-            transform.translation = Vec3::new(width * 0.5, -1.0 * (height * 0.5 + 20.0), 0.0);
+            transform.translation = Vec3::new(width * 0.5, -1.0 * (height * 0.5 + 20.0), 200.0);
         }
     }
 }
@@ -709,8 +711,8 @@ pub(super) struct ViewerRulersPlugin;
 
 impl Plugin for ViewerRulersPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(InteractiveRulersPlugin)
-            .add_plugins(cursor_information::CursorRulerPlugin);
+        app.add_plugins(InteractiveRulersPlugin);
+        // .add_plugins(cursor_information::CursorRulerPlugin);
     }
 }
 

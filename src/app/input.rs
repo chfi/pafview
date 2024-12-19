@@ -1,6 +1,7 @@
 use bevy::{input::touch::touch_screen_input_system, prelude::*};
 use bevy_egui::EguiContexts;
-use leafwing_input_manager::prelude::*;
+use bevy_mod_picking::{picking_core::PickSet, pointer::PointerId};
+use leafwing_input_manager::{plugin::InputManagerSystem, prelude::*};
 
 pub struct InputPlugin;
 
@@ -25,7 +26,7 @@ impl Plugin for InputPlugin {
         )
         .configure_sets(
             PreUpdate,
-            InputSet::BuildUserActions.after(bevy_mod_picking::picking_core::PickSet::PostFocus),
+            InputSet::BuildUserActions.after(PickSet::PostFocus),
         )
         .add_systems(Startup, setup_input)
         .add_systems(
@@ -39,6 +40,13 @@ impl Plugin for InputPlugin {
             add_cursor_zoom_origin
                 .in_set(InputSet::ForwardUserActions)
                 .before(forward_view_actions),
+        )
+        .add_systems(
+            PreUpdate,
+            block_tool_actions_on_hover
+                .after(PickSet::PostFocus)
+                .after(InputManagerSystem::Update)
+                .before(InputSet::BuildUserActions),
         )
         .add_systems(
             PreUpdate,
@@ -204,6 +212,53 @@ fn setup_input(mut commands: Commands) {
     commands.init_resource::<ActionState<RulerAction>>();
 }
 
+// NB: This is all pretty hacky and will need to change if any type of
+// input binding config is made available to the user
+fn block_tool_actions_on_hover(
+    mut input_map: ResMut<InputMap<UserAction>>,
+    input_store: Res<updating::CentralInputStore>,
+    hover_map: Res<bevy_mod_picking::focus::HoverMap>,
+) {
+    let mut should_block = false;
+
+    for (ptr, hits) in hover_map.0.iter() {
+        if !matches!(*ptr, PointerId::Mouse | PointerId::Touch(_)) {
+            continue;
+        }
+
+        for (_entity, data) in hits.iter() {
+            // TODO: pretty arbitrarily chosen; this corresponds to Z positions
+            // between 100 and 1000 being blocked (greater than 1000 are clipped on render)
+            if data.depth < 900.0 {
+                should_block = true;
+            }
+        }
+    }
+
+    if should_block {
+        input_map.remove(
+            &UserAction::SelectedTool(SelectedToolAction::Primary),
+            MouseButton::Left,
+        );
+        input_map.remove(
+            &UserAction::SelectedTool(SelectedToolAction::Secondary),
+            MouseButton::Left,
+        );
+    } else {
+        input_map.insert(
+            UserAction::SelectedTool(SelectedToolAction::Primary),
+            MouseButton::Left,
+        );
+
+        input_map.insert(
+            UserAction::View(ViewAction::RectangleZoom(
+                RectangleSelectAction::StartOrEndSelect,
+            )),
+            MouseButton::Right,
+        );
+    }
+}
+
 fn forward_tool_actions(
     active_tool: Res<ActiveTool>,
     user_actions: Res<ActionState<UserAction>>,
@@ -213,7 +268,6 @@ fn forward_tool_actions(
     // ruler_actions:
 
     // mut tool_actions
-    hover_map: Res<bevy_mod_picking::focus::HoverMap>,
 ) {
     let primary_tool_data = user_actions
         .button_data(&UserAction::SelectedTool(SelectedToolAction::Primary))
