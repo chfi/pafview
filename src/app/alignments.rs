@@ -249,31 +249,7 @@ fn spawn_layout_children(
             for (seq_pair, aabb) in layout.aabbs.iter() {
                 count += 1;
 
-                let is_left = seq_pair.target == layout.target_edges[0];
-                let is_right = seq_pair.target == layout.target_edges[1];
-
-                let is_top = seq_pair.query == layout.query_edges[0];
-                let is_bottom = seq_pair.query == layout.query_edges[1];
-
-                let (columns, x) = match (is_left, is_right) {
-                    (false, false) => (3, 1),
-                    (true, false) => (3, 0),
-                    (false, true) => (3, 2),
-                    (true, true) => (1, 0),
-                };
-
-                let (rows, y) = match (is_top, is_bottom) {
-                    (false, false) => (3, 1),
-                    (true, false) => (3, 0),
-                    (false, true) => (3, 2),
-                    (true, true) => (1, 0),
-                };
-
-                let grid_key = GridMaterialKey {
-                    columns,
-                    rows,
-                    pos: UVec2::new(x, y),
-                };
+                let grid_key = GridMaterials::key_for_seq_pair(*seq_pair, layout);
 
                 let Some(material) = grid_materials.materials.get(&grid_key) else {
                     error!("Could not get grid material");
@@ -395,6 +371,7 @@ pub(super) fn update_layout_tile_positions(
 #[derive(Resource, Default)]
 struct GridMaterials {
     materials: HashMap<GridMaterialKey, Handle<BorderedRectMaterial>>,
+    exterior_borders_only: HashMap<GridMaterialKey, Handle<BorderedRectMaterial>>,
 }
 
 // the tiles in a grid layout should not all have the same material; while it's a relatively
@@ -417,47 +394,87 @@ impl GridMaterials {
     const BOTTOM_MASK: u32 = 0x00FF0000;
     const TOP_MASK: u32 = 0xFF000000;
 
+    fn key_for_seq_pair(seq_pair: SequencePairTile, layout: &SeqPairLayout) -> GridMaterialKey {
+        let is_left = seq_pair.target == layout.target_edges[0];
+        let is_right = seq_pair.target == layout.target_edges[1];
+
+        let is_top = seq_pair.query == layout.query_edges[0];
+        let is_bottom = seq_pair.query == layout.query_edges[1];
+
+        let (columns, x) = match (is_left, is_right) {
+            (false, false) => (3, 1),
+            (true, false) => (3, 0),
+            (false, true) => (3, 2),
+            (true, true) => (1, 0),
+        };
+
+        let (rows, y) = match (is_top, is_bottom) {
+            (false, false) => (3, 1),
+            (true, false) => (3, 0),
+            (false, true) => (3, 2),
+            (true, true) => (1, 0),
+        };
+
+        GridMaterialKey {
+            columns,
+            rows,
+            pos: UVec2::new(x, y),
+        }
+    }
+
     fn initialize_materials(&mut self, assets: &mut Assets<BorderedRectMaterial>) {
         for columns in 1..=3 {
             for rows in 1..=3 {
                 let keys = Self::generate_material_keys_for_grid_size(columns, rows);
 
                 for key in keys {
-                    let material = Self::material_for_key(key);
-                    self.materials.insert(key, assets.add(material));
+                    self.materials
+                        .insert(key, assets.add(Self::material_for_key(key, 0x7F)));
+                    self.exterior_borders_only
+                        .insert(key, assets.add(Self::material_for_key(key, 0x00)));
                 }
             }
         }
     }
 
-    fn material_for_key(key: GridMaterialKey) -> BorderedRectMaterial {
-        let mut width_modifiers = 0u32;
+    fn material_for_key(
+        key: GridMaterialKey,
+        width_mask: u8,
+        // alpha_mask: u8,
+    ) -> BorderedRectMaterial {
+        let mask = width_mask as u32;
+        let width = mask << 24 | mask << 16 | mask << 8 | mask;
 
-        let half = 0x7F7F7F7F;
+        // let mask = alpha_mask as u32;
+        // let alpha = mask << 24 | mask << 16 | mask << 8 | mask;
+
+        // let half = 0x7F7F7F7F;
         // let half = 0x00000000;
+        let mut width_modifiers = 0u32;
+        // let mut alpha_modifiers = 0u32;
 
         if key.pos.x == 0 {
             width_modifiers |= Self::LEFT_MASK;
         } else {
-            width_modifiers |= Self::LEFT_MASK & half;
+            width_modifiers |= Self::LEFT_MASK & width;
         }
 
         if key.pos.x == key.columns - 1 {
             width_modifiers |= Self::RIGHT_MASK;
         } else {
-            width_modifiers |= Self::RIGHT_MASK & half;
+            width_modifiers |= Self::RIGHT_MASK & width;
         }
 
         if key.pos.y == 0 {
             width_modifiers |= Self::TOP_MASK;
         } else {
-            width_modifiers |= Self::TOP_MASK & half;
+            width_modifiers |= Self::TOP_MASK & width;
         }
 
         if key.pos.y == key.rows - 1 {
             width_modifiers |= Self::BOTTOM_MASK;
         } else {
-            width_modifiers |= Self::BOTTOM_MASK & half;
+            width_modifiers |= Self::BOTTOM_MASK & width;
         }
 
         BorderedRectMaterial {
@@ -524,6 +541,59 @@ fn update_grid_material_from_config(
             return;
         };
         mat.border_width_px = config.grid_line_width;
+    }
+}
+
+fn swap_grid_material_based_on_layout(
+    mut layout_changes: EventReader<layout::LayoutChangedEvent>,
+
+    grid_materials: Res<GridMaterials>,
+
+    layout_assets: Res<Assets<SeqPairLayout>>,
+    layout_roots: Query<(&Handle<SeqPairLayout>, &Children)>,
+    mut seq_pair_tiles: Query<(Entity, &SequencePairTile, &mut Handle<BorderedRectMaterial>)>,
+) {
+    for event in layout_changes.read() {
+        let Ok((handle, children)) = layout_roots.get(event.entity) else {
+            continue;
+        };
+
+        let Some(layout) = layout_assets.get(handle) else {
+            continue;
+        };
+        let size_info = layout.builder_size_info;
+
+        let small_width = size_info
+            .horizontal_limit
+            .map(|lim| lim < size_info.target_total as f64)
+            .unwrap_or(false);
+        let small_height = size_info
+            .horizontal_limit
+            .map(|lim| lim < size_info.target_total as f64)
+            .unwrap_or(false);
+
+        let materials_map = if small_width || small_height {
+            println!("replacing with exterior borders only");
+            &grid_materials.exterior_borders_only
+        } else {
+            println!("replacing with interior borders");
+            &grid_materials.materials
+        };
+
+        for &tile_entity in children.iter() {
+            let Ok((_, seq_pair, mut tile_handle)) = seq_pair_tiles.get_mut(tile_entity) else {
+                continue;
+            };
+
+            let grid_key = GridMaterials::key_for_seq_pair(*seq_pair, layout);
+
+            let Some(material) = materials_map.get(&grid_key) else {
+                error!("Could not get grid material");
+                continue;
+            };
+
+            *tile_handle = material.clone_weak();
+        }
     }
 }
 

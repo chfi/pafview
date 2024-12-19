@@ -24,6 +24,7 @@ pub struct SeqPairLayout {
 
     pub layout_qbvh: AabbQbvh<SequencePairTile>,
 
+    pub builder_size_info: LayoutSizeInfo,
     pub mins: DVec2,
     pub maxs: DVec2,
 
@@ -57,20 +58,21 @@ impl DefaultLayout {
     }
 }
 
+#[derive(PartialEq, Clone, Copy, Reflect)]
+pub struct LayoutSizeInfo {
+    pub vertical_limit: Option<f64>,
+    pub horizontal_limit: Option<f64>,
+
+    pub query_total: u64,
+    pub target_total: u64,
+}
+
 #[derive(PartialEq, Clone, Reflect)]
 pub struct LayoutBuilder {
     /// stack tiles using this uniform (cumulative) offset, allowing overlap,
     /// instead of lining them up side-by-side
     /// ignored if builder was created from tile positions
-    pub vertical_offset: Option<f64>,
-    pub vertical_limit: Option<f64>,
-
-    /// see vertical_offset
-    pub horizontal_offset: Option<f64>,
-    pub horizontal_limit: Option<f64>,
-
-    pub query_total: u64,
-    pub target_total: u64,
+    pub size_info: LayoutSizeInfo,
 
     data: LayoutInput,
 }
@@ -103,8 +105,14 @@ impl LayoutBuilder {
                 let total_target_len = sum_axis(&targets);
                 let total_query_len = sum_axis(&queries);
 
-                let h_limit = self.horizontal_limit.unwrap_or(total_target_len as f64);
-                let v_limit = self.vertical_limit.unwrap_or(total_query_len as f64);
+                let h_limit = self
+                    .size_info
+                    .horizontal_limit
+                    .unwrap_or(total_target_len as f64);
+                let v_limit = self
+                    .size_info
+                    .vertical_limit
+                    .unwrap_or(total_query_len as f64);
 
                 let h_prop = h_limit / total_target_len as f64;
                 let v_prop = v_limit / total_query_len as f64;
@@ -203,6 +211,8 @@ impl LayoutBuilder {
         SeqPairLayout {
             aabbs,
             layout_qbvh,
+
+            builder_size_info: self.size_info,
             mins,
             maxs,
 
@@ -241,24 +251,14 @@ impl LayoutBuilder {
 
         let data = LayoutInput::Axes { targets, queries };
         Self {
-            vertical_offset: None,
-            vertical_limit: Some(query_total as f64),
-            horizontal_offset: None,
-            horizontal_limit: Some(target_total as f64),
-            query_total,
-            target_total,
+            size_info: LayoutSizeInfo {
+                vertical_limit: Some(query_total as f64),
+                horizontal_limit: Some(target_total as f64),
+                query_total,
+                target_total,
+            },
             data,
         }
-    }
-
-    pub fn with_vertical_offset(mut self, offset: Option<f64>) -> Self {
-        self.vertical_offset = offset;
-        self
-    }
-
-    pub fn with_horizontal_offset(mut self, offset: Option<f64>) -> Self {
-        self.horizontal_offset = offset;
-        self
     }
 }
 
@@ -502,9 +502,13 @@ pub mod editor {
 
         let Some(old_layout_bounds) = editor.builder.as_ref().map(|builder| {
             let width = builder
+                .size_info
                 .horizontal_limit
-                .unwrap_or(builder.target_total as f64);
-            let height = builder.vertical_limit.unwrap_or(builder.query_total as f64);
+                .unwrap_or(builder.size_info.target_total as f64);
+            let height = builder
+                .size_info
+                .vertical_limit
+                .unwrap_or(builder.size_info.query_total as f64);
             DVec2::new(width, height)
         }) else {
             return;
@@ -544,8 +548,8 @@ pub mod editor {
             let layout = layout_assets.get_mut(&default_layout.layout);
 
             if let Some((layout, builder)) = layout.zip(editor.builder.as_mut()) {
-                builder.horizontal_limit = Some(new_layout_bounds.x);
-                builder.vertical_limit = Some(new_layout_bounds.y);
+                builder.size_info.horizontal_limit = Some(new_layout_bounds.x);
+                builder.size_info.vertical_limit = Some(new_layout_bounds.y);
                 default_layout.builder = builder.clone();
 
                 *layout = builder.clone().build(&sequences);
