@@ -427,6 +427,7 @@ pub mod editor {
     impl Plugin for AlignmentLayoutGuiPlugin {
         fn build(&self, app: &mut App) {
             app.insert_resource(LayoutEditorOpen(false))
+                .add_event::<LayoutWidgetDragEnd>()
                 .init_resource::<LayoutEditor>()
                 // .add_systems(
                 //     PreUpdate,
@@ -437,6 +438,7 @@ pub mod editor {
                     (
                         prepare_layout_gizmos,
                         update_layout_gizmos.after(send_click_and_drag_events),
+                        handle_layout_widget_events,
                     )
                         .chain(),
                 )
@@ -503,6 +505,122 @@ pub mod editor {
     #[derive(Component, Clone)]
     struct BeingDragged;
 
+    // NB just default layout for now
+    #[derive(Event)]
+    struct LayoutWidgetDragEnd {
+        widget: Entity,
+        distance: Vec2,
+    }
+
+    impl From<ListenerInput<Pointer<DragEnd>>> for LayoutWidgetDragEnd {
+        fn from(event: ListenerInput<Pointer<DragEnd>>) -> Self {
+            LayoutWidgetDragEnd {
+                widget: event.target,
+                distance: event.distance,
+            }
+        }
+    }
+
+    fn handle_layout_widget_events(
+        mut commands: Commands,
+        mut widget_events: EventReader<LayoutWidgetDragEnd>,
+
+        mut editor: ResMut<LayoutEditor>,
+
+        view: Res<AlignmentViewport>,
+
+        drag_widgets: Query<
+            (
+                &GlobalTransform,
+                // &mut Visibility,
+                // Has<BeingDragged>,
+                Has<VerticalDragGizmo>,
+                Has<HorizontalDragGizmo>,
+            ),
+            (
+                Or<(With<VerticalDragGizmo>, With<HorizontalDragGizmo>)>,
+                // Without<Handle<SeqPairLayout>>,
+            ),
+        >,
+
+        mut layout_events: EventWriter<LayoutChangedEvent>,
+
+        sequences: Res<crate::Sequences>,
+        mut layout_assets: ResMut<Assets<SeqPairLayout>>,
+        mut default_layout: ResMut<DefaultLayout>,
+        default_layout_root: Res<crate::app::alignments::DefaultLayoutRoot>,
+
+        window: Query<&Window>,
+    ) {
+        let Ok(screen_dims) = window.get_single().map(|w| w.size()) else {
+            return;
+        };
+
+        let Some(old_layout_bounds) = editor.builder.as_ref().map(|builder| {
+            let width = builder
+                .horizontal_limit
+                .unwrap_or(builder.target_total as f64);
+            let height = builder.vertical_limit.unwrap_or(builder.query_total as f64);
+            DVec2::new(width, height)
+        }) else {
+            return;
+        };
+
+        let Some((old_mins, old_maxs)) = layout_assets
+            .get(&default_layout.layout)
+            .map(|layout| (layout.mins, layout.maxs))
+        else {
+            return;
+        };
+
+        let mut new_layout_bounds = old_layout_bounds;
+
+        for event in widget_events.read() {
+            commands.entity(event.widget).remove::<BeingDragged>();
+
+            println!("old layout bounds: {old_layout_bounds:?}\tmins {old_mins:?}, maxs {old_maxs:?}\t maxs - mins {:?}",
+                old_maxs - old_mins
+            );
+
+            let Ok((transform, is_vert, is_horiz)) = drag_widgets.get(event.widget) else {
+                continue;
+            };
+
+            let point = view
+                .view
+                .map_screen_to_world(screen_dims, transform.translation().xy());
+
+            if is_vert {
+                new_layout_bounds.y = point.y - old_mins.y;
+            } else if is_horiz {
+                new_layout_bounds.x = point.x - old_mins.x;
+            }
+            println!("new layout bounds: {new_layout_bounds:?}");
+            println!(
+                "screen point: {:?}\tworld point: {point:?}",
+                transform.translation().xy()
+            );
+        }
+
+        // TODO clean all this up, this system shouldn't be doing *all* of this
+        if new_layout_bounds != old_layout_bounds {
+            let layout = layout_assets.get_mut(&default_layout.layout);
+
+            if let Some((layout, builder)) = layout.zip(editor.builder.as_mut()) {
+                builder.horizontal_limit = Some(new_layout_bounds.x);
+                builder.vertical_limit = Some(new_layout_bounds.y);
+                default_layout.builder = builder.clone();
+
+                *layout = builder.clone().build(&sequences);
+
+                layout_events.send(LayoutChangedEvent {
+                    entity: default_layout_root.0,
+                    need_respawn: false,
+                });
+            }
+        }
+    }
+
     fn prepare_layout_gizmos(
         mut commands: Commands,
         mut meshes: ResMut<Assets<Mesh>>,
@@ -525,16 +643,13 @@ pub mod editor {
             VerticalDragGizmo,
             PickableBundle::default(),
             On::<Pointer<DragStart>>::target_insert(BeingDragged),
-            On::<Pointer<DragEnd>>::target_remove::<BeingDragged>(),
-            // On::<Pointer<Over>>::run(|| {
-            // println!("hovering vertical gizmo");
-            // }),
+            On::<Pointer<DragEnd>>::send_event::<LayoutWidgetDragEnd>(),
         ));
         commands.spawn(bundle.clone()).insert((
             HorizontalDragGizmo,
             PickableBundle::default(),
             On::<Pointer<DragStart>>::target_insert(BeingDragged),
-            On::<Pointer<DragEnd>>::target_remove::<BeingDragged>(),
+            On::<Pointer<DragEnd>>::send_event::<LayoutWidgetDragEnd>(),
         ));
     }
 
@@ -592,7 +707,7 @@ pub mod editor {
 
         cursor: Res<CursorPosition>,
         // drag_map: Res<DragMap>,
-        mut drag_gizmos: Query<
+        mut drag_widgets: Query<
             (
                 Entity,
                 &mut Transform,
@@ -626,7 +741,7 @@ pub mod editor {
         };
 
         for (_gizmo_ent, mut transform, mut visibility, is_dragged, is_vert, is_horiz) in
-            drag_gizmos.iter_mut()
+            drag_widgets.iter_mut()
         {
             if editor.enable_drag_gizmos {
                 *visibility = Visibility::Visible;
@@ -643,11 +758,11 @@ pub mod editor {
 
                 if is_dragged {
                     if let Some(cursor) = cursor.screen {
-                        y = cursor.y;
+                        y = screen_dims.y - cursor.y;
                     }
                 }
 
-                transform.translation = Vec3::new(x as f32, screen_dims.y - y as f32, 100.0);
+                transform.translation = Vec3::new(x as f32, screen_dims.y - y as f32, 200.0);
                 transform.scale = Vec3::new((maxs.x - mins.x) as f32, 2.0, 1.0);
             } else if is_horiz {
                 let mut x = maxs.x;
@@ -659,20 +774,11 @@ pub mod editor {
                     }
                 }
 
-                transform.translation = Vec3::new(x as f32, screen_dims.y - y as f32, 100.0);
+                transform.translation = Vec3::new(x as f32, screen_dims.y - y as f32, 200.0);
                 transform.scale = Vec3::new(2.0, (maxs.y - mins.y) as f32, 1.0);
             }
         }
     }
-
-    // fn block_pan_action(
-    //     mut user_actions: ResMut<ActionState<UserAction>>,
-    //     dragged: Query<&BeingDragged>,
-    // ) {
-    //     if !dragged.is_empty() {
-    //         // let action = UserAction::
-    //     }
-    // }
 
     fn prepare_layout_editor(mut editor: ResMut<LayoutEditor>, default_layout: Res<DefaultLayout>) {
         if editor.builder.is_none() {
