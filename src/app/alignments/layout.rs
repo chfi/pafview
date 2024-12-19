@@ -239,8 +239,6 @@ impl LayoutBuilder {
             })
             .collect::<Vec<_>>();
 
-        println!("axis lengths: {target_total}, {query_total}");
-
         let data = LayoutInput::Axes { targets, queries };
         Self {
             vertical_offset: None,
@@ -252,27 +250,6 @@ impl LayoutBuilder {
             data,
         }
     }
-
-    /*
-    pub fn from_positions<P: Into<DVec2>>(
-        tile_positions: impl IntoIterator<Item = (SequencePairTile, P)>,
-    ) -> Self {
-
-
-        let offsets = tile_positions
-            .into_iter()
-            .map(|(t, p)| (t, p.into()))
-            .collect();
-
-        Self {
-            vertical_offset: None,
-            vertical_limit: None,
-            horizontal_offset: None,
-            horizontal_limit: None,
-            data: LayoutInput::TilePositions { offsets },
-        }
-    }
-    */
 
     pub fn with_vertical_offset(mut self, offset: Option<f64>) -> Self {
         self.vertical_offset = offset;
@@ -420,7 +397,7 @@ pub mod editor {
         pointer::{PointerId, PointerLocation},
         prelude::*,
     };
-    use events::{send_click_and_drag_events, DragMap};
+    use events::send_click_and_drag_events;
 
     pub struct AlignmentLayoutGuiPlugin;
 
@@ -429,10 +406,6 @@ pub mod editor {
             app.insert_resource(LayoutEditorOpen(false))
                 .add_event::<LayoutWidgetDragEnd>()
                 .init_resource::<LayoutEditor>()
-                // .add_systems(
-                //     PreUpdate,
-                //     show_live_layout_editor.after(bevy_egui::EguiSet::BeginPass),
-                // );
                 .add_systems(
                     PreUpdate,
                     (
@@ -451,12 +424,6 @@ pub mod editor {
                 .add_systems(
                     PreUpdate,
                     layout_gizmo_picker.in_set(bevy_mod_picking::picking_core::PickSet::Backend),
-                    // )
-                    // .add_systems(
-                    //     PreUpdate,
-                    //     drag_gizmos
-                    //         .after(update_layout_gizmos)
-                    //         .after(send_click_and_drag_events),
                 );
         }
     }
@@ -468,33 +435,17 @@ pub mod editor {
     struct LayoutEditorState {
         custom_vertical_limit: Option<f64>,
         custom_horizontal_limit: Option<f64>,
-        // vertical_limit_on: bool,
-        // vertical_limit: f64,
-
-        // horizontal_limit_on: bool,
-        // horizontal_limit: f64,
     }
-
-    // #[derive(Resource, Default, Clone, PartialEq)]
-    // pub struct LiveLayoutBuilder {
-    //     builder: Option<LayoutBuilder>,
-    // }
 
     #[derive(Resource, Default)]
     struct LayoutEditor {
         // layout root entity to modify; if None, modify the default layout
-        target_layout_entity: Option<Entity>,
+        // target_layout_entity: Option<Entity>,
         builder: Option<LayoutBuilder>,
         state: LayoutEditorState,
 
         enable_drag_gizmos: bool,
     }
-
-    // #[derive(Resource)]
-    // struct LayoutDragGizmos {
-    //     horizontal: Entity,
-    //     vertical: Entity,
-    // }
 
     #[derive(Component)]
     struct VerticalDragGizmo;
@@ -509,14 +460,12 @@ pub mod editor {
     #[derive(Event)]
     struct LayoutWidgetDragEnd {
         widget: Entity,
-        distance: Vec2,
     }
 
     impl From<ListenerInput<Pointer<DragEnd>>> for LayoutWidgetDragEnd {
         fn from(event: ListenerInput<Pointer<DragEnd>>) -> Self {
             LayoutWidgetDragEnd {
                 widget: event.target,
-                distance: event.distance,
             }
         }
     }
@@ -532,15 +481,10 @@ pub mod editor {
         drag_widgets: Query<
             (
                 &GlobalTransform,
-                // &mut Visibility,
-                // Has<BeingDragged>,
                 Has<VerticalDragGizmo>,
                 Has<HorizontalDragGizmo>,
             ),
-            (
-                Or<(With<VerticalDragGizmo>, With<HorizontalDragGizmo>)>,
-                // Without<Handle<SeqPairLayout>>,
-            ),
+            (Or<(With<VerticalDragGizmo>, With<HorizontalDragGizmo>)>,),
         >,
 
         mut layout_events: EventWriter<LayoutChangedEvent>,
@@ -566,9 +510,9 @@ pub mod editor {
             return;
         };
 
-        let Some((old_mins, old_maxs)) = layout_assets
+        let Some(old_mins) = layout_assets
             .get(&default_layout.layout)
-            .map(|layout| (layout.mins, layout.maxs))
+            .map(|layout| layout.mins)
         else {
             return;
         };
@@ -578,28 +522,21 @@ pub mod editor {
         for event in widget_events.read() {
             commands.entity(event.widget).remove::<BeingDragged>();
 
-            println!("old layout bounds: {old_layout_bounds:?}\tmins {old_mins:?}, maxs {old_maxs:?}\t maxs - mins {:?}",
-                old_maxs - old_mins
-            );
-
             let Ok((transform, is_vert, is_horiz)) = drag_widgets.get(event.widget) else {
                 continue;
             };
 
-            let point = view
-                .view
-                .map_screen_to_world(screen_dims, transform.translation().xy());
+            let mut screen_point = transform.translation().xy();
+            screen_point.y = screen_dims.y - screen_point.y;
+
+            let point = view.view.map_screen_to_world(screen_dims, screen_point);
+            // .map_screen_to_world(screen_dims, transform.translation().xy());
 
             if is_vert {
                 new_layout_bounds.y = point.y - old_mins.y;
             } else if is_horiz {
                 new_layout_bounds.x = point.x - old_mins.x;
             }
-            println!("new layout bounds: {new_layout_bounds:?}");
-            println!(
-                "screen point: {:?}\tworld point: {point:?}",
-                transform.translation().xy()
-            );
         }
 
         // TODO clean all this up, this system shouldn't be doing *all* of this
@@ -706,7 +643,6 @@ pub mod editor {
         editor: Res<LayoutEditor>,
 
         cursor: Res<CursorPosition>,
-        // drag_map: Res<DragMap>,
         mut drag_widgets: Query<
             (
                 Entity,
@@ -740,6 +676,8 @@ pub mod editor {
             return;
         };
 
+        let thickness = 4.0;
+
         for (_gizmo_ent, mut transform, mut visibility, is_dragged, is_vert, is_horiz) in
             drag_widgets.iter_mut()
         {
@@ -763,7 +701,7 @@ pub mod editor {
                 }
 
                 transform.translation = Vec3::new(x as f32, screen_dims.y - y as f32, 200.0);
-                transform.scale = Vec3::new((maxs.x - mins.x) as f32, 2.0, 1.0);
+                transform.scale = Vec3::new((maxs.x - mins.x) as f32, thickness, 1.0);
             } else if is_horiz {
                 let mut x = maxs.x;
                 let y = (mins.y + maxs.y) * 0.5;
@@ -775,7 +713,7 @@ pub mod editor {
                 }
 
                 transform.translation = Vec3::new(x as f32, screen_dims.y - y as f32, 200.0);
-                transform.scale = Vec3::new(2.0, (maxs.y - mins.y) as f32, 1.0);
+                transform.scale = Vec3::new(thickness, (maxs.y - mins.y) as f32, 1.0);
             }
         }
     }
@@ -797,10 +735,6 @@ pub mod editor {
 
         *state = editor.state.clone();
 
-        let Some(builder) = editor.builder.as_ref() else {
-            return;
-        };
-
         let mut enable_drag_gizmos = editor.enable_drag_gizmos;
 
         egui::Window::new("Layout Editor")
@@ -812,6 +746,7 @@ pub mod editor {
 
                     ui.separator();
 
+                    /*
                     ui.horizontal(|ui| {
                         ui.label("Vertical limit");
 
@@ -871,16 +806,8 @@ pub mod editor {
                                 }
                             }),
                         );
-                        /*
-                        ui.checkbox(&mut editor_state.horizontal_limit_on, "Enable");
-                        ui.add_enabled(
-                            editor_state.horizontal_limit_on,
-                            egui::DragValue::new(&mut editor_state.horizontal_limit),
-                        );
-                        */
                     });
-
-                    //
+                    */
                 });
             });
 
@@ -891,128 +818,4 @@ pub mod editor {
             editor.state = state.clone();
         }
     }
-
-    /*
-    fn show_live_layout_editor(
-        mut contexts: EguiContexts,
-        mut editor_open: ResMut<LayoutEditorOpen>,
-        mut builder: ResMut<LiveLayoutBuilder>,
-
-        mut layouts: ResMut<Assets<SeqPairLayout>>,
-        mut default_layout: ResMut<DefaultLayout>,
-        // mut layout_assets: ResMut<Assets<SeqPairLayout>>,
-        sequences: Res<crate::Sequences>,
-
-        mut editor_state: Local<LayoutEditorState>,
-
-        default_layout_root: Res<crate::app::alignments::DefaultLayoutRoot>,
-        mut layout_events: EventWriter<LayoutChangedEvent>,
-        mut update_layout_debounce: Local<Option<std::time::Instant>>,
-    ) {
-        let init_builder = builder.bypass_change_detection().builder.is_none();
-
-        if init_builder {
-            builder.builder = Some(default_layout.builder().clone());
-        }
-
-        let ctx = contexts.ctx_mut();
-
-        egui::Window::new("Layout Editor")
-            .open(&mut editor_open.0)
-            .show(ctx, |ui| {
-                //
-                ui.vertical(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.label("Vertical limit");
-                        ui.checkbox(&mut editor_state.vertical_limit_on, "Enable");
-                        ui.add_enabled(
-                            editor_state.vertical_limit_on,
-                            egui::DragValue::new(&mut editor_state.vertical_limit),
-                        );
-                        // if ui.button("Reset").clicked() {
-                        // }
-                    });
-
-                    ui.horizontal(|ui| {
-                        ui.label("Horizontal offset");
-                        ui.checkbox(&mut editor_state.horizontal_limit_on, "Enable");
-                        ui.add_enabled(
-                            editor_state.horizontal_limit_on,
-                            egui::DragValue::new(&mut editor_state.horizontal_limit),
-                        );
-                    });
-
-                    //
-                });
-            });
-
-        let mut builder_changed = false;
-
-        let builder_state: Option<LayoutEditorState> = builder
-            .bypass_change_detection()
-            .builder
-            .as_ref()
-            .map(|b| LayoutEditorState {
-                vertical_limit_on: b.vertical_limit.is_some(),
-                vertical_limit: b.query_total as f64,
-                horizontal_limit_on: b.horizontal_limit.is_some(),
-                horizontal_limit: b.target_total as f64,
-            });
-
-        {
-            let editor_state: &LayoutEditorState = &editor_state;
-            if builder_state.map(|s| &s != editor_state).unwrap_or(false) {
-                if let Some(builder) = builder.builder.as_mut() {
-                    if editor_state.vertical_limit_on {
-                        if Some(editor_state.vertical_limit) != builder.vertical_limit {
-                            builder.vertical_limit = Some(editor_state.vertical_limit);
-                            builder_changed = true;
-                        }
-                    } else {
-                        if builder.vertical_limit.is_some() {
-                            builder.vertical_limit = None;
-                            // builder.vertical_limit = Some(builder.query_total as f64);
-                            builder_changed = true;
-                        }
-                    }
-
-                    if editor_state.horizontal_limit_on {
-                        if Some(editor_state.horizontal_limit) != builder.horizontal_offset {
-                            builder.horizontal_offset = Some(editor_state.horizontal_limit);
-                            builder_changed = true;
-                        }
-                    } else if builder.horizontal_limit.is_some() {
-                        builder.horizontal_limit = None;
-                        builder_changed = true;
-                    }
-                }
-            }
-        }
-
-        if builder_changed {
-            let builder = builder.builder.as_mut();
-            let layout = layouts.get_mut(&default_layout.layout);
-            if let Some((builder, layout)) = builder.zip(layout) {
-                *layout = builder.clone().build(&sequences);
-                default_layout.builder = builder.clone();
-            }
-            *update_layout_debounce = Some(std::time::Instant::now());
-        }
-
-        if let Some(time) = update_layout_debounce.take() {
-            if time.elapsed().as_millis() < 100 {
-                *update_layout_debounce = Some(time);
-            } else {
-                layout_events.send(LayoutChangedEvent {
-                    entity: default_layout_root.0,
-                    need_respawn: false,
-                });
-            }
-        }
-    }
-    */
 }
-
-// pub struct NewLayoutBuilder {
-//     tile_sizes: HashMap<SequencePairTile, U64Vec2>,
-// }

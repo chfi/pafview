@@ -53,14 +53,15 @@ impl Plugin for InputPlugin {
             (forward_view_actions, forward_tool_actions)
                 .chain()
                 .in_set(InputSet::ForwardUserActions),
-        )
-        .add_systems(
-            PreUpdate,
-            debug_hover_drag_map.after(bevy_egui::EguiSet::BeginPass),
         );
+        // .add_systems(
+        //     PreUpdate,
+        //     debug_hover_drag_map.after(bevy_egui::EguiSet::BeginPass),
+        // );
     }
 }
 
+#[allow(dead_code)]
 fn debug_hover_drag_map(
     mut egui: EguiContexts,
 
