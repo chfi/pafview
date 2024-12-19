@@ -216,8 +216,12 @@ fn setup_input(mut commands: Commands) {
 // input binding config is made available to the user
 fn block_tool_actions_on_hover(
     mut input_map: ResMut<InputMap<UserAction>>,
+
+    global_transforms: Query<&GlobalTransform>,
+
     input_store: Res<updating::CentralInputStore>,
     hover_map: Res<bevy_mod_picking::focus::HoverMap>,
+    drag_map: Res<bevy_mod_picking::events::DragMap>,
 ) {
     let mut should_block = false;
 
@@ -235,15 +239,38 @@ fn block_tool_actions_on_hover(
         }
     }
 
+    for ((ptr, _button), drags) in drag_map.0.iter() {
+        if !matches!(*ptr, PointerId::Mouse | PointerId::Touch(_)) {
+            continue;
+        }
+
+        for (entity, _data) in drags.iter() {
+            let Ok(transform) = global_transforms.get(*entity) else {
+                continue;
+            };
+
+            if transform.translation().z >= 100.0 {
+                should_block = true;
+            }
+        }
+    }
+
     if should_block {
-        input_map.remove(
-            &UserAction::SelectedTool(SelectedToolAction::Primary),
-            MouseButton::Left,
-        );
-        input_map.remove(
-            &UserAction::SelectedTool(SelectedToolAction::Secondary),
-            MouseButton::Left,
-        );
+        if !input_store.pressed(&MouseButton::Left) {
+            input_map.remove(
+                &UserAction::SelectedTool(SelectedToolAction::Primary),
+                MouseButton::Left,
+            );
+        }
+        // don't remove the button if it's being used
+        // otherwise rectangle zoom would trigger as soon as the cursor
+        // hovered over e.g. a window or ruler
+        if !input_store.pressed(&MouseButton::Right) {
+            input_map.remove(
+                &UserAction::SelectedTool(SelectedToolAction::Secondary),
+                MouseButton::Right,
+            );
+        }
     } else {
         input_map.insert(
             UserAction::SelectedTool(SelectedToolAction::Primary),

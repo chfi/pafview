@@ -649,8 +649,10 @@ fn update_viewer_sprite_transform(
 
             let screen_delta = norm_delta.to_f32() * [img_size.x, img_size.y].as_uv() / dpi_scale;
 
-            let translation = Vec3::new(-screen_delta.x, -screen_delta.y, 0.0)
+            let mut translation = Vec3::new(-screen_delta.x, -screen_delta.y, 0.0)
                 + Vec3::new(img_size.x, img_size.y, 0.0) * 0.5;
+
+            translation.z = 0.0;
 
             *transform =
                 // Transform::from_translation(Vec3::new(-screen_delta.x, -screen_delta.y, 0.0))

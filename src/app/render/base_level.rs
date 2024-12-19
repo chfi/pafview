@@ -108,6 +108,7 @@ fn update_base_level_viewer_view(
     for (mut transform, mut viewer) in viewers.iter_mut() {
         transform.translation.x = win_size.x * 0.5;
         transform.translation.y = win_size.y * 0.5;
+        transform.translation.z = 0.0;
         viewer.view = Some(view);
     }
 }
