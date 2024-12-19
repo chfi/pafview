@@ -15,9 +15,8 @@ pub use alignments::{AlignmentIndex, SequencePairTile};
 
 use bevy::prelude::*;
 
-use bevy_polyline::{material::PolylineMaterial, PolylinePlugin};
+use bevy_polyline::PolylinePlugin;
 use clap::Parser;
-use wgpu::{Extent3d, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
 
 use crate::{
     render::{color::PafColorSchemes, exact::CpuViewRasterizerEgui},

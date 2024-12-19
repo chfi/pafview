@@ -1,5 +1,17 @@
 use std::sync::atomic::AtomicU8;
 
+use bevy::render::{
+    extract_component::{ExtractComponent, ExtractComponentPlugin},
+    render_asset::RenderAssets,
+    render_resource::{
+        BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries, Buffer, CachedRenderPipelineId,
+        PipelineCache, RenderPipelineDescriptor, ShaderType,
+    },
+    renderer::{RenderDevice, RenderQueue},
+    texture::GpuImage,
+    view::RenderLayers,
+    Render, RenderApp, RenderSet,
+};
 use bevy::{
     math::U64Vec2,
     prelude::*,
@@ -9,12 +21,24 @@ use bevy::{
 use pipeline::{PolylineConfig, PolylineModel, PolylineProjection, PolylineVertices};
 use wgpu::BufferUsages;
 
+use crate::app::view::AlignmentViewport;
 use crate::{
     app::{alignments::layout::SeqPairLayout, AlignmentIndex},
     render::color::PafColorSchemes,
 };
 
-use super::*;
+// use super::*;
+
+use std::sync::Arc;
+
+use wgpu::{ColorWrites, ShaderStages, VertexStepMode};
+
+use crate::{
+    math_conv::{ConvertFloat32, ConvertVec2},
+    render::color::AlignmentColorScheme,
+};
+
+use super::RenderParams;
 
 pub struct SampledAlignmentRendererPlugin;
 

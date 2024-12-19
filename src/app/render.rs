@@ -1,39 +1,7 @@
-use std::sync::Arc;
+use bevy::prelude::*;
 
-use bevy::{
-    ecs::system::{lifetimeless::SRes, EntityCommands},
-    prelude::*,
-    render::{
-        extract_component::{ExtractComponent, ExtractComponentPlugin},
-        extract_resource::{ExtractResource, ExtractResourcePlugin},
-        render_asset::{PrepareAssetError, RenderAsset, RenderAssetPlugin, RenderAssets},
-        render_resource::{
-            BindGroup, BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries, Buffer,
-            CachedRenderPipelineId, PipelineCache, RenderPipelineDescriptor, ShaderType,
-            UniformBuffer,
-        },
-        renderer::{RenderDevice, RenderQueue},
-        texture::GpuImage,
-        view::RenderLayers,
-        Extract, Render, RenderApp, RenderSet,
-    },
-    utils::HashMap,
-};
-use wgpu::{util::BufferInitDescriptor, ColorWrites, ShaderStages, VertexStepMode};
-
-use crate::{
-    math_conv::{ConvertFloat32, ConvertVec2},
-    render::color::AlignmentColorScheme,
-    CigarOp,
-};
-
-use super::view::AlignmentViewport;
-
-// pub mod async_render;
 pub mod base_level;
 pub mod bordered_rect;
-pub mod cigar_sampling;
-pub mod gpu_lines;
 pub mod sampled_lines;
 
 /*
@@ -60,9 +28,6 @@ to the screenspace camera (`RenderLayer` 1) and updated based on the
 #[derive(Debug, Component)]
 pub struct MainAlignmentView;
 
-#[derive(Component)]
-pub(super) struct Rendering;
-
 #[derive(Clone, Copy, PartialEq, Reflect)]
 struct RenderParams {
     view: crate::view::View,
@@ -74,6 +39,3 @@ impl RenderParams {
         self.view.width() / self.canvas_size.x as f64
     }
 }
-
-#[derive(Component)]
-struct ForceRender;
