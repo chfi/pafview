@@ -274,11 +274,11 @@ enum LayoutInput {
     // },
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AabbQbvh<Data: Copy> {
-    qbvh: parry::partitioning::Qbvh<usize>,
-    data: Vec<Data>,
-    aabbs: Vec<Aabb>,
+    pub(crate) qbvh: parry::partitioning::Qbvh<usize>,
+    pub(crate) data: Vec<Data>,
+    pub(crate) aabbs: Vec<Aabb>,
 }
 
 impl<T: Copy> AabbQbvh<T> {
@@ -300,6 +300,7 @@ impl<T: Copy> AabbQbvh<T> {
         Self { qbvh, data, aabbs }
     }
 
+    /// callback should return `false` to stop early
     pub fn aabbs_in_rect_callback(
         &self,
         center: impl Into<[f64; 2]>,
@@ -342,6 +343,7 @@ impl<T: Copy> AabbQbvh<T> {
         results
     }
 
+    /// callback should return `false` to stop early
     pub fn aabbs_at_point_callback(
         &self,
         point: impl Into<[f64; 2]>,
