@@ -265,19 +265,16 @@ fn prepare_annotations(
                         ..default()
                     },
                 ),
-                text_anchor: Anchor::TopLeft,
+                text_anchor: Anchor::Center,
                 visibility: Visibility::Visible,
                 ..default()
             },
         );
         let query_label = commands
             .spawn(label_bundle.clone())
-            .insert((Pickable::IGNORE, Anchor::TopLeft))
+            .insert(Pickable::IGNORE)
             .id();
-        let target_label = commands
-            .spawn(label_bundle)
-            .insert((Pickable::IGNORE, Anchor::TopLeft))
-            .id();
+        let target_label = commands.spawn(label_bundle).insert(Pickable::IGNORE).id();
 
         let mut annot_ent = commands.spawn(Annotation {
             record_list: list_id,
@@ -410,7 +407,7 @@ fn update_annotation_regions(
         }
 
         if let Some(pos) = final_position {
-            label_qbvh.insert_or_update(*annot_id, pos, label_size);
+            label_qbvh.insert_or_update(*annot_id, false, pos, label_size);
 
             if let Ok(mut vis) = visibilities.get_mut(entities.target_label) {
                 *vis = Visibility::Inherited;
@@ -427,8 +424,51 @@ fn update_annotation_regions(
         }
 
         // temporary query label until i get things tested & cleaned up
-        if let Ok(mut transform) = transforms.get_mut(entities.query_label) {
-            transform.translation = Vec3::new(10.0, mid.y, z + 1.0);
+        //
+        //
+
+        // query label
+        let mut candidate_position = DVec2::new(40.0, qry_y as f64) + label_size * 0.5;
+        let mut final_position: Option<DVec2> = None;
+
+        let half_extents = label_size * 0.5;
+
+        for _attempt in 0..4 {
+            let mut cand = candidate_position;
+
+            let mut is_colliding = false;
+            label_qbvh
+                .qbvh
+                .aabbs_in_rect_callback(cand, half_extents, |_, aabb| {
+                    is_colliding = true;
+                    if aabb.maxs.x > cand.x {
+                        cand.x += label_size.x + 16.0;
+                    }
+                    false
+                });
+
+            if !is_colliding {
+                final_position = Some(cand);
+                break;
+            }
+
+            candidate_position = cand;
+        }
+
+        if let Some(pos) = final_position {
+            label_qbvh.insert_or_update(*annot_id, true, pos, label_size);
+
+            if let Ok(mut vis) = visibilities.get_mut(entities.query_label) {
+                *vis = Visibility::Inherited;
+            }
+            if let Ok(mut transform) = transforms.get_mut(entities.query_label) {
+                transform.translation =
+                    Vec3::new(pos.x as f32, screen_dims.y - pos.y as f32, z + 1.0);
+            }
+        } else {
+            if let Ok(mut vis) = visibilities.get_mut(entities.query_label) {
+                *vis = Visibility::Hidden;
+            }
         }
 
         /*
@@ -468,7 +508,7 @@ struct LabelQbvh {
 
     // TODO need to support at least two labels per annotation id if i want
     // separate labels for target & query
-    annot_qbvh_map: HashMap<Annotation, usize>,
+    annot_qbvh_map: HashMap<(Annotation, bool), usize>,
 
     workspace: avian2d::parry::partitioning::QbvhUpdateWorkspace,
 }
@@ -478,11 +518,13 @@ impl LabelQbvh {
     //     //
     // }
 
-    fn insert_or_update(&mut self, id: Annotation, screen_pos: DVec2, size: DVec2) {
+    fn insert_or_update(&mut self, id: Annotation, is_query: bool, screen_pos: DVec2, size: DVec2) {
         let aabb =
             Aabb::from_half_extents(screen_pos.to_array().into(), (size * 0.5).to_array().into());
 
-        if let Some(qbvh_index) = self.annot_qbvh_map.get(&id).copied() {
+        let key = (id, is_query);
+
+        if let Some(qbvh_index) = self.annot_qbvh_map.get(&key).copied() {
             self.qbvh.qbvh.pre_update_or_insert(qbvh_index);
             self.qbvh.aabbs[qbvh_index] = aabb;
         } else {
@@ -490,7 +532,7 @@ impl LabelQbvh {
             self.qbvh.qbvh.pre_update_or_insert(qbvh_index);
             self.qbvh.data.push(qbvh_index);
             self.qbvh.aabbs.push(aabb);
-            self.annot_qbvh_map.insert(id, qbvh_index);
+            self.annot_qbvh_map.insert(key, qbvh_index);
         }
 
         self.qbvh
