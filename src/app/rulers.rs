@@ -717,6 +717,8 @@ impl Plugin for ViewerRulersPlugin {
 }
 
 mod cursor_information {
+    use bevy::text::TextLayoutInfo;
+
     use crate::{
         app::{
             alignments::layout::{LayoutEntityIndex, SeqPairLayout},
@@ -824,6 +826,7 @@ mod cursor_information {
         crosshair: Query<(Entity, &CursorRulerLabels, &Children)>,
         mut transforms: Query<&mut Transform, Without<Handle<SeqPairLayout>>>,
         mut texts: Query<&mut Text, With<SequenceLabel>>,
+        text_layout_info: Query<&TextLayoutInfo, With<SequenceLabel>>,
         mut label_visibilities: Query<&mut Visibility, With<SequenceLabel>>,
         windows: Query<&Window>,
     ) {
@@ -895,18 +898,29 @@ mod cursor_information {
                 *vis = Visibility::Inherited;
             }
 
-            if let Ok(mut transform) = transforms.get_mut(cursor_labels.target_seq) {
-                transform.translation = Vec3::new(screen_point.x, screen_dims.y - 30.0, 0.0);
-            }
-            if let Ok(mut transform) = transforms.get_mut(cursor_labels.query_seq) {
-                transform.translation = Vec3::new(10.0, screen_point.y, 0.0);
-            }
+            // used to push the label back into the screen if the cursor is close to the edge
+            let mut target_x_delta = 0.0;
 
             if let Ok(mut text) = texts.get_mut(cursor_labels.target_seq) {
+                if let Ok(text_info) = text_layout_info.get(cursor_labels.target_seq) {
+                    let rhs = text_info.logical_size.x + screen_point.x;
+                    if rhs > screen_dims.x {
+                        target_x_delta -= rhs - screen_dims.x;
+                    }
+                }
+
                 text.sections[0].value = build_label(tile.target, local_tgt);
             }
             if let Ok(mut text) = texts.get_mut(cursor_labels.query_seq) {
                 text.sections[0].value = build_label(tile.query, local_qry);
+            }
+
+            if let Ok(mut transform) = transforms.get_mut(cursor_labels.target_seq) {
+                transform.translation =
+                    Vec3::new(screen_point.x + target_x_delta, screen_dims.y - 30.0, 0.0);
+            }
+            if let Ok(mut transform) = transforms.get_mut(cursor_labels.query_seq) {
+                transform.translation = Vec3::new(10.0, screen_point.y, 0.0);
             }
         } else {
             for mut vis in label_visibilities.iter_mut() {
