@@ -22,6 +22,10 @@ impl Sequences {
         self.sequences.get(&seq)
     }
 
+    pub fn get_id(&self, seq_name: &str) -> Option<SeqId> {
+        self.sequence_names.get_by_left(seq_name).copied()
+    }
+
     pub fn get_name(&self, seq: SeqId) -> Option<&str> {
         let name = self.sequence_names.get_by_right(&seq)?;
         Some(name.as_str())

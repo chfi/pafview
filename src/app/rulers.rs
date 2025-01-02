@@ -711,8 +711,8 @@ pub(super) struct ViewerRulersPlugin;
 
 impl Plugin for ViewerRulersPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(InteractiveRulersPlugin);
-        // .add_plugins(cursor_information::CursorRulerPlugin);
+        app.add_plugins(InteractiveRulersPlugin)
+            .add_plugins(cursor_information::CursorRulerPlugin);
     }
 }
 

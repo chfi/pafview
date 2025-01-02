@@ -1,10 +1,16 @@
-use bevy::prelude::*;
+use std::ops::DerefMut;
+
+use bevy::{prelude::*, utils::HashMap};
 
 use bevy_egui::EguiContexts;
 
-use crate::gui::AppWindowStates;
+use crate::{gui::AppWindowStates, sequences::SeqId, Sequences};
 
-use super::{annotations::gui::AnnotationsWindow, view::AlignmentViewport};
+use super::{
+    alignments::{AlignmentLayoutQuery, DefaultLayoutRoot},
+    annotations::gui::AnnotationsWindow,
+    view::AlignmentViewport,
+};
 
 pub(super) struct MenubarPlugin;
 
@@ -127,30 +133,6 @@ fn settings_window(
     );
 }
 
-fn goto_region_window(
-    mut contexts: EguiContexts,
-    alignment_grid: Res<crate::AlignmentGrid>,
-
-    mut window_states: ResMut<WindowStates>,
-
-    mut viewport: ResMut<AlignmentViewport>,
-) {
-    let ctx = contexts.ctx_mut();
-
-    let mut view = viewport.view;
-
-    crate::gui::goto::goto_region_window(
-        ctx,
-        &mut window_states.window_states.goto_region_open,
-        &alignment_grid,
-        &mut view,
-    );
-
-    if viewport.view != view {
-        viewport.view = view;
-    }
-}
-
 fn annotations_window(
     mut contexts: EguiContexts,
 
@@ -179,6 +161,108 @@ fn annotations_window(
     );
 
     //
+}
+
+fn goto_region_window(
+    mut contexts: EguiContexts,
+    // alignment_grid: Res<crate::AlignmentGrid>,
+    sequences: Res<Sequences>,
+    mut window_states: ResMut<WindowStates>,
+
+    mut viewport: ResMut<AlignmentViewport>,
+
+    layouts: AlignmentLayoutQuery,
+    default_layout_root: Res<DefaultLayoutRoot>,
+
+    mut target_text: Local<String>,
+    mut query_text: Local<String>,
+) {
+    let ctx = contexts.ctx_mut();
+
+    let mut view = viewport.view;
+
+    let parse_seq_range = |text: &str| -> Option<(SeqId, std::ops::Range<u64>)> {
+        let mut split = text.split(':');
+        let name = split.next()?;
+        let id = sequences.get_id(name)?;
+        let mut range = split
+            .next()?
+            .split('-')
+            .filter_map(|s| s.parse::<u64>().ok());
+        let start = range.next()?;
+        let end = range.next()?;
+
+        Some((id, start..end))
+    };
+
+    fn make_range_map(
+        offsets: &HashMap<SeqId, f64>,
+    ) -> impl Fn((SeqId, std::ops::Range<u64>)) -> Option<std::ops::RangeInclusive<f64>> + '_ {
+        |(seq, range)| {
+            let offset = offsets.get(&seq)?;
+            let start = range.start as f64 + *offset;
+            let end = range.end as f64 + *offset;
+            Some(start..=end)
+        }
+    }
+
+    let Ok((_, _transform, layout_handle, _)) = layouts.layout_roots.get(default_layout_root.0)
+    else {
+        return;
+    };
+
+    let Some(layout) = layouts.layout_assets.get(layout_handle) else {
+        return;
+    };
+
+    egui::Window::new("Go to region")
+        .open(&mut window_states.window_states.goto_region_open)
+        .show(ctx, |ui| {
+            let (pressed_enter, aspect_ratio) = ui.input(|i| {
+                let pressed = i.key_pressed(egui::Key::Enter);
+                let rect = i.screen_rect();
+                let aspect = rect.width() as f64 / rect.height() as f64;
+                (pressed, aspect)
+            });
+
+            // Target/X
+
+            let goto_btn = ui.button("Go to range");
+
+            let mut goto = goto_btn.clicked();
+
+            ui.horizontal(|ui| {
+                ui.label("Target");
+                // let target_text = ui.text_edit_singleline(target_text.as_mut());
+                let target_text = ui.text_edit_singleline(target_text.deref_mut());
+                goto |= target_text.lost_focus() && pressed_enter;
+            });
+
+            // Query/Y
+
+            ui.horizontal(|ui| {
+                ui.label("Query");
+                let query_text = ui.text_edit_singleline(query_text.deref_mut());
+                goto |= query_text.lost_focus() && pressed_enter;
+            });
+
+            // sequence-local ranges
+            let target_range = parse_seq_range(target_text.as_str());
+            let query_range = parse_seq_range(query_text.as_str());
+
+            let x_range = target_range.and_then(make_range_map(&layout.target_offsets));
+            let y_range = query_range.and_then(make_range_map(&layout.query_offsets));
+
+            if goto {
+                let new_view =
+                    view.fit_ranges_in_view_with_aspect_f64(aspect_ratio, x_range, y_range);
+                view = new_view;
+            }
+        });
+
+    if viewport.view != view {
+        viewport.view = view;
+    }
 }
 
 /*
