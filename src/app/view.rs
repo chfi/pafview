@@ -256,8 +256,8 @@ struct ViewHistoryCursor {
 }
 
 #[derive(Event)]
-struct ViewEvent {
-    view: crate::view::View,
+pub struct ViewEvent {
+    pub view: crate::view::View,
 }
 
 fn handle_view_events(

@@ -9,7 +9,7 @@ use crate::{gui::AppWindowStates, sequences::SeqId, Sequences};
 use super::{
     alignments::{AlignmentLayoutQuery, DefaultLayoutRoot},
     annotations::gui::AnnotationsWindow,
-    view::AlignmentViewport,
+    view::{AlignmentViewport, ViewEvent},
 };
 
 pub(super) struct MenubarPlugin;
@@ -169,7 +169,9 @@ fn goto_region_window(
     sequences: Res<Sequences>,
     mut window_states: ResMut<WindowStates>,
 
-    mut viewport: ResMut<AlignmentViewport>,
+    viewport: Res<AlignmentViewport>,
+
+    mut view_events: EventWriter<ViewEvent>,
 
     layouts: AlignmentLayoutQuery,
     default_layout_root: Res<DefaultLayoutRoot>,
@@ -183,23 +185,34 @@ fn goto_region_window(
 
     let parse_seq_range = |text: &str| -> Option<(SeqId, std::ops::Range<u64>)> {
         let mut split = text.split(':');
+
         let name = split.next()?;
         let id = sequences.get_id(name)?;
-        let mut range = split
-            .next()?
-            .split('-')
-            .filter_map(|s| s.parse::<u64>().ok());
-        let start = range.next()?;
-        let end = range.next()?;
+        dbg!();
 
-        Some((id, start..end))
+        let parsed_range = split.next().and_then(|t| {
+            let mut range = t.split('-').filter_map(|s| s.parse::<u64>().ok());
+            range.next().zip(range.next())
+        });
+
+        let range = if let Some((start, end)) = parsed_range {
+            start..end
+        } else {
+            0..sequences.get(id)?.len()
+        };
+
+        Some((id, range))
     };
 
     fn make_range_map(
         offsets: &HashMap<SeqId, f64>,
     ) -> impl Fn((SeqId, std::ops::Range<u64>)) -> Option<std::ops::RangeInclusive<f64>> + '_ {
         |(seq, range)| {
-            let offset = offsets.get(&seq)?;
+            dbg!(&seq, &range);
+            // let offset = offsets.get(&seq)?;
+            let offset = offsets.get(&seq);
+            dbg!(&offset);
+            let offset = offset?;
             let start = range.start as f64 + *offset;
             let end = range.end as f64 + *offset;
             Some(start..=end)
@@ -247,13 +260,25 @@ fn goto_region_window(
             });
 
             // sequence-local ranges
-            let target_range = parse_seq_range(target_text.as_str());
-            let query_range = parse_seq_range(query_text.as_str());
-
-            let x_range = target_range.and_then(make_range_map(&layout.target_offsets));
-            let y_range = query_range.and_then(make_range_map(&layout.query_offsets));
 
             if goto {
+                dbg!("\nTarget");
+                let target_range = parse_seq_range(target_text.as_str());
+                let x_range = target_range.and_then(make_range_map(&layout.target_offsets));
+                dbg!("\nQuery");
+                let query_range = parse_seq_range(query_text.as_str());
+                let y_range = query_range.and_then(make_range_map(&layout.query_offsets));
+
+                let y_range = y_range.map(|y_range| {
+                    let y0 = layout.maxs.y - *y_range.end();
+                    let y1 = layout.maxs.y - *y_range.start();
+                    y0..=y1
+                });
+
+                println!();
+                println!("target offsets {:?}", layout.target_offsets);
+                println!("query offsets {:?}", layout.query_offsets);
+
                 let new_view =
                     view.fit_ranges_in_view_with_aspect_f64(aspect_ratio, x_range, y_range);
                 view = new_view;
@@ -261,7 +286,8 @@ fn goto_region_window(
         });
 
     if viewport.view != view {
-        viewport.view = view;
+        println!("sending view event {view:?}");
+        view_events.send(ViewEvent { view });
     }
 }
 

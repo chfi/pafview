@@ -135,12 +135,7 @@ impl LayoutBuilder {
 
                     let x0 = x_offset;
 
-                    // let h_offset = self.horizontal_limit.unwrap_or(total_target_len as f64)
-
                     x_offset += tgt_len * h_prop;
-                    // x_offset += tgt_len / h_limit;
-
-                    // x_offset += self.horizontal_offset.unwrap_or(tgt_len);
 
                     let mut y_offset = 0.0;
 
@@ -160,13 +155,10 @@ impl LayoutBuilder {
 
                         let y0 = y_offset;
 
-                        query_offsets.insert(target, y0);
+                        query_offsets.insert(query, y0);
 
                         y_offset += qry_len * v_prop;
 
-                        // y_offset += self.vertical_offset.unwrap_or(qry_len);
-
-                        // let center = [x0, y0];
                         let center = [x0 + tgt_len * 0.5, y0 + qry_len * 0.5];
 
                         let half_extents = [tgt_len * 0.5, qry_len * 0.5];
