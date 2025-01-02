@@ -4,7 +4,10 @@ use bevy::prelude::*;
 use leafwing_input_manager::action_state::ActionState;
 
 use super::{
-    alignments::layout::{DefaultLayout, SeqPairLayout},
+    alignments::{
+        layout::{DefaultLayout, SeqPairLayout},
+        AlignmentLayoutQuery,
+    },
     input::ViewAction,
     AlignmentCamera,
 };
@@ -23,7 +26,10 @@ impl Plugin for AlignmentViewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<ViewHistoryCursor>()
             .add_event::<ViewEvent>()
-            .add_systems(Startup, setup)
+            .add_systems(
+                Startup,
+                setup.after(super::alignments::initialize_default_layout),
+            )
             .add_systems(
                 PreUpdate,
                 (
@@ -54,12 +60,16 @@ pub struct AlignmentViewport {
     pub view: crate::view::View,
 }
 
-fn setup(mut commands: Commands, grid: Res<crate::AlignmentGrid>) {
+fn setup(mut commands: Commands, layouts: AlignmentLayoutQuery) {
+    let Some(layout) = layouts.layout_assets.get(&layouts.default_layout.layout) else {
+        panic!("Layout did not exist");
+    };
+
     let initial_view = crate::view::View {
         x_min: 0.0,
-        x_max: grid.x_axis.total_len as f64,
+        x_max: layout.maxs.x,
         y_min: 0.0,
-        y_max: grid.y_axis.total_len as f64,
+        y_max: layout.maxs.y,
     };
 
     let viewport = AlignmentViewport { view: initial_view };

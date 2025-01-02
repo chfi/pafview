@@ -1,13 +1,6 @@
 use clap::Parser;
-use grid::AlignmentGrid;
 
-use pafview::PafViewerApp;
-
-use pafview::config;
-
-use pafview::grid;
-
-use pafview::annotations::AnnotationStore;
+use pafview::{annotations::AnnotationStore, config, PafViewerApp};
 
 pub fn main() -> anyhow::Result<()> {
     // #[cfg(feature = "tracy")]
@@ -26,16 +19,12 @@ pub fn main() -> anyhow::Result<()> {
     // Load PAF and optional FASTA
     let (alignments, sequences) = pafview::paf::load_input_files_mmap(&args)?;
 
-    let alignment_grid = AlignmentGrid::from_alignments(&alignments, sequences.names().clone());
-
     let app_config = config::load_app_config().unwrap_or_default();
 
     let app = PafViewerApp {
         app_config,
-        alignments: alignments,
-        alignment_grid: alignment_grid,
+        alignments,
         sequences,
-        // paf_input: todo!(),
         annotations: AnnotationStore::default(),
     };
 

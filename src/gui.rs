@@ -1,10 +1,6 @@
-use egui::{Color32, FontId};
-
 use crate::annotations::AnnotationStore;
 
 pub mod config;
-// pub mod debug;
-pub mod goto;
 
 #[derive(Debug, Clone, Copy)]
 pub struct AppWindowStates {

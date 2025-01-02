@@ -8,10 +8,7 @@ use bevy::{
 };
 use bevy_mod_picking::picking_core::Pickable;
 
-use crate::{
-    annotations::{AnnotationId, RecordEntryId, RecordListId},
-    grid::AxisRange,
-};
+use crate::annotations::{AnnotationId, RecordEntryId, RecordListId};
 
 use super::{
     alignments::{
@@ -25,10 +22,6 @@ use super::{
 pub(super) struct AnnotationsPlugin;
 
 pub mod gui;
-
-/*
-
-*/
 
 impl Plugin for AnnotationsPlugin {
     fn build(&self, app: &mut App) {

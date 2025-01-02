@@ -216,7 +216,6 @@ pub fn run(app: PafViewerApp) -> anyhow::Result<()> {
         .insert_resource(app.app_config)
         .insert_resource(app.sequences)
         .insert_resource(app.alignments)
-        .insert_resource(app.alignment_grid)
         .insert_resource(paf_color_schemes)
         .add_plugins(PafViewerPlugin);
 
