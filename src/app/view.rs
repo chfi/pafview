@@ -260,7 +260,7 @@ fn pan_viewport_anchored(
 }
 
 #[derive(Default, Resource)]
-struct ViewHistoryCursor {
+pub(crate) struct ViewHistoryCursor {
     past: VecDeque<crate::view::View>,
     future: VecDeque<crate::view::View>,
 }
@@ -270,7 +270,7 @@ pub struct ViewEvent {
     pub view: crate::view::View,
 }
 
-fn handle_view_events(
+pub(crate) fn handle_view_events(
     mut view_history: ResMut<ViewHistoryCursor>,
     mut app_view: ResMut<AlignmentViewport>,
     mut view_events: EventReader<ViewEvent>,

@@ -10,6 +10,7 @@ use bevy_mod_picking::prelude::*;
 use super::render::bordered_rect::BorderedRectMaterial;
 use crate::{sequences::SeqId, Alignments};
 
+pub mod goto;
 pub mod layout;
 
 use layout::{AabbQbvh, LayoutEntityIndex, SeqPairLayout};
@@ -29,7 +30,8 @@ impl Plugin for AlignmentsPlugin {
         app.init_resource::<AlignmentEntityIndex>()
             .init_resource::<SequencePairEntityIndex>()
             .add_plugins(layout::AlignmentLayoutPlugin)
-            .add_plugins(AlignmentAabbPlugin);
+            .add_plugins(AlignmentAabbPlugin)
+            .add_plugins(goto::GotoAlignmentPlugin);
 
         app.add_systems(Startup, initialize_grid_material);
         app.add_systems(
