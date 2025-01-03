@@ -9,6 +9,7 @@ use crate::{gui::AppWindowStates, sequences::SeqId, Sequences};
 use super::{
     alignments::{AlignmentLayoutQuery, DefaultLayoutRoot},
     annotations::gui::AnnotationsWindow,
+    paf_window::PafListWindowOpen,
     view::{AlignmentViewport, ViewEvent},
 };
 
@@ -63,13 +64,19 @@ pub(crate) fn menubar_system(
     mut contexts: EguiContexts,
     mut window_states: ResMut<WindowStates>,
     // mut figure_export_open: Option<ResMut<super::figure_export::FigureExportWindowOpen>>,
+    mut paf_list_open: ResMut<PafListWindowOpen>,
     mut layout_editor_open: ResMut<super::alignments::layout::editor::LayoutEditorOpen>,
+
     mut menubar_size: ResMut<MenubarSize>,
 ) {
     let window_states = &mut window_states.window_states;
     let ctx = contexts.ctx_mut();
     let menubar_resp = egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
         ui.horizontal(|ui| {
+            if ui.button("PAF").clicked() {
+                paf_list_open.0 = !paf_list_open.0;
+            }
+
             if ui.button("Regions of Interest").clicked() {
                 window_states.regions_of_interest_open = !window_states.regions_of_interest_open;
             }
@@ -262,10 +269,8 @@ fn goto_region_window(
             // sequence-local ranges
 
             if goto {
-                dbg!("\nTarget");
                 let target_range = parse_seq_range(target_text.as_str());
                 let x_range = target_range.and_then(make_range_map(&layout.target_offsets));
-                dbg!("\nQuery");
                 let query_range = parse_seq_range(query_text.as_str());
                 let y_range = query_range.and_then(make_range_map(&layout.query_offsets));
 
@@ -275,10 +280,6 @@ fn goto_region_window(
                     y0..=y1
                 });
 
-                println!();
-                println!("target offsets {:?}", layout.target_offsets);
-                println!("query offsets {:?}", layout.query_offsets);
-
                 let new_view =
                     view.fit_ranges_in_view_with_aspect_f64(aspect_ratio, x_range, y_range);
                 view = new_view;
@@ -286,7 +287,6 @@ fn goto_region_window(
         });
 
     if viewport.view != view {
-        println!("sending view event {view:?}");
         view_events.send(ViewEvent { view });
     }
 }

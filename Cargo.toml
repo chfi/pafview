@@ -95,7 +95,7 @@ leafwing-input-manager = { git = "https://github.com/Leafwing-Studios/leafwing-i
     "egui",
 ] }
 bevy_mod_picking = "0.20.1"
-bevy-inspector-egui = "0.25.2"
+bevy-inspector-egui = "0.27"
 rand = "0.8.5"
 bgzip = "0.3.1"
 memmap2 = "0.9.5"

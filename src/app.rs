@@ -42,6 +42,7 @@ impl Plugin for PafViewerPlugin {
             .add_plugins(picking::PickingPlugin)
             // .add_plugins(figure_export::FigureExportPlugin)
             .add_plugins(render::bordered_rect::BorderedRectRenderPlugin)
+            .add_plugins(paf_window::PafListWindowPlugin)
             .add_systems(Startup, setup_cameras)
             .add_systems(PreUpdate, update_screenspace_camera)
             .add_systems(Last, save_app_config);

@@ -308,6 +308,8 @@ pub struct Alignments {
     pub alignments: Arc<Vec<Alignment>>,
 
     // values are indices into `alignments` vec
+    // (target, query)
+    // TODO replace key with `SequencePairTile` (& maybe rename that)
     pub indices: Arc<FxHashMap<(SeqId, SeqId), Vec<usize>>>,
 
     // pub pairs: Arc<FxHashMap<(SeqId, SeqId), Vec<Alignment>>>,

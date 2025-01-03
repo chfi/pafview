@@ -23,7 +23,8 @@ impl Plugin for GotoAlignmentPlugin {
 #[derive(Event, Clone, Copy)]
 pub enum GotoAlignmentEvent {
     SequencePair { target: SeqId, query: SeqId },
-    Alignment { alignment_index: AlignmentIndex },
+    // NB: indexes directly into the `alignments` field of `crate::paf::Alignments`
+    Alignment { alignment_offset: usize },
 }
 
 pub(crate) fn send_view_events(
@@ -49,27 +50,21 @@ pub(crate) fn send_view_events(
                 let view = View {
                     x_min: aabb.mins.x,
                     y_min: aabb.mins.y,
-                    x_max: aabb.mins.x,
-                    y_max: aabb.mins.y,
+                    x_max: aabb.maxs.x,
+                    y_max: aabb.maxs.y,
                 };
 
                 view_events.send(ViewEvent { view });
             }
-            GotoAlignmentEvent::Alignment { alignment_index } => {
-                let AlignmentIndex {
-                    query,
-                    target,
-                    pair_index,
-                } = alignment_index;
+            GotoAlignmentEvent::Alignment { alignment_offset } => {
+                let Some(alignment) = alignments.alignments.get(alignment_offset) else {
+                    continue;
+                };
 
-                let tile_aabb = layout.aabbs.get(&SequencePairTile { target, query });
+                let target = alignment.target_id;
+                let query = alignment.query_id;
 
-                let alignment = alignments.indices.get(&(target, query)).and_then(|ixs| {
-                    let ix = ixs.get(pair_index)?;
-                    alignments.alignments.get(*ix)
-                });
-
-                let Some((tile_aabb, alignment)) = tile_aabb.zip(alignment) else {
+                let Some(tile_aabb) = layout.aabbs.get(&SequencePairTile { target, query }) else {
                     continue;
                 };
 
