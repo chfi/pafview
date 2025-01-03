@@ -4,7 +4,7 @@ use picking_core::PickSet;
 
 use super::{
     alignments::{
-        layout::{LayoutEntityIndex, SeqPairLayout},
+        layout::{LayoutSeqTileEntityIndex, SeqPairLayout},
         SequencePairAlignmentEntities,
     },
     view::AlignmentViewport,
@@ -34,7 +34,11 @@ fn seq_pair_and_alignment_picking(
     alignments: Res<crate::Alignments>,
 
     layouts: Res<Assets<SeqPairLayout>>,
-    layout_roots: Query<(&Transform, &Handle<SeqPairLayout>, &LayoutEntityIndex)>,
+    layout_roots: Query<(
+        &Transform,
+        &Handle<SeqPairLayout>,
+        &LayoutSeqTileEntityIndex,
+    )>,
     seq_pair_tiles: Query<
         (&SequencePairAlignmentEntities, &GlobalTransform),
         With<SequencePairTile>,

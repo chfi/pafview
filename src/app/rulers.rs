@@ -721,7 +721,7 @@ mod cursor_information {
 
     use crate::{
         app::{
-            alignments::layout::{LayoutEntityIndex, SeqPairLayout},
+            alignments::layout::{LayoutSeqTileEntityIndex, SeqPairLayout},
             SequencePairTile,
         },
         Sequences,
@@ -821,7 +821,11 @@ mod cursor_information {
         layout_assets: Res<Assets<SeqPairLayout>>,
         sequences: Res<Sequences>,
 
-        layout_roots: Query<(&Transform, &Handle<SeqPairLayout>, &LayoutEntityIndex)>,
+        layout_roots: Query<(
+            &Transform,
+            &Handle<SeqPairLayout>,
+            &LayoutSeqTileEntityIndex,
+        )>,
 
         crosshair: Query<(Entity, &CursorRulerLabels, &Children)>,
         mut transforms: Query<&mut Transform, Without<Handle<SeqPairLayout>>>,

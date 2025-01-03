@@ -306,6 +306,9 @@ impl Alignment {
 pub struct Alignments {
     // alignments in line-order with the input PAF file
     pub alignments: Arc<Vec<Alignment>>,
+    // for mapping back from index in `alignments` to index in the list
+    // of alignments in a given tile (with the seq. IDs on the `Alignment` itself)
+    pub pair_indices: Arc<Vec<usize>>,
 
     // values are indices into `alignments` vec
     // (target, query)
@@ -681,6 +684,8 @@ impl Alignments {
                 .push(al_ix);
         }
 
+        let mut pair_indices: Vec<usize> = vec![0; alignments.len()];
+
         let mut cigar_range_index_map = bimap::BiHashMap::default();
 
         for (&(target, query), al_indices) in indices.iter_mut() {
@@ -691,13 +696,16 @@ impl Alignments {
                 (tgt.start, tgt.end, qry.start, qry.end)
             });
 
-            for &ix in al_indices.iter() {
-                let al = &alignments[ix];
+            for (local_ix, &global_ix) in al_indices.iter().enumerate() {
+                let al = &alignments[global_ix];
+
+                pair_indices[global_ix] = local_ix;
+
                 if let Some(range) = &al.cigar_file_byte_range {
                     let al_ix = AlignmentIndex {
                         query,
                         target,
-                        pair_index: ix,
+                        pair_index: local_ix,
                     };
 
                     cigar_range_index_map.insert(al_ix, range.clone());
@@ -708,6 +716,7 @@ impl Alignments {
         Self {
             alignments: Arc::new(alignments),
             indices: Arc::new(indices),
+            pair_indices: Arc::new(pair_indices),
             cigar_range_index_map,
         }
     }
@@ -735,6 +744,8 @@ impl Alignments {
             // pairs.entry(pair_id).or_default().push(alignment);
         }
 
+        let mut pair_indices = vec![0usize; alignments.len()];
+
         let mut cigar_range_index_map: bimap::BiHashMap<AlignmentIndex, std::ops::Range<u64>> =
             Default::default();
 
@@ -746,16 +757,19 @@ impl Alignments {
                 (tgt.start, tgt.end, qry.start, qry.end)
             });
 
-            // for (pair_index, al_ix) in al_indices.iter_mut().enumerate()
+            for (local_ix, &global_ix) in al_indices.iter().enumerate() {
+                let al = &alignments[global_ix];
 
-            for (index, al) in alignments.iter_mut().enumerate() {
-                let al_ix = AlignmentIndex {
-                    target,
-                    query,
-                    pair_index: index,
-                };
-                if let Some(range) = al.cigar_file_byte_range.clone() {
-                    cigar_range_index_map.insert(al_ix, range);
+                pair_indices[global_ix] = local_ix;
+
+                if let Some(range) = &al.cigar_file_byte_range {
+                    let al_ix = AlignmentIndex {
+                        query,
+                        target,
+                        pair_index: local_ix,
+                    };
+
+                    cigar_range_index_map.insert(al_ix, range.clone());
                 }
             }
         }
@@ -765,6 +779,7 @@ impl Alignments {
         Self {
             alignments: Arc::new(alignments),
             indices: Arc::new(indices),
+            pair_indices: Arc::new(pair_indices),
             // pairs: Arc::new(pairs),
             cigar_range_index_map,
         }
@@ -785,6 +800,7 @@ impl Alignments {
         let impg_cigars = ImpgIndex::impg_cigars(&impg_index, &sequences);
 
         let mut alignments = Vec::new();
+        let mut pair_indices = Vec::new();
         let mut indices: FxHashMap<_, Vec<_>> = FxHashMap::default();
 
         // let mut pairs: FxHashMap<_, Vec<_>> = FxHashMap::default();
@@ -815,7 +831,11 @@ impl Alignments {
 
                 let al_ix = alignments.len();
                 alignments.push(alignment);
-                indices.entry(pair).or_default().push(al_ix);
+
+                let local_indices = indices.entry(pair).or_default();
+                let local_ix = local_indices.len();
+                pair_indices.push(local_ix);
+                local_indices.push(al_ix);
             }
         }
 
@@ -823,6 +843,7 @@ impl Alignments {
             Self {
                 alignments: alignments.into(),
                 indices: indices.into(),
+                pair_indices: Arc::new(pair_indices),
                 cigar_range_index_map,
             },
             sequences,

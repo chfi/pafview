@@ -13,7 +13,7 @@ use crate::{sequences::SeqId, Alignments};
 pub mod goto;
 pub mod layout;
 
-use layout::{AabbQbvh, LayoutEntityIndex, SeqPairLayout};
+use layout::{AabbQbvh, LayoutSeqTileEntityIndex, SeqPairLayout};
 
 use avian2d::parry::bounding_volume::Aabb;
 
@@ -64,7 +64,7 @@ pub struct AlignmentLayoutQuery<'w, 's> {
             Entity,
             &'static Transform,
             &'static Handle<SeqPairLayout>,
-            &'static LayoutEntityIndex,
+            &'static LayoutSeqTileEntityIndex,
         ),
     >,
 
@@ -199,7 +199,7 @@ pub(super) fn spawn_default_layout_root(
         .spawn((
             SpatialBundle::default(),
             default_layout.layout.clone(),
-            layout::LayoutEntityIndex::default(),
+            layout::LayoutSeqTileEntityIndex::default(),
         ))
         .id();
     layout_events.send(layout::LayoutChangedEvent {
@@ -221,7 +221,7 @@ fn spawn_layout_children(
     mut layout_roots: Query<(
         Entity,
         &Handle<SeqPairLayout>,
-        &mut layout::LayoutEntityIndex,
+        &mut layout::LayoutSeqTileEntityIndex,
     )>,
 
     mut meshes: ResMut<Assets<Mesh>>,

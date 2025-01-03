@@ -2,9 +2,16 @@ use bevy::prelude::*;
 use bevy_egui::EguiContexts;
 use egui::Sense;
 
-use crate::{Alignments, Sequences};
+use crate::{Alignment, Alignments, Sequences};
 
-use super::{alignments::goto::GotoAlignmentEvent, AlignmentIndex};
+use super::{
+    alignments::{
+        goto::GotoAlignmentEvent, AlignmentLayoutQuery, DefaultLayoutRoot,
+        SequencePairAlignmentEntities,
+    },
+    render::bordered_rect::BorderedRectMaterial,
+    AlignmentIndex, SequencePairTile,
+};
 
 pub struct PafListWindowPlugin;
 

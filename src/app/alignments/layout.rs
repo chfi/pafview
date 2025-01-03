@@ -47,7 +47,7 @@ pub struct DefaultLayout {
 }
 
 #[derive(Component, Default, Deref, DerefMut)]
-pub struct LayoutEntityIndex(pub HashMap<SequencePairTile, Entity>);
+pub struct LayoutSeqTileEntityIndex(pub HashMap<SequencePairTile, Entity>);
 
 impl DefaultLayout {
     pub fn new(layout: Handle<SeqPairLayout>, builder: LayoutBuilder) -> Self {
