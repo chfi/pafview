@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::{hash::Hash, sync::Arc};
 
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -353,7 +354,7 @@ pub struct AlignmentMetadata {
     pub alignment_block_length: usize,
     pub mapping_quality: u8,
 
-    pub optional_fields: FxHashMap<[u8; 2], (char, String)>,
+    pub optional_fields: BTreeMap<[u8; 2], (char, String)>,
 }
 
 #[derive(bevy::prelude::Resource, Debug)]
@@ -366,7 +367,7 @@ impl PafMetadata {
     pub fn get_optional_fields(
         &self,
         alignment: &crate::app::alignments::AlignmentIndex,
-    ) -> Option<&FxHashMap<[u8; 2], (char, String)>> {
+    ) -> Option<&BTreeMap<[u8; 2], (char, String)>> {
         let pair = self.metadata.get(&(alignment.target, alignment.query))?;
         let metadata = pair.get(alignment.pair_index)?;
         Some(&metadata.optional_fields)
@@ -438,7 +439,7 @@ impl PafMetadata {
                         None
                     }
                 })
-                .collect::<FxHashMap<_, _>>();
+                .collect::<BTreeMap<_, _>>();
 
             let tgt_start = tgt_start.parse::<u64>().unwrap();
 

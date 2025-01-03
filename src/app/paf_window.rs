@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use bevy_egui::{EguiClipboard, EguiContexts};
 use egui::Sense;
 
-use crate::{Alignment, Alignments, Sequences};
+use crate::{paf::PafMetadata, Alignment, Alignments, Sequences};
 
 use super::{
     alignments::{
@@ -35,6 +35,7 @@ fn show_paf_list_window(
     mut contexts: EguiContexts,
     sequences: Res<Sequences>,
     alignments: Res<Alignments>,
+    paf_metadata: Res<PafMetadata>,
 
     mut clipboard: ResMut<EguiClipboard>,
     mut window_open: ResMut<PafListWindowOpen>,
@@ -54,16 +55,22 @@ fn show_paf_list_window(
                 egui::Grid::new("paf_list_window_record_grid")
                     .start_row(range.start)
                     .striped(true)
+                    .num_columns(13)
                     .show(ui, |ui| {
                         // header is always first row
                         ui.label("QRY");
                         ui.label("Seq. length");
                         ui.label("Start");
                         ui.label("End");
+                        ui.label("Strand");
                         ui.label("TGT");
                         ui.label("Seq. length");
                         ui.label("Start");
                         ui.label("End");
+                        ui.label("# Matches");
+                        ui.label("Block len.");
+                        ui.label("Map qual.");
+                        // ui.label("Extra");
                         ui.end_row();
 
                         let mut full_range = range.clone();
@@ -72,9 +79,21 @@ fn show_paf_list_window(
                         let rows = &alignments.alignments[alignment_range.clone()];
 
                         for (alignment_offset, alignment) in std::iter::zip(alignment_range, rows) {
-                            let qry_seq = sequences.get(alignment.query_id);
-                            let tgt_seq = sequences.get(alignment.target_id);
+                            let pair_index = alignments.pair_indices[alignment_offset];
+
+                            let query = alignment.query_id;
+                            let target = alignment.target_id;
+                            let qry_seq = sequences.get(query);
+                            let tgt_seq = sequences.get(target);
                             let Some((qry_seq, tgt_seq)) = qry_seq.zip(tgt_seq) else {
+                                continue;
+                            };
+
+                            let Some(metadata) = paf_metadata
+                                .metadata
+                                .get(&(target, query))
+                                .and_then(|metas| metas.get(pair_index))
+                            else {
                                 continue;
                             };
 
@@ -96,10 +115,24 @@ fn show_paf_list_window(
                             row_rect = row_rect.union(ui.label(qry_len.to_string()).rect);
                             row_rect = row_rect.union(ui.label(qry_start.to_string()).rect);
                             row_rect = row_rect.union(ui.label(qry_end.to_string()).rect);
+
+                            let strand_str = match loc.query_strand {
+                                crate::Strand::Forward => "+",
+                                crate::Strand::Reverse => "-",
+                            };
+                            row_rect = row_rect.union(ui.label(strand_str).rect);
+
                             row_rect = row_rect.union(ui.label(tgt_name).rect);
                             row_rect = row_rect.union(ui.label(tgt_len.to_string()).rect);
                             row_rect = row_rect.union(ui.label(tgt_start.to_string()).rect);
                             row_rect = row_rect.union(ui.label(tgt_end.to_string()).rect);
+
+                            row_rect =
+                                row_rect.union(ui.label(metadata.residue_matches.to_string()).rect);
+                            row_rect = row_rect
+                                .union(ui.label(metadata.alignment_block_length.to_string()).rect);
+                            row_rect =
+                                row_rect.union(ui.label(metadata.mapping_quality.to_string()).rect);
 
                             let label = ui.interact(
                                 row_rect,
