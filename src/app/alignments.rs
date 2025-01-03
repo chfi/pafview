@@ -119,10 +119,10 @@ impl<'w, 's> AlignmentLayoutQuery<'w, 's> {
 }
 
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
-pub struct AlignmentEntityIndex(pub HashMap<AlignmentIndex, Entity>);
+struct AlignmentEntityIndex(pub HashMap<AlignmentIndex, Entity>);
 
 #[derive(Debug, Default, Resource, Deref, DerefMut)]
-pub struct SequencePairEntityIndex(pub HashMap<SequencePairTile, Entity>);
+struct SequencePairEntityIndex(pub HashMap<SequencePairTile, Entity>);
 
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
 pub struct SequencePairTile {
