@@ -9,6 +9,7 @@ pub mod picking;
 pub mod render;
 pub mod rulers;
 // pub mod selection;
+pub mod paf_window;
 pub mod view;
 
 pub use alignments::{AlignmentIndex, SequencePairTile};
