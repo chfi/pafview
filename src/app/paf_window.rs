@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use bevy_egui::EguiContexts;
+use bevy_egui::{EguiClipboard, EguiContexts};
 use egui::Sense;
 
 use crate::{Alignment, Alignments, Sequences};
@@ -36,6 +36,7 @@ fn show_paf_list_window(
     sequences: Res<Sequences>,
     alignments: Res<Alignments>,
 
+    mut clipboard: ResMut<EguiClipboard>,
     mut window_open: ResMut<PafListWindowOpen>,
 
     mut goto_view_events: EventWriter<GotoAlignmentEvent>,
@@ -120,6 +121,28 @@ fn show_paf_list_window(
                                 goto_view_events
                                     .send(GotoAlignmentEvent::Alignment { alignment_offset });
                             };
+
+                            label.context_menu(|ui| {
+                                let close = ui.input(|i| i.pointer.any_pressed());
+
+                                ui.vertical(|ui| {
+                                    if ui.button("Copy target region").clicked() {
+                                        clipboard.set_contents(&format!(
+                                            "{tgt_name}:{tgt_start}-{tgt_end}"
+                                        ));
+                                    }
+
+                                    if ui.button("Copy query region").clicked() {
+                                        clipboard.set_contents(&format!(
+                                            "{qry_name}:{qry_start}-{qry_end}"
+                                        ));
+                                    }
+                                });
+
+                                if close {
+                                    ui.close_menu();
+                                }
+                            });
                         }
                     });
             });
@@ -143,9 +166,6 @@ fn prepare_highlight_assets(
         fill_color: LinearRgba::new(0.3, 0.05, 0.05, 0.3),
         border_color: LinearRgba::new(0.8, 0.2, 0.2, 0.8),
         border_width_px: 2.0,
-        // border_opacities: todo!(),
-        // border_width_modifiers: todo!(),
-        // alpha_mode: todo!(),
         ..default()
     });
 
