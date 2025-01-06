@@ -1,23 +1,27 @@
 use std::sync::atomic::AtomicU8;
 
-use bevy::render::{
-    extract_component::{ExtractComponent, ExtractComponentPlugin},
-    render_asset::RenderAssets,
-    render_resource::{
-        BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries, Buffer, CachedRenderPipelineId,
-        PipelineCache, RenderPipelineDescriptor, ShaderType,
-    },
-    renderer::{RenderDevice, RenderQueue},
-    texture::GpuImage,
-    view::RenderLayers,
-    Render, RenderApp, RenderSet,
-};
 use bevy::{
     math::U64Vec2,
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task},
     utils::tracing,
 };
+use bevy::{
+    render::{
+        extract_component::{ExtractComponent, ExtractComponentPlugin},
+        render_asset::RenderAssets,
+        render_resource::{
+            BindGroupEntries, BindGroupLayout, BindGroupLayoutEntries, Buffer,
+            CachedRenderPipelineId, PipelineCache, RenderPipelineDescriptor, ShaderType,
+        },
+        renderer::{RenderDevice, RenderQueue},
+        texture::GpuImage,
+        view::RenderLayers,
+        Render, RenderApp, RenderSet,
+    },
+    utils::HashMap,
+};
+use nalgebra::OPoint;
 use pipeline::{PolylineConfig, PolylineModel, PolylineProjection, PolylineVertices};
 use wgpu::BufferUsages;
 
@@ -70,10 +74,10 @@ impl Plugin for SampledAlignmentRendererPlugin {
                 PreUpdate,
                 (
                     swap_vertex_buffers,
-                    finish_vertex_sampling_tasks,
+                    finish_alignment_sampling_tasks,
                     // spawn_vertex_sampling_tasks,
                     finish_render_operation,
-                    spawn_vertex_sampling_tasks,
+                    spawn_alignment_sampling_tasks,
                     // trigger_render_operation,
                     resize_alignment_viewer_back_image,
                 )
@@ -102,7 +106,9 @@ struct SampledAlignmentViewer {
 }
 
 struct SampledVertices {
-    buffer_data: Vec<VertexData>,
+    // Entity is layout root entity
+    alignments: Vec<(Entity, AlignmentIndex, Vec<VertexData>)>,
+    // buffer_data: Vec<VertexData>,
     sampling_params: VertexSamplingParams,
 }
 
@@ -276,25 +282,21 @@ fn resize_alignment_viewer_back_image(
 
 fn update_alignment_viewer_params(
     viewport: Res<AlignmentViewport>,
-    //
     mut viewers: Query<&mut SampledAlignmentViewer>,
 ) {
     for mut viewer in viewers.iter_mut() {
         viewer.view = Some(viewport.view);
     }
-
-    //
 }
 
-#[tracing::instrument(skip_all)]
-fn spawn_vertex_sampling_tasks(
+fn spawn_alignment_sampling_tasks(
     mut commands: Commands,
 
     alignments: Res<crate::Alignments>,
     paf_colors: Res<PafColorSchemes>,
     layouts: Res<Assets<SeqPairLayout>>,
 
-    layout_roots: Query<(&Transform, &Handle<SeqPairLayout>)>,
+    layout_roots: Query<(Entity, &Transform, &Handle<SeqPairLayout>)>,
 
     viewers: Query<
         (
@@ -356,9 +358,9 @@ fn spawn_vertex_sampling_tasks(
 
         let placed_layouts = layout_roots
             .iter()
-            .filter_map(|(tform, handle)| {
+            .filter_map(|(root, tform, handle)| {
                 let layout = layouts.get(handle)?.clone();
-                Some((*tform, layout))
+                Some((root, *tform, layout))
             })
             .collect::<Vec<_>>();
 
@@ -376,37 +378,44 @@ fn spawn_vertex_sampling_tasks(
         let task = task_pool.spawn(async move {
             use rayon::prelude::*;
 
-            let (data_send, data_recv) = crossbeam::channel::unbounded::<VertexData>();
+            let (data_send, data_recv) =
+                crossbeam::channel::unbounded::<(Entity, AlignmentIndex, Vec<VertexData>)>();
 
             let t0 = std::time::Instant::now();
             // TODO: actually use the root transform
-            let alignments = placed_layouts.par_iter().flat_map(|(transform, layout)| {
-                layout
-                    .layout_qbvh
-                    .aabbs_in_rect(params.view.center(), params.view.size() * 0.5)
-                    .into_par_iter()
-                    .filter_map(|seq_pair| {
-                        let aabb = layout.aabbs.get(&seq_pair)?;
-                        let al_ixs = alignment_ixs.get(&(seq_pair.target, seq_pair.query))?;
-                        let seq_pair_offset = [aabb.mins.x, aabb.mins.y];
+            let alignments =
+                placed_layouts
+                    .par_iter()
+                    .flat_map(|(layout_root, transform, layout)| {
+                        let layout_root = *layout_root;
+                        let aabbs = &layout.aabbs;
+                        let alignment_ixs = &alignment_ixs;
+                        layout
+                            .layout_qbvh
+                            .aabbs_in_rect(params.view.center(), params.view.size() * 0.5)
+                            .into_par_iter()
+                            .filter_map(move |seq_pair| {
+                                let aabb = aabbs.get(&seq_pair)?;
+                                let al_ixs =
+                                    alignment_ixs.get(&(seq_pair.target, seq_pair.query))?;
+                                let seq_pair_offset = [aabb.mins.x, aabb.mins.y];
 
-                        Some((seq_pair_offset, al_ixs))
-                    })
-                    .flat_map(|(offset, al_indices)| {
-                        let al_vec = &alignments_vec;
-                        al_indices
-                            .par_iter()
-                            .enumerate()
-                            .filter_map(move |(pair_ix, &vec_ix)| {
-                                let al = al_vec.get(vec_ix)?;
-                                Some((offset, pair_ix, al))
+                                Some((layout_root, seq_pair_offset, al_ixs))
                             })
-                    })
-            });
+                            .flat_map(|(layout_root, offset, al_indices)| {
+                                let al_vec = &alignments_vec;
+                                al_indices.par_iter().enumerate().filter_map(
+                                    move |(pair_ix, &vec_ix)| {
+                                        let al = al_vec.get(vec_ix)?;
+                                        Some((layout_root, offset, pair_ix, al))
+                                    },
+                                )
+                            })
+                    });
 
             alignments.for_each_with(
                 (data_send, Vec::<VertexData>::new()),
-                |(send, ref mut vx_data), (seq_pair_offset, pair_index, alignment)| {
+                |(send, ref mut vx_data), (layout_root, seq_pair_offset, pair_index, alignment)| {
                     let index = AlignmentIndex {
                         target: alignment.target_id,
                         query: alignment.query_id,
@@ -426,17 +435,17 @@ fn spawn_vertex_sampling_tasks(
                     ) {
                         // log
                     } else {
-                        vx_data.iter().for_each(|&data| {
-                            send.send(data).unwrap();
-                        });
+                        send.send((layout_root, index, std::mem::take(vx_data)))
+                            .unwrap();
                     }
                 },
             );
 
-            let vertex_data = data_recv.iter().collect::<Vec<_>>();
+            // let vertex_data = data_recv.iter().flat_map(|(_, vx)| vx).collect::<Vec<_>>();
 
             SampledVertices {
-                buffer_data: vertex_data,
+                alignments: data_recv.iter().collect(),
+                // buffer_data: vertex_data,
                 sampling_params: params,
             }
         });
@@ -449,8 +458,13 @@ fn spawn_vertex_sampling_tasks(
     //
 }
 
-#[tracing::instrument(skip_all)]
-fn finish_vertex_sampling_tasks(
+#[derive(Component)]
+pub struct AlignmentCollisionLines {
+    // Entity is layout root
+    pub polylines: HashMap<(Entity, AlignmentIndex), avian2d::parry::shape::Polyline>,
+}
+
+fn finish_alignment_sampling_tasks(
     render_device: Res<RenderDevice>,
     render_queue: Res<RenderQueue>,
     //
@@ -468,21 +482,46 @@ fn finish_vertex_sampling_tasks(
             continue;
         }
 
-        let Some(mut result) = bevy::tasks::block_on(bevy::tasks::poll_once(&mut task.task)) else {
+        let Some(result) = bevy::tasks::block_on(bevy::tasks::poll_once(&mut task.task)) else {
             commands.entity(viewer_ent).remove::<VertexSamplingTask>();
             continue;
         };
 
-        std::mem::swap(
-            buffers.vertices.buffer.values_mut(),
-            &mut result.buffer_data,
-        );
+        // for collision
+        let mut al_polylines: HashMap<(Entity, AlignmentIndex), avian2d::parry::shape::Polyline> =
+            HashMap::default();
+
+        buffers.vertices.buffer.clear();
+
+        for (layout_root, al_ix, vertices) in result.alignments {
+            let Some(first) = vertices.first().copied() else {
+                continue;
+            };
+
+            let mut points = Vec::new();
+            let p0 = Vec2::from(first.p0);
+            points.push(nalgebra::Point2::new(p0.x as f64, p0.y as f64));
+
+            points.extend(vertices.iter().map(|VertexData { p1: [x, y], .. }| {
+                nalgebra::Point2::new((*x) as f64, (*y) as f64)
+            }));
+
+            al_polylines.insert(
+                (layout_root, al_ix),
+                avian2d::parry::shape::Polyline::new(points, None),
+            );
+
+            buffers.vertices.buffer.extend(vertices);
+        }
 
         let inst_count = buffers.vertices.buffer.values().len();
 
         commands
             .entity(viewer_ent)
             .insert(result.sampling_params)
+            .insert(AlignmentCollisionLines {
+                polylines: al_polylines,
+            })
             .remove::<VertexSamplingTask>();
 
         viewer.last_sampled_at = Some(std::time::Instant::now());

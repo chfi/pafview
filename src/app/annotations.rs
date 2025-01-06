@@ -15,7 +15,7 @@ use super::{
         layout::{AabbQbvh, DefaultLayout, SeqPairLayout},
         AlignmentLayoutQuery,
     },
-    render::bordered_rect::BorderedRectMaterial2d,
+    render::{bordered_rect::BorderedRectMaterial2d, sampled_lines::AlignmentCollisionLines},
     view::AlignmentViewport,
 };
 
@@ -296,6 +296,8 @@ fn update_annotation_regions(
     alignment_view: Res<AlignmentViewport>,
 
     windows: Query<&Window>,
+
+    alignment_collision: Query<&AlignmentCollisionLines>,
 
     display_ents: Query<(&Annotation, &DisplayEntities)>,
     mut transforms: Query<&mut Transform, Without<Handle<SeqPairLayout>>>,
