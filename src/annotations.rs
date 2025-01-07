@@ -13,6 +13,12 @@ pub mod draw;
 // TODO newtype these
 pub type RecordListId = usize;
 pub type RecordEntryId = usize;
+
+// #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+// pub struct AnnotationId {
+//     pub list: RecordListId,
+//     pub record: RecordEntryId,
+// }
 pub type AnnotationId = (RecordListId, RecordEntryId);
 
 #[derive(Default)]

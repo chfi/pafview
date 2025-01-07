@@ -458,9 +458,11 @@ fn spawn_alignment_sampling_tasks(
     //
 }
 
+/// Holds `parry` `Polyline`s constructed from the alignments sampled to build
+/// the vertices for the current view
 #[derive(Component)]
 pub struct AlignmentCollisionLines {
-    // Entity is layout root
+    /// Entity is layout root
     pub polylines: HashMap<(Entity, AlignmentIndex), avian2d::parry::shape::Polyline>,
 }
 

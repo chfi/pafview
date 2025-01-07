@@ -1,4 +1,5 @@
-use avian2d::parry::bounding_volume::Aabb;
+use avian2d::parry::{self, bounding_volume::Aabb as ParryAabb};
+
 use bevy::{
     math::{DVec2, U64Vec2},
     prelude::*,
@@ -13,10 +14,11 @@ use crate::annotations::{AnnotationId, RecordEntryId, RecordListId};
 use super::{
     alignments::{
         layout::{AabbQbvh, DefaultLayout, SeqPairLayout},
-        AlignmentLayoutQuery,
+        AlignmentAabbs, AlignmentLayoutQuery, DefaultLayoutRoot,
     },
     render::{bordered_rect::BorderedRectMaterial2d, sampled_lines::AlignmentCollisionLines},
     view::AlignmentViewport,
+    AlignmentIndex, SequencePairTile,
 };
 
 pub(super) struct AnnotationsPlugin;
@@ -26,7 +28,7 @@ pub mod gui;
 impl Plugin for AnnotationsPlugin {
     fn build(&self, app: &mut App) {
         app //.init_resource::<LabelPhysics>()
-            .init_resource::<AnnotationPainter>()
+            // .init_resource::<AnnotationPainter>()
             .init_resource::<Annotations>()
             .init_resource::<AnnotationEntityMap>()
             .init_resource::<LabelQbvh>()
@@ -92,9 +94,6 @@ enum AnnotationEvent {
 // struct LabelPhysics(crate::annotations::physics::LabelPhysics);
 
 // NB: probably want to replace the egui painter-based annotation drawing
-// with something cleaner & more integrated into bevy
-#[derive(Resource, Default)]
-struct AnnotationPainter(pub crate::annotations::draw::AnnotationPainter);
 
 #[derive(Resource)]
 struct DisplayHandles {
@@ -179,8 +178,26 @@ fn load_annotation_file(
     labels_to_prepare
 }
 
-#[derive(Component, Clone)]
-struct AnnotationLabel;
+#[derive(Component, Clone, Copy)]
+struct AnnotationLabel {
+    annotation: Entity,
+    axis: LabelAxis,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum LabelAxis {
+    Target,
+    Query,
+}
+
+impl LabelAxis {
+    fn basis(&self) -> Vec2 {
+        match self {
+            LabelAxis::Target => Vec2::X,
+            LabelAxis::Query => Vec2::Y,
+        }
+    }
+}
 
 fn prepare_annotations(
     In(labels_to_prepare): In<Vec<crate::annotations::AnnotationId>>,
@@ -246,9 +263,14 @@ fn prepare_annotations(
 
         let text_color = Color::BLACK;
 
-        // TODO labels
+        let annot_ent = commands
+            .spawn(Annotation {
+                record_list: list_id,
+                list_index: entry_id,
+            })
+            .id();
+
         let label_bundle = (
-            AnnotationLabel,
             RenderLayers::layer(1),
             Text2dBundle {
                 text: Text::from_section(
@@ -265,23 +287,31 @@ fn prepare_annotations(
         );
         let query_label = commands
             .spawn(label_bundle.clone())
-            .insert(Pickable::IGNORE)
+            .insert((
+                Pickable::IGNORE,
+                AnnotationLabel {
+                    annotation: annot_ent,
+                    axis: LabelAxis::Query,
+                },
+            ))
             .id();
-        let target_label = commands.spawn(label_bundle).insert(Pickable::IGNORE).id();
+        let target_label = commands
+            .spawn(label_bundle)
+            .insert((
+                Pickable::IGNORE,
+                AnnotationLabel {
+                    annotation: annot_ent,
+                    axis: LabelAxis::Target,
+                },
+            ))
+            .id();
 
-        let mut annot_ent = commands.spawn(Annotation {
-            record_list: list_id,
-            list_index: entry_id,
-        });
-
-        annot_ent.insert(DisplayEntities {
+        commands.entity(annot_ent).insert(DisplayEntities {
             query_region,
             query_label,
             target_region,
             target_label,
         });
-
-        let annot_ent = annot_ent.id();
 
         annot_entity_map.insert(annot_id, annot_ent);
     }
@@ -297,8 +327,7 @@ fn update_annotation_regions(
 
     windows: Query<&Window>,
 
-    alignment_collision: Query<&AlignmentCollisionLines>,
-
+    // alignment_collision: Query<&AlignmentCollisionLines>,
     display_ents: Query<(&Annotation, &DisplayEntities)>,
     mut transforms: Query<&mut Transform, Without<Handle<SeqPairLayout>>>,
     mut visibilities: Query<&mut Visibility>,
@@ -494,7 +523,151 @@ impl Default for AnchorEntity {
 
 #[derive(Component)]
 struct LabelAnchor {
-    anchor: Entity,
+    world_point: DVec2,
+    anchor_alignment: AlignmentIndex,
+    // valid_region: ParryAabb,
+}
+
+fn set_label_anchors(
+    mut commands: Commands,
+
+    default_layout_root: Res<DefaultLayoutRoot>,
+    layout_query: AlignmentLayoutQuery,
+
+    alignment_aabbs: Res<AlignmentAabbs>,
+
+    viewport: Res<AlignmentViewport>,
+
+    annotations: Res<Annotations>,
+    annotation_query: Query<(Entity, &Annotation)>,
+
+    alignment_lines: Query<(&AlignmentCollisionLines)>,
+
+    labels: Query<(Entity, &AnnotationLabel, Option<&LabelAnchor>)>,
+) {
+    let layout = layout_query
+        .layout_roots
+        .get(default_layout_root.0)
+        .ok()
+        .and_then(|(_, _transform, layout_handle, _tile_entities)| {
+            layout_query.layout_assets.get(layout_handle)
+        });
+
+    let Some(layout) = layout else {
+        return;
+    };
+
+    let view = viewport.view;
+
+    for (label_ent, label_annot, old_anchor) in labels.iter() {
+        // TODO need to know if this label should be visible...
+        // - that could be done here or some other place (e.g. update_annotation_regions)
+        // - labels should probably always be visible if their corresponding region is visible
+        //      (assuming space allows for it)
+        //      - i.e. the entire column for a target annotation, even if there are no alignments in the view
+        //        in that region (the labels should gravitate toward the top or bottom of the screen depending
+        //          on where the closest alignments in the region are)
+        // - anchors should be "assigned" in world space; labels are in screen-space
+        //      - hm... when should the anchor point actually be updated, exactly
+        //      - just whenever the view changes?
+        //      -
+        //          - there's gotta be some sort of feedback/interaction
+        //          - e.g. moving the anchor toward the label if there's enough "tension"/force
+        //              - i.e. when a label has been pushed some distance from the anchor due to collision
+        //                  w/ other labels
+
+        //
+
+        // let prev = old_anchor.map(|a| a.world_point);
+
+        // let ray_directions =
+        // match label_annot.axis {
+        //     LabelAxis::Target => {
+        //         todo!()
+        //     }
+        //     LabelAxis::Query => {
+        //         todo!()
+        //     }
+        // }
+
+        // recreate if prev anchor point is out of view bounds
+        let recreate_anchor = old_anchor
+            .map(|prev| !view.contains_point(prev.world_point))
+            .unwrap_or(true);
+
+        #[allow(unreachable_code)]
+        if recreate_anchor {
+            // TODO find intersection of annotated region with view
+            let intersecting_region: ParryAabb = todo!();
+
+            let (ray_directions, cast_line) = {
+                let plus = label_annot.axis.basis();
+                let minus = -plus;
+
+                let plus_minor = plus.rotate(Vec2::Y).as_dvec2();
+                let intersection: DVec2 = intersecting_region.extents().data.0[0].into();
+                let major_len = intersection.dot(plus_minor);
+                let p0 = plus_minor * major_len * 0.5;
+                let p1 = plus_minor * major_len * -0.5;
+
+                let shape = parry::shape::Segment::new(p0.to_array().into(), p1.to_array().into());
+
+                ([plus, minus], shape)
+            };
+
+            // TODO then sweep a line segment through the tile AABBs...
+            let best_tile: Option<SequencePairTile> = todo!();
+
+            // TODO ... and then the alignment AABBs in the "best" tile ...
+            let best_alignment: Option<AlignmentIndex> = best_tile.and_then(|tile| {
+                todo!();
+            });
+
+            let Some(anchor_alignment) = best_alignment else {
+                continue;
+            };
+
+            // ... and then get the alignment polyline from `alignment_lines`
+            let anchor_line: Option<&parry::shape::Polyline> = best_alignment.and_then(|al_ix| {
+                let key = (default_layout_root.0, al_ix);
+
+                for polylines in alignment_lines.iter() {
+                    if let Some(line) = polylines.polylines.get(&key) {
+                        return Some(line);
+                    }
+                }
+
+                None
+            });
+
+            // TODO place the anchor point on the `anchor_line`, inside the valid region
+            let world_point: Option<DVec2> = anchor_line.and_then(|line| {
+                //
+
+                todo!();
+            });
+
+            // update the label with the `LabelAnchor` component
+            if let Some(world_point) = world_point {
+                let anchor = LabelAnchor {
+                    world_point,
+                    anchor_alignment,
+                };
+
+                commands.entity(label_ent).insert(anchor);
+            }
+        }
+    }
+
+    //
+}
+
+// TODO - apply/simulate forces between anchor point and screen-space label
+fn label_anchor_constraints(
+    //
+    mut labels: Query<(Entity, &AnnotationLabel, &mut Position, &mut LabelAnchor)>,
+) {
+    todo!();
 }
 
 #[derive(Resource, Default)]
@@ -514,8 +687,10 @@ impl LabelQbvh {
     // }
 
     fn insert_or_update(&mut self, id: Annotation, is_query: bool, screen_pos: DVec2, size: DVec2) {
-        let aabb =
-            Aabb::from_half_extents(screen_pos.to_array().into(), (size * 0.5).to_array().into());
+        let aabb = ParryAabb::from_half_extents(
+            screen_pos.to_array().into(),
+            (size * 0.5).to_array().into(),
+        );
 
         let key = (id, is_query);
 

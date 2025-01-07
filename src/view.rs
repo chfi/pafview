@@ -470,6 +470,13 @@ impl View {
     }
 }
 
+impl View {
+    pub fn contains_point(&self, pt: impl Into<[f64; 2]>) -> bool {
+        let [x, y] = pt.into();
+        self.x_min <= x && x <= self.x_max && self.y_min <= y && y <= self.y_max
+    }
+}
+
 fn calculate_covering_rectangle(
     aspect_ratio: f64,
     center: [f64; 2],
