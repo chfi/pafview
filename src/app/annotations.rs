@@ -1,10 +1,14 @@
-use avian2d::parry::{self, bounding_volume::Aabb as ParryAabb};
+use avian2d::{
+    parry::{self, bounding_volume::Aabb as ParryAabb},
+    prelude::*,
+};
 
 use bevy::{
     math::{DVec2, U64Vec2},
     prelude::*,
     render::view::RenderLayers,
     sprite::{Anchor, MaterialMesh2dBundle},
+    text::TextLayoutInfo,
     utils::HashMap,
 };
 use bevy_mod_picking::picking_core::Pickable;
@@ -178,10 +182,17 @@ fn load_annotation_file(
     labels_to_prepare
 }
 
+#[derive(PhysicsLayer, Clone, Copy)]
+pub enum LabelPhysicsLayers {
+    ActiveLabel,
+    InactiveLabel,
+}
+
 #[derive(Component, Clone, Copy)]
 struct AnnotationLabel {
     annotation: Entity,
     axis: LabelAxis,
+    is_active: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -285,6 +296,7 @@ fn prepare_annotations(
                 ..default()
             },
         );
+
         let query_label = commands
             .spawn(label_bundle.clone())
             .insert((
@@ -292,6 +304,7 @@ fn prepare_annotations(
                 AnnotationLabel {
                     annotation: annot_ent,
                     axis: LabelAxis::Query,
+                    is_active: false,
                 },
             ))
             .id();
@@ -302,6 +315,7 @@ fn prepare_annotations(
                 AnnotationLabel {
                     annotation: annot_ent,
                     axis: LabelAxis::Target,
+                    is_active: false,
                 },
             ))
             .id();
@@ -318,6 +332,36 @@ fn prepare_annotations(
     //
 }
 
+fn add_label_physics(
+    mut commands: Commands,
+
+    annot_labels: Query<(Entity, &TextLayoutInfo), (With<AnnotationLabel>, Without<Collider>)>,
+) {
+    for (label, text_info) in annot_labels.iter() {
+        let label_size = text_info.logical_size.as_dvec2();
+
+        commands.entity(label).insert((
+            RigidBody::Dynamic,
+            Collider::rectangle(label_size.x, label_size.y),
+            CollisionLayers::new(LabelPhysicsLayers::InactiveLabel, LayerMask::NONE),
+            // CollisionLayers::new(
+            //     LabelPhysicsLayers::ActiveLabel,
+            //     [LabelPhysicsLayers::ActiveLabel],
+            // ),
+        ));
+    }
+}
+
+/*
+fn toggle_label_physics_activity(
+    // mut labels:
+    // mut labels: Query<(Entity, &TextLayoutInfo), (With<AnnotationLabel>, Without<Collider>)>,
+    mut labels: Query<(&mut RigidBody, &mut CollisionLayers),
+) {
+
+}
+*/
+
 fn update_annotation_regions(
     annotations: Res<Annotations>,
 
@@ -330,10 +374,9 @@ fn update_annotation_regions(
     // alignment_collision: Query<&AlignmentCollisionLines>,
     display_ents: Query<(&Annotation, &DisplayEntities)>,
     mut transforms: Query<&mut Transform, Without<Handle<SeqPairLayout>>>,
-    mut visibilities: Query<&mut Visibility>,
+    // mut visibilities: Query<&mut Visibility>,
     label_sizes: Query<&bevy::text::TextLayoutInfo>,
-
-    mut label_qbvh: ResMut<LabelQbvh>,
+    // mut label_qbvh: ResMut<LabelQbvh>,
     // mut relevant_label_annots: Local<HashSet<Annotation>>,
 ) {
     // TODO actually use layout roots, not just the default layout asset w/o transform
@@ -346,9 +389,9 @@ fn update_annotation_regions(
     };
     let screen_dims = window.size();
 
-    label_qbvh.qbvh = default();
-    label_qbvh.workspace = default();
-    label_qbvh.annot_qbvh_map.clear();
+    // label_qbvh.qbvh = default();
+    // label_qbvh.workspace = default();
+    // label_qbvh.annot_qbvh_map.clear();
 
     for (annot_id, entities) in display_ents.iter() {
         let list = annotations.list_by_id(annot_id.record_list).unwrap();
@@ -402,6 +445,7 @@ fn update_annotation_regions(
         let label_size = label_size.logical_size.as_dvec2();
 
         // target label
+        /*
         let mut candidate_position = DVec2::new(tgt_x as f64, 40.0) + label_size * 0.5;
         let mut final_position: Option<DVec2> = None;
 
@@ -494,7 +538,7 @@ fn update_annotation_regions(
                 *vis = Visibility::Hidden;
             }
         }
-
+        */
         /*
 
         if let Ok(mut transform) = transforms.get_mut(entities.target_label) {
@@ -660,6 +704,43 @@ fn set_label_anchors(
     }
 
     //
+}
+
+
+fn update_annotation_labels(
+    mut commands: Commands,
+
+    annotations: Res<Annotations>,
+    layouts: AlignmentLayoutQuery,
+    alignment_view: Res<AlignmentViewport>,
+    windows: Query<&Window>,
+
+    mut labels: Query<(Entity, &mut AnnotationLabel, &LabelAnchor, &mut CollisionLayers)>,
+    label_positions: Query<&mut Position, With<LabelAnchor>>,
+) {
+    /*
+
+    */
+
+
+    for (label_ent, mut annot_label, anchor, mut collision_layers) {
+
+        let anchor_is_active: bool = todo!();
+
+        if !annot_label.is_active && anchor_is_active {
+            annot_label.is_active = true;
+            collision_layers =
+
+            // TODO set position
+            todo!();
+        }
+
+        // TODO deactivate label if anchor's valid region is completely offscreen
+
+
+    }
+
+    todo!();
 }
 
 // TODO - apply/simulate forces between anchor point and screen-space label

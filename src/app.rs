@@ -30,6 +30,7 @@ impl Plugin for PafViewerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(bevy_egui::EguiPlugin)
             // .add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::default())
+            .add_plugins(avian2d::PhysicsPlugins::default().with_length_unit(100.0))
             .add_plugins(assets::ViewerAssetsPlugin)
             .add_plugins(input::InputPlugin)
             .add_plugins(alignments::AlignmentsPlugin)
