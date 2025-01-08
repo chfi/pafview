@@ -644,23 +644,41 @@ fn set_label_anchors(
             // TODO find intersection of annotated region with view
             let intersecting_region: ParryAabb = todo!();
 
-            let (ray_directions, cast_line) = {
+            let (ray_directions, ray_origin) = {
                 let plus = label_annot.axis.basis();
                 let minus = -plus;
 
-                let plus_minor = plus.rotate(Vec2::Y).as_dvec2();
-                let intersection: DVec2 = intersecting_region.extents().data.0[0].into();
-                let major_len = intersection.dot(plus_minor);
-                let p0 = plus_minor * major_len * 0.5;
-                let p1 = plus_minor * major_len * -0.5;
+                let ray_origin = intersecting_region.center();
 
-                let shape = parry::shape::Segment::new(p0.to_array().into(), p1.to_array().into());
-
-                ([plus, minus], shape)
+                ([plus, minus], ray_origin)
             };
 
-            // TODO then sweep a line segment through the tile AABBs...
-            let best_tile: Option<SequencePairTile> = todo!();
+            // then cast a ray to find the closest tile...
+            let best_tile: Option<SequencePairTile> = {
+                // TODO this should just be the longest side of the window
+                let max_toi = 4_000.0;
+
+                let [up, down] = ray_directions;
+
+                let up_hit = layout
+                    .layout_qbvh
+                    .cast_ray(ray_origin, up.as_dvec2(), max_toi);
+                let down_hit = layout
+                    .layout_qbvh
+                    .cast_ray(ray_origin, down.as_dvec2(), max_toi);
+
+                match (up_hit, down_hit) {
+                    (None, None) => todo!(),
+                    (None, Some((tile, _, _, _))) | (Some((tile, _, _, _)), None) => Some(*tile),
+                    (Some((tile_up, _, _, toi_up)), Some((tile_down, _, _, toi_down))) => {
+                        if toi_up <= toi_down {
+                            Some(*tile_up)
+                        } else {
+                            Some(*tile_down)
+                        }
+                    }
+                }
+            };
 
             // TODO ... and then the alignment AABBs in the "best" tile ...
             let best_alignment: Option<AlignmentIndex> = best_tile.and_then(|tile| {
@@ -706,7 +724,6 @@ fn set_label_anchors(
     //
 }
 
-
 fn update_annotation_labels(
     mut commands: Commands,
 
@@ -715,29 +732,41 @@ fn update_annotation_labels(
     alignment_view: Res<AlignmentViewport>,
     windows: Query<&Window>,
 
-    mut labels: Query<(Entity, &mut AnnotationLabel, &LabelAnchor, &mut CollisionLayers)>,
+    mut labels: Query<(
+        Entity,
+        &mut AnnotationLabel,
+        &LabelAnchor,
+        &mut CollisionLayers,
+    )>,
     label_positions: Query<&mut Position, With<LabelAnchor>>,
 ) {
     /*
 
     */
 
-
-    for (label_ent, mut annot_label, anchor, mut collision_layers) {
-
+    #[allow(unreachable_code)]
+    for (label_ent, mut annot_label, anchor, mut collision_layers) in labels.iter_mut() {
+        // the label has an anchor point and the point is, or can be, on the screen
         let anchor_is_active: bool = todo!();
 
         if !annot_label.is_active && anchor_is_active {
             annot_label.is_active = true;
-            collision_layers =
+            *collision_layers = CollisionLayers::new(
+                LabelPhysicsLayers::ActiveLabel,
+                [LabelPhysicsLayers::ActiveLabel],
+            );
 
             // TODO set position
-            todo!();
+            //
+            // the position is derived from the anchor, which is a point on the alignment polyline...
+            //
+            let new_position = todo!();
+            if let Ok(mut pos) = label_positions.get_mut(label_ent) {
+                *pos = new_position;
+            }
         }
 
         // TODO deactivate label if anchor's valid region is completely offscreen
-
-
     }
 
     todo!();

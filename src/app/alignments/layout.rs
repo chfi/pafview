@@ -4,6 +4,8 @@ use bevy::{math::DVec2, prelude::*, utils::HashMap};
 use avian2d::parry::{
     self,
     bounding_volume::{Aabb, BoundingVolume},
+    query::details::NormalConstraints,
+    shape::{SimdCompositeShape, TypedSimdCompositeShape},
 };
 
 use crate::{app::SequencePairTile, sequences::SeqId};
@@ -368,6 +370,99 @@ impl<T: Copy> AabbQbvh<T> {
         });
 
         results
+    }
+
+    pub fn cast_ray_callback(
+        &self,
+        origin: impl Into<[f64; 2]>,
+        dir: impl Into<[f64; 2]>,
+        max_time_of_impact: f64,
+        mut callback: impl FnMut(T) -> bool,
+    ) {
+        // ) -> Option<(&T, usize, DVec2, f64)> {
+        let origin = origin.into();
+        let dir = dir.into();
+
+        let ray = parry::query::Ray::new(origin.into(), dir.into());
+
+        let mut visitor = parry::query::visitors::RayIntersectionsVisitor::new(
+            &ray,
+            max_time_of_impact,
+            &mut |val: &usize| {
+                if let Some(data) = self.data.get(*val) {
+                    return callback(*data);
+                }
+                //
+                true
+            },
+        );
+
+        /*
+        let mut visitor = parry::query::details::RayCompositeShapeToiBestFirstVisitor::new(
+            self,
+            &ray,
+            max_time_of_impact,
+            false,
+        );
+
+        let ray_hits = self.qbvh.traverse_best_first(&mut visitor);
+        if let Some((_node_index, (qbvh_i, toi))) = ray_hits {
+            let data = self.data.get(qbvh_i)?;
+            let pos = ray.point_at(toi);
+            return Some((data, qbvh_i, DVec2::new(pos.x, pos.y), toi));
+        }
+        */
+    }
+}
+
+impl<T: Copy> TypedSimdCompositeShape for AabbQbvh<T> {
+    type PartShape = parry::shape::Cuboid;
+
+    type PartNormalConstraints = dyn NormalConstraints;
+
+    type PartId = usize;
+
+    fn map_typed_part_at(
+        &self,
+        shape_id: Self::PartId,
+        mut f: impl FnMut(
+            Option<&parry::math::Isometry<parry::math::Real>>,
+            &Self::PartShape,
+            Option<&Self::PartNormalConstraints>,
+        ),
+    ) {
+        let Some(aabb) = self.aabbs.get(shape_id) else {
+            return;
+        };
+
+        let shape = parry::shape::Cuboid::new(aabb.extents());
+        let center = aabb.center();
+
+        let iso = parry::math::Isometry::translation(center.x, center.y);
+
+        f(Some(&iso), &shape, None)
+    }
+
+    fn map_untyped_part_at(
+        &self,
+        shape_id: Self::PartId,
+        mut f: impl FnMut(
+            Option<&parry::math::Isometry<parry::math::Real>>,
+            &dyn parry::shape::Shape,
+            Option<&dyn parry::query::details::NormalConstraints>,
+        ),
+    ) {
+        self.map_typed_part_at(shape_id, |iso, shape, nc| {
+            f(
+                iso,
+                shape as &dyn parry::shape::Shape,
+                nc.map(|nc| nc as &dyn NormalConstraints),
+            );
+        });
+    }
+
+    fn typed_qbvh(&self) -> &parry::partitioning::Qbvh<Self::PartId> {
+        &self.qbvh
     }
 }
 
