@@ -657,6 +657,8 @@ fn set_label_anchors(
             .map(|prev| !view.contains_point(prev.world_point))
             .unwrap_or(true);
 
+        // TODO only try to recreate if annotation region actually intersects view
+
         let Some(record) = annotation_query
             .get(label_annot.annotation)
             .ok()
@@ -782,41 +784,47 @@ fn update_annotation_labels(
     mut labels: Query<(
         Entity,
         &mut AnnotationLabel,
-        &LabelAnchor,
+        Option<&LabelAnchor>,
         &mut CollisionLayers,
+        &mut Visibility,
     )>,
-    label_positions: Query<&mut Position, With<LabelAnchor>>,
+    mut label_positions: Query<&mut Position, With<LabelAnchor>>,
 ) {
     /*
 
     */
 
-    #[allow(unreachable_code)]
-    for (label_ent, mut annot_label, anchor, mut collision_layers) in labels.iter_mut() {
-        // the label has an anchor point and the point is, or can be, on the screen
-        let anchor_is_active: bool = todo!();
-
-        if !annot_label.is_active && anchor_is_active {
-            annot_label.is_active = true;
-            *collision_layers = CollisionLayers::new(
-                LabelPhysicsLayers::ActiveLabel,
-                [LabelPhysicsLayers::ActiveLabel],
-            );
-
-            // TODO set position
+    // #[allow(unreachable_code)]
+    for (label_ent, mut annot_label, anchor, mut collision_layers, mut visibility) in
+        labels.iter_mut()
+    {
+        if annot_label.is_active {
+            // deactivate the label if the anchor does not exist...
             //
-            // the position is derived from the anchor, which is a point on the alignment polyline...
-            //
-            let new_position = todo!();
-            if let Ok(mut pos) = label_positions.get_mut(label_ent) {
-                *pos = new_position;
+            // TODO/NB: the anchor should be removed by another system if its region
+            // is out of the view bounds
+            if anchor.is_none() {
+                annot_label.is_active = false;
+                *collision_layers =
+                    CollisionLayers::new(LabelPhysicsLayers::InactiveLabel, LayerMask::NONE);
+                *visibility = Visibility::Hidden;
+            }
+        } else {
+            if let Some(anchor) = anchor {
+                annot_label.is_active = true;
+                *collision_layers = CollisionLayers::new(
+                    LabelPhysicsLayers::ActiveLabel,
+                    [LabelPhysicsLayers::ActiveLabel],
+                );
+                *visibility = Visibility::Inherited;
+
+                if let Ok(mut pos) = label_positions.get_mut(label_ent) {
+                    // TODO place the label offset from the anchor
+                    pos.0 = anchor.world_point.to_array().into();
+                }
             }
         }
-
-        // TODO deactivate label if anchor's valid region is completely offscreen
     }
-
-    todo!();
 }
 
 // TODO - apply/simulate forces between anchor point and screen-space label
