@@ -1,5 +1,9 @@
 use avian2d::{
-    parry::{self, bounding_volume::Aabb as ParryAabb},
+    parry::{
+        self,
+        bounding_volume::{Aabb as ParryAabb, BoundingVolume},
+        query::PointQuery,
+    },
     prelude::*,
 };
 
@@ -20,7 +24,10 @@ use super::{
         layout::{AabbQbvh, DefaultLayout, SeqPairLayout},
         AlignmentAabbs, AlignmentLayoutQuery, DefaultLayoutRoot,
     },
-    render::{bordered_rect::BorderedRectMaterial2d, sampled_lines::AlignmentCollisionLines},
+    render::{
+        bordered_rect::BorderedRectMaterial2d,
+        sampled_lines::{AlignmentCollisionLines, AlignmentSamplingParams},
+    },
     view::AlignmentViewport,
     AlignmentIndex, SequencePairTile,
 };
@@ -60,6 +67,13 @@ impl Plugin for AnnotationsPlugin {
 
 #[derive(Resource, Default, Deref, DerefMut)]
 pub struct Annotations(pub crate::annotations::AnnotationStore);
+
+impl Annotations {
+    pub fn get_record(&self, annot: &Annotation) -> Option<&crate::annotations::Record> {
+        let list = self.list_by_id(annot.record_list)?;
+        list.records.get(annot.list_index)
+    }
+}
 
 #[derive(Debug, Clone, Copy, Component, Reflect, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Annotation {
@@ -551,16 +565,16 @@ fn update_annotation_regions(
 #[derive(Component)]
 struct AnchorEntity {
     world_anchor: DVec2,
-    anchor_bounds_min: DVec2,
-    anchor_bounds_max: DVec2,
+    // anchor_bounds_min: DVec2,
+    // anchor_bounds_max: DVec2,
 }
 
 impl Default for AnchorEntity {
     fn default() -> Self {
         Self {
             world_anchor: DVec2::ZERO,
-            anchor_bounds_min: DVec2::NEG_INFINITY,
-            anchor_bounds_max: DVec2::INFINITY,
+            // anchor_bounds_min: DVec2::NEG_INFINITY,
+            // anchor_bounds_max: DVec2::INFINITY,
         }
     }
 }
@@ -585,7 +599,7 @@ fn set_label_anchors(
     annotations: Res<Annotations>,
     annotation_query: Query<(Entity, &Annotation)>,
 
-    alignment_lines: Query<(&AlignmentCollisionLines)>,
+    alignment_samplers: Query<(&AlignmentCollisionLines, &AlignmentSamplingParams)>,
 
     labels: Query<(Entity, &AnnotationLabel, Option<&LabelAnchor>)>,
 ) {
@@ -598,6 +612,10 @@ fn set_label_anchors(
         });
 
     let Some(layout) = layout else {
+        return;
+    };
+
+    let Ok((alignment_lines, sampling_params)) = alignment_samplers.get_single() else {
         return;
     };
 
@@ -639,11 +657,42 @@ fn set_label_anchors(
             .map(|prev| !view.contains_point(prev.world_point))
             .unwrap_or(true);
 
+        let Some(record) = annotation_query
+            .get(label_annot.annotation)
+            .ok()
+            .and_then(|(_, annot)| annotations.get_record(annot))
+        else {
+            continue;
+        };
+
         #[allow(unreachable_code)]
         if recreate_anchor {
-            // TODO find intersection of annotated region with view
-            let intersecting_region: ParryAabb = todo!();
+            // find intersection of annotated region with view
+            // but this should be in screenspace/pixels, since we're
+            // working with the screen-sampled alignments
+            let intersecting_region: ParryAabb = {
+                let xs = record.tgt_range_f64();
+                let ys = record.qry_range_f64();
 
+                let x_min = xs.start().clamp(view.x_min, view.x_max);
+                let x_max = xs.end().clamp(view.x_min, view.x_max);
+                let y_min = ys.start().clamp(view.y_min, view.y_max);
+                let y_max = ys.end().clamp(view.y_min, view.y_max);
+
+                let vw = view.width();
+                let vh = view.height();
+
+                let s_size = sampling_params.canvas_size.as_dvec2();
+
+                let x_min = s_size.x * (x_min - view.x_min) / vw;
+                let x_max = s_size.x * (x_max - view.x_max) / vw;
+                let y_min = s_size.y * (y_min - view.y_min) / vh;
+                let y_max = s_size.y * (y_max - view.y_max) / vh;
+
+                ParryAabb::new([x_min, y_min].into(), [x_max, y_max].into())
+            };
+
+            /*
             let (ray_directions, ray_origin) = {
                 let plus = label_annot.axis.basis();
                 let minus = -plus;
@@ -652,72 +701,70 @@ fn set_label_anchors(
 
                 ([plus, minus], ray_origin)
             };
+            */
 
-            // then cast a ray to find the closest tile...
-            let best_tile: Option<SequencePairTile> = {
-                // TODO this should just be the longest side of the window
-                let max_toi = 4_000.0;
+            // let up_hits =
 
-                let [up, down] = ray_directions;
+            // use the `intersecting_region` AABB to query the QBVH built from the AABBs
+            // of the sampled screenspace alignment lines
 
-                let up_hit = layout
-                    .layout_qbvh
-                    .cast_ray(ray_origin, up.as_dvec2(), max_toi);
-                let down_hit = layout
-                    .layout_qbvh
-                    .cast_ray(ray_origin, down.as_dvec2(), max_toi);
+            let mut best_alignment: Option<(AlignmentIndex, &parry::shape::Polyline, DVec2)> = None;
+            let region_pt = intersecting_region.center();
+            let pt = DVec2::from(region_pt.coords.data.0[0]);
 
-                match (up_hit, down_hit) {
-                    (None, None) => todo!(),
-                    (None, Some((tile, _, _, _))) | (Some((tile, _, _, _)), None) => Some(*tile),
-                    (Some((tile_up, _, _, toi_up)), Some((tile_down, _, _, toi_down))) => {
-                        if toi_up <= toi_down {
-                            Some(*tile_up)
-                        } else {
-                            Some(*tile_down)
-                        }
+            alignment_lines.qbvh.aabbs_in_rect_callback(
+                intersecting_region.center(),
+                intersecting_region.half_extents(),
+                |key @ (_layout_root, al_index), polyline_aabb| {
+                    // check if polyline is actually inside region...?
+
+                    if !polyline_aabb.intersects(&intersecting_region) {
+                        return true;
                     }
-                }
-            };
 
-            // TODO ... and then the alignment AABBs in the "best" tile ...
-            let best_alignment: Option<AlignmentIndex> = best_tile.and_then(|tile| {
-                todo!();
-            });
+                    let Some(polyline) = alignment_lines.polylines.get(&key) else {
+                        return true;
+                    };
 
-            let Some(anchor_alignment) = best_alignment else {
+                    // find closest point on polyline...
+                    // ... closest to *what*?
+                    // try with center
+                    let [[cx, cy]] = polyline
+                        .project_local_point(&region_pt, true)
+                        .point
+                        .coords
+                        .data
+                        .0;
+                    let closest = DVec2::new(cx, cy);
+
+                    let dist = closest.distance(region_pt.coords.data.0[0].into());
+
+                    let prev_best = best_alignment
+                        .as_ref()
+                        .map(|(_, _, prev)| prev.distance(pt))
+                        .unwrap_or(std::f64::INFINITY);
+
+                    if dist < prev_best {
+                        best_alignment = Some((al_index, polyline, closest));
+                    }
+
+                    true
+                },
+            );
+
+            let Some((anchor_alignment, _polyline, closest_point)) = best_alignment else {
                 continue;
             };
 
-            // ... and then get the alignment polyline from `alignment_lines`
-            let anchor_line: Option<&parry::shape::Polyline> = best_alignment.and_then(|al_ix| {
-                let key = (default_layout_root.0, al_ix);
-
-                for polylines in alignment_lines.iter() {
-                    if let Some(line) = polylines.polylines.get(&key) {
-                        return Some(line);
-                    }
-                }
-
-                None
-            });
-
-            // TODO place the anchor point on the `anchor_line`, inside the valid region
-            let world_point: Option<DVec2> = anchor_line.and_then(|line| {
-                //
-
-                todo!();
-            });
+            let world_point = closest_point;
 
             // update the label with the `LabelAnchor` component
-            if let Some(world_point) = world_point {
-                let anchor = LabelAnchor {
-                    world_point,
-                    anchor_alignment,
-                };
+            let anchor = LabelAnchor {
+                world_point,
+                anchor_alignment,
+            };
 
-                commands.entity(label_ent).insert(anchor);
-            }
+            commands.entity(label_ent).insert(anchor);
         }
     }
 

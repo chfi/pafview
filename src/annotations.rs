@@ -25,11 +25,6 @@ pub type AnnotationId = (RecordListId, RecordEntryId);
 pub struct AnnotationStore {
     annotation_sources: BiMap<String, usize>,
     annotation_lists: Vec<RecordList>,
-    // annotation_sources: FxHashMap<PathBuf, RecordList>,
-
-    // same indices as annotation_list & RecordLists
-    shapes: Vec<Vec<AnnotationShapes>>,
-    // shapes: FxHashMap<(usize, usize), AnnotationShapes>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -39,13 +34,6 @@ struct AnnotationShapes {
 }
 
 impl AnnotationStore {
-    pub fn target_shape_for(&self, list_id: usize, record_id: usize) -> Option<AnnotShapeId> {
-        self.shapes.get(list_id)?.get(record_id).map(|s| s.target)
-    }
-    pub fn query_shape_for(&self, list_id: usize, record_id: usize) -> Option<AnnotShapeId> {
-        self.shapes.get(list_id)?.get(record_id).map(|s| s.query)
-    }
-
     pub fn source_names_iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a str)> {
         (0..self.annotation_lists.len()).filter_map(|i| {
             Some((
@@ -273,6 +261,20 @@ pub struct Record {
 
     pub color: egui::Color32,
     pub label: String,
+}
+
+impl Record {
+    pub fn qry_range_f64(&self) -> std::ops::RangeInclusive<f64> {
+        let s = self.qry_range.start as f64;
+        let e = self.qry_range.end as f64;
+        s..=e
+    }
+
+    pub fn tgt_range_f64(&self) -> std::ops::RangeInclusive<f64> {
+        let s = self.tgt_range.start as f64;
+        let e = self.tgt_range.end as f64;
+        s..=e
+    }
 }
 
 pub fn hashed_rgb(name: &str) -> [u8; 3] {

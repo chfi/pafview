@@ -25,7 +25,7 @@ use nalgebra::OPoint;
 use pipeline::{PolylineConfig, PolylineModel, PolylineProjection, PolylineVertices};
 use wgpu::BufferUsages;
 
-use crate::app::view::AlignmentViewport;
+use crate::app::{alignments::layout::AabbQbvh, view::AlignmentViewport};
 use crate::{
     app::{alignments::layout::SeqPairLayout, AlignmentIndex},
     render::color::PafColorSchemes,
@@ -99,7 +99,7 @@ struct SampledAlignmentViewer {
     view: Option<crate::view::View>,
 
     last_rendered: Option<RenderParams>,
-    last_rendered_sampling_params: Option<VertexSamplingParams>,
+    last_rendered_sampling_params: Option<AlignmentSamplingParams>,
 
     last_sampled_at: Option<std::time::Instant>,
     last_rendered_at: Option<std::time::Instant>,
@@ -109,13 +109,13 @@ struct SampledVertices {
     // Entity is layout root entity
     alignments: Vec<(Entity, AlignmentIndex, Vec<VertexData>)>,
     // buffer_data: Vec<VertexData>,
-    sampling_params: VertexSamplingParams,
+    sampling_params: AlignmentSamplingParams,
 }
 
 #[derive(Component, Clone, Copy, Debug, PartialEq, Reflect)]
-struct VertexSamplingParams {
-    view: crate::view::View,
-    canvas_size: Vec2,
+pub(crate) struct AlignmentSamplingParams {
+    pub(crate) view: crate::view::View,
+    pub(crate) canvas_size: Vec2,
 }
 
 fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
@@ -302,7 +302,7 @@ fn spawn_alignment_sampling_tasks(
         (
             Entity,
             &SampledAlignmentViewer,
-            Option<&VertexSamplingParams>,
+            Option<&AlignmentSamplingParams>,
         ),
         Without<VertexSamplingTask>,
     >,
@@ -367,7 +367,7 @@ fn spawn_alignment_sampling_tasks(
         let alignments_vec = alignments.alignments.clone();
         let alignment_ixs = alignments.indices.clone();
 
-        let params = VertexSamplingParams {
+        let params = AlignmentSamplingParams {
             view: next_view,
             canvas_size,
             // scale: bp_per_px,
@@ -464,6 +464,7 @@ fn spawn_alignment_sampling_tasks(
 pub struct AlignmentCollisionLines {
     /// Entity is layout root
     pub polylines: HashMap<(Entity, AlignmentIndex), avian2d::parry::shape::Polyline>,
+    pub qbvh: AabbQbvh<(Entity, AlignmentIndex)>,
 }
 
 fn finish_alignment_sampling_tasks(
@@ -516,6 +517,12 @@ fn finish_alignment_sampling_tasks(
             buffers.vertices.buffer.extend(vertices);
         }
 
+        let polyline_qbvh = AabbQbvh::from_aabbs(
+            al_polylines
+                .iter()
+                .map(|(key, line)| (*key, *line.local_aabb())),
+        );
+
         let inst_count = buffers.vertices.buffer.values().len();
 
         commands
@@ -523,6 +530,7 @@ fn finish_alignment_sampling_tasks(
             .insert(result.sampling_params)
             .insert(AlignmentCollisionLines {
                 polylines: al_polylines,
+                qbvh: polyline_qbvh,
             })
             .remove::<VertexSamplingTask>();
 
@@ -589,7 +597,7 @@ fn update_projection(
 }
 
 fn compute_vertex_transform(
-    sampled: &VertexSamplingParams,
+    sampled: &AlignmentSamplingParams,
     next_view: &crate::view::View,
     new_canvas_size: Vec2,
 ) -> Transform {
@@ -731,7 +739,7 @@ fn update_viewer_sprite_transform(
 struct RenderOperation {
     view: crate::view::View,
     canvas_size: UVec2,
-    vertex_params: VertexSamplingParams,
+    vertex_params: AlignmentSamplingParams,
     #[reflect(ignore)]
     state: Arc<AtomicU8>,
 }
@@ -1140,7 +1148,7 @@ mod pipeline {
     pub(super) struct PolylineVertices {
         pub(super) buffer: RawBufferVec<VertexData>,
         pub(super) instances: std::ops::Range<u32>,
-        pub(super) params: Option<VertexSamplingParams>,
+        pub(super) params: Option<AlignmentSamplingParams>,
     }
 
     #[derive(Component)]
