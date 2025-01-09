@@ -51,10 +51,23 @@ impl Plugin for AnnotationsPlugin {
             .register_type::<Annotation>()
             .register_type::<DisplayEntities>()
             .add_systems(Startup, setup)
-            .add_systems(PreUpdate, load_annotation_file.pipe(prepare_annotations))
+            .add_systems(
+                PreUpdate,
+                (
+                    load_annotation_file.pipe(prepare_annotations),
+                    add_label_physics,
+                )
+                    .chain(),
+            )
             .add_systems(
                 PreUpdate,
                 update_annotation_regions.after(super::view::enforce_alignment_viewport_limits),
+            )
+            .add_systems(
+                PreUpdate,
+                (set_label_anchors, update_annotation_labels)
+                    .chain()
+                    .after(update_annotation_regions),
             );
         // .add_systems(
         //     Update,
@@ -62,6 +75,16 @@ impl Plugin for AnnotationsPlugin {
         //         .chain()
         //         .after(super::gui::menubar_system),
         // );
+
+        fn debug_label_positions(
+            labels: Query<(&Transform, &Position, &Visibility), With<AnnotationLabel>>,
+        ) {
+            for (t, p, v) in labels.iter() {
+                println!("{t:?} - {p:?} - {v:?}");
+            }
+        }
+
+        app.add_systems(PostUpdate, debug_label_positions);
     }
 }
 
@@ -358,6 +381,8 @@ fn add_label_physics(
             RigidBody::Dynamic,
             Collider::rectangle(label_size.x, label_size.y),
             CollisionLayers::new(LabelPhysicsLayers::InactiveLabel, LayerMask::NONE),
+            Mass(1.0),
+            Inertia(1.0),
             // CollisionLayers::new(
             //     LabelPhysicsLayers::ActiveLabel,
             //     [LabelPhysicsLayers::ActiveLabel],
@@ -579,7 +604,7 @@ impl Default for AnchorEntity {
     }
 }
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 struct LabelAnchor {
     world_point: DVec2,
     anchor_alignment: AlignmentIndex,
@@ -618,6 +643,8 @@ fn set_label_anchors(
     let Ok((alignment_lines, sampling_params)) = alignment_samplers.get_single() else {
         return;
     };
+
+    // dbg!(&alignment_lines.polylines);
 
     let view = viewport.view;
 
@@ -659,6 +686,7 @@ fn set_label_anchors(
 
         // TODO only try to recreate if annotation region actually intersects view
 
+        // dbg!();
         let Some(record) = annotation_query
             .get(label_annot.annotation)
             .ok()
@@ -673,13 +701,28 @@ fn set_label_anchors(
             // but this should be in screenspace/pixels, since we're
             // working with the screen-sampled alignments
             let intersecting_region: ParryAabb = {
-                let xs = record.tgt_range_f64();
-                let ys = record.qry_range_f64();
+                let (x_min, x_max, y_min, y_max) = match label_annot.axis {
+                    LabelAxis::Target => {
+                        let y_min = view.y_min;
+                        let y_max = view.y_max;
 
-                let x_min = xs.start().clamp(view.x_min, view.x_max);
-                let x_max = xs.end().clamp(view.x_min, view.x_max);
-                let y_min = ys.start().clamp(view.y_min, view.y_max);
-                let y_max = ys.end().clamp(view.y_min, view.y_max);
+                        let xs = record.tgt_range_f64();
+                        let x_min = xs.start().clamp(view.x_min, view.x_max);
+                        let x_max = xs.end().clamp(view.x_min, view.x_max);
+
+                        (x_min, x_max, y_min, y_max)
+                    }
+                    LabelAxis::Query => {
+                        let x_min = view.x_min;
+                        let x_max = view.x_max;
+
+                        let ys = record.qry_range_f64();
+                        let y_min = ys.start().clamp(view.y_min, view.y_max);
+                        let y_max = ys.end().clamp(view.y_min, view.y_max);
+
+                        (x_min, x_max, y_min, y_max)
+                    }
+                };
 
                 let vw = view.width();
                 let vh = view.height();
@@ -687,9 +730,9 @@ fn set_label_anchors(
                 let s_size = sampling_params.canvas_size.as_dvec2();
 
                 let x_min = s_size.x * (x_min - view.x_min) / vw;
-                let x_max = s_size.x * (x_max - view.x_max) / vw;
+                let x_max = s_size.x * (x_max - view.x_min) / vw;
                 let y_min = s_size.y * (y_min - view.y_min) / vh;
-                let y_max = s_size.y * (y_max - view.y_max) / vh;
+                let y_max = s_size.y * (y_max - view.y_min) / vh;
 
                 ParryAabb::new([x_min, y_min].into(), [x_max, y_max].into())
             };
@@ -714,17 +757,32 @@ fn set_label_anchors(
             let region_pt = intersecting_region.center();
             let pt = DVec2::from(region_pt.coords.data.0[0]);
 
+            dbg!(&intersecting_region);
+
+            // alignment_lines.aabbs.iter().enumerate().filter_map(|(i, aabb)| {
+            //     if aabb.intersects(&intersecting_region) {
+            //         Some()
+            //     } else {
+
+            //     }
+            // }).for_each(|);
+
             alignment_lines.qbvh.aabbs_in_rect_callback(
                 intersecting_region.center(),
                 intersecting_region.half_extents(),
+                // intersecting_region.half_extents() * 1_000.0,
                 |key @ (_layout_root, al_index), polyline_aabb| {
                     // check if polyline is actually inside region...?
 
+                    // if !polyline_aabb.intersects(&intersecting_region) {
+                    dbg!();
                     if !polyline_aabb.intersects(&intersecting_region) {
+                        println!("polyline AABB does not intersect view: {polyline_aabb:?} vs {intersecting_region:?}");
                         return true;
                     }
 
                     let Some(polyline) = alignment_lines.polylines.get(&key) else {
+                        dbg!();
                         return true;
                     };
 
@@ -746,7 +804,9 @@ fn set_label_anchors(
                         .map(|(_, _, prev)| prev.distance(pt))
                         .unwrap_or(std::f64::INFINITY);
 
+                    dbg!(al_index, dist, closest);
                     if dist < prev_best {
+                        // dbg!(dist, prev_best);
                         best_alignment = Some((al_index, polyline, closest));
                     }
 
@@ -754,6 +814,7 @@ fn set_label_anchors(
                 },
             );
 
+            // dbg!();
             let Some((anchor_alignment, _polyline, closest_point)) = best_alignment else {
                 continue;
             };
@@ -767,6 +828,7 @@ fn set_label_anchors(
             };
 
             commands.entity(label_ent).insert(anchor);
+            dbg!(label_ent);
         }
     }
 
@@ -808,6 +870,7 @@ fn update_annotation_labels(
                 *collision_layers =
                     CollisionLayers::new(LabelPhysicsLayers::InactiveLabel, LayerMask::NONE);
                 *visibility = Visibility::Hidden;
+                dbg!();
             }
         } else {
             if let Some(anchor) = anchor {
@@ -817,10 +880,16 @@ fn update_annotation_labels(
                     [LabelPhysicsLayers::ActiveLabel],
                 );
                 *visibility = Visibility::Inherited;
+            }
+        }
 
+        // dbg!(label_ent, &anchor);
+        if let Some(anchor) = anchor {
+            if annot_label.is_active {
                 if let Ok(mut pos) = label_positions.get_mut(label_ent) {
                     // TODO place the label offset from the anchor
                     pos.0 = anchor.world_point.to_array().into();
+                    pos.0.y -= 200.0;
                 }
             }
         }
@@ -832,6 +901,10 @@ fn label_anchor_constraints(
     //
     mut labels: Query<(Entity, &AnnotationLabel, &mut Position, &mut LabelAnchor)>,
 ) {
+    for (label_ent, annot_label, mut position, mut anchor) in labels.iter_mut() {
+        //
+    }
+
     todo!();
 }
 

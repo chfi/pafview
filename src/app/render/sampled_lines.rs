@@ -523,6 +523,8 @@ fn finish_alignment_sampling_tasks(
                 .map(|(key, line)| (*key, *line.local_aabb())),
         );
 
+        // dbg!(&al_polylines);
+        dbg!(&polyline_qbvh.aabbs);
         let inst_count = buffers.vertices.buffer.values().len();
 
         commands
