@@ -2,7 +2,7 @@ use avian2d::{
     parry::{
         self,
         bounding_volume::{Aabb as ParryAabb, BoundingVolume},
-        query::PointQuery,
+        query::{PointQuery, PointQueryWithLocation},
     },
     prelude::*,
 };
@@ -607,6 +607,7 @@ impl Default for AnchorEntity {
 #[derive(Component, Debug)]
 struct LabelAnchor {
     world_point: DVec2,
+    normal: DVec2,
     anchor_alignment: AlignmentIndex,
     // valid_region: ParryAabb,
 }
@@ -753,7 +754,8 @@ fn set_label_anchors(
             // use the `intersecting_region` AABB to query the QBVH built from the AABBs
             // of the sampled screenspace alignment lines
 
-            let mut best_alignment: Option<(AlignmentIndex, &parry::shape::Polyline, DVec2)> = None;
+            // let mut best_alignment: Option<(AlignmentIndex, &parry::shape::Polyline, DVec2)> = None;
+            let mut best_alignment: Option<(AlignmentIndex, DVec2, DVec2)> = None;
             let region_pt = intersecting_region.center();
             let pt = DVec2::from(region_pt.coords.data.0[0]);
 
@@ -789,15 +791,22 @@ fn set_label_anchors(
                     // find closest point on polyline...
                     // ... closest to *what*?
                     // try with center
-                    let [[cx, cy]] = polyline
-                        .project_local_point(&region_pt, true)
-                        .point
-                        .coords
-                        .data
-                        .0;
-                    let closest = DVec2::new(cx, cy);
 
-                    let dist = closest.distance(region_pt.coords.data.0[0].into());
+
+                    let (closest_point, (seg_id, location)) =
+                        polyline.project_local_point_and_get_location(&region_pt, true);
+
+                    let closest = DVec2::from(closest_point.point.coords.data.0[0]);
+
+                    // let [[cx, cy]] = polyline
+                    //     .project_local_point(&region_pt, true)
+                    //     .point
+                    //     .coords
+                    //     .data
+                    //     .0;
+                    // let closest = DVec2::new(cx, cy);
+
+                    let dist = closest.distance(pt);
 
                     let prev_best = best_alignment
                         .as_ref()
@@ -806,8 +815,12 @@ fn set_label_anchors(
 
                     dbg!(al_index, dist, closest);
                     if dist < prev_best {
+                        let segment = polyline.segment(seg_id);
+                        let normal = segment.normal().map(|n| DVec2::from(n.data.0[0])).unwrap_or([1.0, 0.0].into());
+
                         // dbg!(dist, prev_best);
-                        best_alignment = Some((al_index, polyline, closest));
+                        best_alignment = Some((al_index, normal, closest));
+                        // best_alignment = Some((al_index, polyline, closest));
                     }
 
                     true
@@ -815,7 +828,7 @@ fn set_label_anchors(
             );
 
             // dbg!();
-            let Some((anchor_alignment, _polyline, closest_point)) = best_alignment else {
+            let Some((anchor_alignment, normal, closest_point)) = best_alignment else {
                 continue;
             };
 
@@ -824,6 +837,7 @@ fn set_label_anchors(
             // update the label with the `LabelAnchor` component
             let anchor = LabelAnchor {
                 world_point,
+                normal,
                 anchor_alignment,
             };
 
@@ -888,8 +902,11 @@ fn update_annotation_labels(
             if annot_label.is_active {
                 if let Ok(mut pos) = label_positions.get_mut(label_ent) {
                     // TODO place the label offset from the anchor
-                    pos.0 = anchor.world_point.to_array().into();
-                    pos.0.y -= 200.0;
+                    // pos.0 = anchor.world_point.to_array().into();
+                    // pos.0.y -= 200.0;
+
+                    let new_pos = anchor.world_point + anchor.normal * 100.0;
+                    pos.0 = new_pos.to_array().into();
                 }
             }
         }
