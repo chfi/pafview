@@ -11,7 +11,7 @@ use bevy::{
     math::{DVec2, U64Vec2},
     prelude::*,
     render::view::RenderLayers,
-    sprite::{Anchor, MaterialMesh2dBundle},
+    sprite::{Anchor, MaterialMesh2dBundle, Mesh2d, Mesh2dHandle},
     text::TextLayoutInfo,
     utils::HashMap,
 };
@@ -65,7 +65,11 @@ impl Plugin for AnnotationsPlugin {
             )
             .add_systems(
                 PreUpdate,
-                (set_label_anchors, update_annotation_labels)
+                (
+                    set_label_anchors,
+                    update_annotation_labels,
+                    label_anchor_constraints,
+                )
                     .chain()
                     .after(update_annotation_regions),
             );
@@ -76,15 +80,81 @@ impl Plugin for AnnotationsPlugin {
         //         .after(super::gui::menubar_system),
         // );
 
-        fn debug_label_positions(
-            labels: Query<(&Transform, &Position, &Visibility), With<AnnotationLabel>>,
-        ) {
-            for (t, p, v) in labels.iter() {
-                println!("{t:?} - {p:?} - {v:?}");
-            }
-        }
+        // #[derive(Component)]
+        // struct TestBox;
 
-        app.add_systems(PostUpdate, debug_label_positions);
+        // fn debug_box(boxes: Query<(Entity, &Transform), With<TestBox>>) {
+        //     for (box_, transform) in boxes.iter() {
+        //         let pos = transform.translation;
+        //         println!("box {box_:?} - {pos:?}");
+        //     }
+        // }
+
+        // fn drop_box(
+        //     mut commands: Commands,
+
+        //     mut meshes: ResMut<Assets<Mesh>>,
+        //     // mut mats: ResMut<Assets<BorderedRectMaterial2d>>,
+        //     mut mats: ResMut<Assets<BorderedRectMaterial2d>>,
+        //     mut assets: Local<Option<(Mesh2dHandle, Handle<BorderedRectMaterial2d>)>>,
+
+        //     button: Res<ButtonInput<MouseButton>>,
+        //     window: Query<&Window>,
+        // ) {
+        //     if assets.is_none() {
+        //         let mesh = meshes.add(Rectangle::from_size([100.0, 100.0].into()));
+        //         let color = Color::hsl(240.0, 1.0, 0.5).to_linear();
+        //         let mat = mats.add(BorderedRectMaterial2d {
+        //             fill_color: color,
+        //             border_color: color,
+        //             ..default()
+        //         });
+        //         *assets = Some((Mesh2dHandle(mesh), mat));
+        //     }
+        //     let Some((mesh, mat)) = assets.as_ref() else {
+        //         return;
+        //     };
+
+        //     let Some((cursor, dims)) = window
+        //         .get_single()
+        //         .ok()
+        //         .and_then(|w| Some((w.cursor_position()?, w.size())))
+        //     else {
+        //         return;
+        //     };
+
+        //     if button.just_pressed(MouseButton::Left) {
+        //         println!("spawning box at {cursor:?}");
+        //         commands.spawn((
+        //             TestBox,
+        //             SpatialBundle::from_transform(Transform::from_xyz(
+        //                 cursor.x,
+        //                 dims.y - cursor.y,
+        //                 0.0,
+        //             )),
+        //             mesh.clone(),
+        //             mat.clone(),
+        //             RenderLayers::layer(1),
+        //             Mass(10.0),
+        //             Inertia(5.0),
+        //             LinearVelocity(DVec2::new(0.0, -100.0)),
+        //             Collider::rectangle(100.0, 100.0),
+        //             RigidBody::Dynamic,
+        //         ));
+        //     }
+        // }
+        // app.add_systems(PreUpdate, debug_box);
+        // app.add_systems(PostUpdate, drop_box);
+
+        // fn print_collisions(query: Query<(Entity, &CollidingEntities)>) {
+        //     for (entity, colliding_entities) in &query {
+        //         println!(
+        //             "{:?} is colliding with the following entities: {:?}",
+        //             entity, colliding_entities
+        //         );
+        //     }
+        // }
+        // app.add_systems(PostUpdate, print_collisions);
     }
 }
 
@@ -376,17 +446,16 @@ fn add_label_physics(
 ) {
     for (label, text_info) in annot_labels.iter() {
         let label_size = text_info.logical_size.as_dvec2();
-
+        if label_size.length_squared() == 0.0 {
+            continue;
+        }
         commands.entity(label).insert((
             RigidBody::Dynamic,
             Collider::rectangle(label_size.x, label_size.y),
             CollisionLayers::new(LabelPhysicsLayers::InactiveLabel, LayerMask::NONE),
-            Mass(1.0),
+            Mass(100.0),
             Inertia(1.0),
-            // CollisionLayers::new(
-            //     LabelPhysicsLayers::ActiveLabel,
-            //     [LabelPhysicsLayers::ActiveLabel],
-            // ),
+            LockedAxes::ROTATION_LOCKED,
         ));
     }
 }
@@ -759,7 +828,7 @@ fn set_label_anchors(
             let region_pt = intersecting_region.center();
             let pt = DVec2::from(region_pt.coords.data.0[0]);
 
-            dbg!(&intersecting_region);
+            // dbg!(&intersecting_region);
 
             // alignment_lines.aabbs.iter().enumerate().filter_map(|(i, aabb)| {
             //     if aabb.intersects(&intersecting_region) {
@@ -777,14 +846,14 @@ fn set_label_anchors(
                     // check if polyline is actually inside region...?
 
                     // if !polyline_aabb.intersects(&intersecting_region) {
-                    dbg!();
+                    // dbg!();
                     if !polyline_aabb.intersects(&intersecting_region) {
                         println!("polyline AABB does not intersect view: {polyline_aabb:?} vs {intersecting_region:?}");
                         return true;
                     }
 
                     let Some(polyline) = alignment_lines.polylines.get(&key) else {
-                        dbg!();
+                        // dbg!();
                         return true;
                     };
 
@@ -813,7 +882,7 @@ fn set_label_anchors(
                         .map(|(_, _, prev)| prev.distance(pt))
                         .unwrap_or(std::f64::INFINITY);
 
-                    dbg!(al_index, dist, closest);
+                    // dbg!(al_index, dist, closest);
                     if dist < prev_best {
                         let segment = polyline.segment(seg_id);
                         let normal = segment.normal().map(|n| DVec2::from(n.data.0[0])).unwrap_or([1.0, 0.0].into());
@@ -842,7 +911,7 @@ fn set_label_anchors(
             };
 
             commands.entity(label_ent).insert(anchor);
-            dbg!(label_ent);
+            // dbg!(label_ent);
         }
     }
 
@@ -870,6 +939,9 @@ fn update_annotation_labels(
 
     */
 
+    use rand::prelude::*;
+    let mut rng = thread_rng();
+
     // #[allow(unreachable_code)]
     for (label_ent, mut annot_label, anchor, mut collision_layers, mut visibility) in
         labels.iter_mut()
@@ -890,22 +962,20 @@ fn update_annotation_labels(
             if let Some(anchor) = anchor {
                 annot_label.is_active = true;
                 *collision_layers = CollisionLayers::new(
-                    LabelPhysicsLayers::ActiveLabel,
+                    [LabelPhysicsLayers::ActiveLabel],
                     [LabelPhysicsLayers::ActiveLabel],
                 );
                 *visibility = Visibility::Inherited;
-            }
-        }
 
-        // dbg!(label_ent, &anchor);
-        if let Some(anchor) = anchor {
-            if annot_label.is_active {
                 if let Ok(mut pos) = label_positions.get_mut(label_ent) {
                     // TODO place the label offset from the anchor
                     // pos.0 = anchor.world_point.to_array().into();
                     // pos.0.y -= 200.0;
 
-                    let new_pos = anchor.world_point + anchor.normal * 100.0;
+                    let dist = rng.gen_range(80f64..=400f64);
+
+                    let new_pos = anchor.world_point + anchor.normal * dist;
+                    // let new_pos = anchor.world_point + anchor.normal * 100.0;
                     pos.0 = new_pos.to_array().into();
                 }
             }
@@ -913,16 +983,48 @@ fn update_annotation_labels(
     }
 }
 
-// TODO - apply/simulate forces between anchor point and screen-space label
-fn label_anchor_constraints(
-    //
-    mut labels: Query<(Entity, &AnnotationLabel, &mut Position, &mut LabelAnchor)>,
+fn hide_colliding_labels(
+    mut labels: Query<(&mut Visibility, &CollidingEntities), With<AnnotationLabel>>,
 ) {
-    for (label_ent, annot_label, mut position, mut anchor) in labels.iter_mut() {
+    for (mut visibility, collisions) in labels.iter() {
         //
     }
+}
 
-    todo!();
+// TODO - apply/simulate forces between anchor point and screen-space label
+fn label_anchor_constraints(
+    // gravity: Res<Gravity>,
+    //
+    mut labels: Query<(
+        Entity,
+        &AnnotationLabel,
+        &Position,
+        &mut ExternalForce,
+        &mut LabelAnchor,
+    )>,
+) {
+    const FORCE_CONSTANT: f64 = 100_000.0;
+
+    for (label_ent, annot_label, position, mut force, mut anchor) in labels.iter_mut() {
+        let p0 = position.0;
+        let p1 = anchor.world_point;
+
+        let dist = p0.distance(p1);
+
+        if let Some(dir) = (p1 - p0).try_normalize() {
+            force.set_force(dir * dist.max(0.0) * FORCE_CONSTANT);
+        } else {
+            force.clear();
+        }
+
+        // if dist > 200.0 {
+        //     if let Some(dir) = (p1 - p0).try_normalize() {
+        //         position.0 += dir * dist.max(0.0);
+        //     }
+        // }
+
+        //
+    }
 }
 
 #[derive(Resource, Default)]

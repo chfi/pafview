@@ -524,7 +524,7 @@ fn finish_alignment_sampling_tasks(
         );
 
         // dbg!(&al_polylines);
-        dbg!(&polyline_qbvh.aabbs);
+        // dbg!(&polyline_qbvh.aabbs);
         let inst_count = buffers.vertices.buffer.values().len();
 
         commands
