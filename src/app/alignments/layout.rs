@@ -8,6 +8,7 @@ use bevy::{
 use avian2d::parry::{
     self,
     bounding_volume::{Aabb, BoundingVolume},
+    partitioning::QbvhUpdateWorkspace,
     query::details::NormalConstraints,
     shape::{SimdCompositeShape, TypedSimdCompositeShape},
 };
@@ -314,6 +315,28 @@ pub struct AabbQbvh<Data: Copy> {
 }
 
 impl<T: Copy> AabbQbvh<T> {
+    pub fn new() -> Self {
+        Self {
+            qbvh: parry::partitioning::Qbvh::new(),
+            data: Vec::new(),
+            aabbs: Vec::new(),
+        }
+    }
+
+    pub fn add(&mut self, workspace: &mut QbvhUpdateWorkspace, value: T, aabb: Aabb) -> usize {
+        let index = self.data.len();
+
+        let margin = 0.0;
+
+        self.data.push(value);
+        self.aabbs.push(aabb);
+        self.qbvh.pre_update_or_insert(index);
+        self.qbvh.refit(margin, workspace, |_ix: &usize| aabb);
+        self.qbvh.rebalance(margin, workspace);
+
+        index
+    }
+
     pub fn from_aabbs<I>(tiles: I) -> Self
     where
         I: Iterator<Item = (T, Aabb)>,
