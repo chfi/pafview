@@ -95,14 +95,14 @@ impl Plugin for SampledAlignmentRendererPlugin {
 }
 
 #[derive(Component, Default, Reflect)]
-struct SampledAlignmentViewer {
-    view: Option<crate::view::View>,
+pub(crate) struct SampledAlignmentViewer {
+    pub(crate) view: Option<crate::view::View>,
 
-    last_rendered: Option<RenderParams>,
-    last_rendered_sampling_params: Option<AlignmentSamplingParams>,
+    pub(crate) last_rendered: Option<RenderParams>,
+    pub(crate) last_rendered_sampling_params: Option<AlignmentSamplingParams>,
 
-    last_sampled_at: Option<std::time::Instant>,
-    last_rendered_at: Option<std::time::Instant>,
+    pub(crate) last_sampled_at: Option<std::time::Instant>,
+    pub(crate) last_rendered_at: Option<std::time::Instant>,
 }
 
 struct SampledVertices {
@@ -226,7 +226,7 @@ struct FrontRenderTarget(RenderTargetImages);
 struct BackRenderTarget(RenderTargetImages);
 
 #[derive(Component)]
-struct VertexSamplingTask {
+pub(crate) struct VertexSamplingTask {
     task: Task<SampledVertices>,
 }
 
@@ -860,11 +860,11 @@ impl std::error::Error for VertexSamplingError {}
 
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Zeroable, bytemuck::Pod)]
 #[repr(C)]
-struct VertexData {
-    p0: [f32; 2],
-    p1: [f32; 2],
-    z: f32,
-    color: [u8; 4],
+pub(crate) struct VertexData {
+    pub(crate) p0: [f32; 2],
+    pub(crate) p1: [f32; 2],
+    pub(crate) z: f32,
+    pub(crate) color: [u8; 4],
 }
 
 // samples the `alignment` to produce screen-space
@@ -1111,7 +1111,7 @@ fn sample_alignment_iterator(
     vx_count
 }
 
-mod pipeline {
+pub(crate) mod pipeline {
     use super::*;
     use bevy::render::{
         extract_component::{ComponentUniforms, DynamicUniformIndex, UniformComponentPlugin},
@@ -1147,10 +1147,10 @@ mod pipeline {
     }
 
     #[derive(Component)]
-    pub(super) struct PolylineVertices {
-        pub(super) buffer: RawBufferVec<VertexData>,
-        pub(super) instances: std::ops::Range<u32>,
-        pub(super) params: Option<AlignmentSamplingParams>,
+    pub(crate) struct PolylineVertices {
+        pub(crate) buffer: RawBufferVec<VertexData>,
+        pub(crate) instances: std::ops::Range<u32>,
+        pub(crate) params: Option<AlignmentSamplingParams>,
     }
 
     #[derive(Component)]

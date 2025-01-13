@@ -10,6 +10,7 @@ pub mod render;
 pub mod rulers;
 // pub mod selection;
 pub mod paf_window;
+pub mod svg_export;
 pub mod view;
 
 pub use alignments::{AlignmentIndex, SequencePairTile};
@@ -48,6 +49,8 @@ impl Plugin for PafViewerPlugin {
             .add_systems(Startup, setup_cameras)
             .add_systems(PreUpdate, update_screenspace_camera)
             .add_systems(Last, save_app_config);
+
+        app.add_plugins(svg_export::SvgExportPlugin);
 
         app.add_plugins(render::sampled_lines::SampledAlignmentRendererPlugin)
             .add_plugins(render::base_level::BaselevelCigarRenderPlugin);

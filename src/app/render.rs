@@ -29,9 +29,9 @@ to the screenspace camera (`RenderLayer` 1) and updated based on the
 pub struct MainAlignmentView;
 
 #[derive(Clone, Copy, PartialEq, Reflect)]
-struct RenderParams {
-    view: crate::view::View,
-    canvas_size: UVec2,
+pub struct RenderParams {
+    pub view: crate::view::View,
+    pub canvas_size: UVec2,
 }
 
 impl RenderParams {
