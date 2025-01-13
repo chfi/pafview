@@ -1,4 +1,8 @@
-use bevy::{math::DVec2, prelude::*, utils::HashMap};
+use bevy::{
+    math::{DVec2, U64Vec2},
+    prelude::*,
+    utils::HashMap,
+};
 
 // use rapier2d::parry;
 use avian2d::parry::{
@@ -39,6 +43,40 @@ pub struct SeqPairLayout {
     // which grid material to use for the sequence pair tiles
     pub target_edges: [SeqId; 2],
     pub query_edges: [SeqId; 2],
+}
+
+impl SeqPairLayout {
+    /// Returns `[min, max]` of the region inside a tile defined by `target` and `query`,
+    /// mapped to the viewport defined by `view` and `screen_dims`
+    pub fn map_local_region_to_screen(
+        &self,
+        view: &crate::view::View,
+        screen_dims: Vec2,
+        target: (SeqId, std::ops::Range<u64>),
+        query: (SeqId, std::ops::Range<u64>),
+    ) -> Option<[Vec2; 2]> {
+        let (tgt_id, tgt_range) = target;
+        let (qry_id, qry_range) = query;
+
+        let tgt_seq_offset = self.target_offsets.get(&tgt_id)?;
+        let qry_seq_offset = self.query_offsets.get(&qry_id)?;
+
+        let seq_offsets = DVec2::new(*tgt_seq_offset, *qry_seq_offset);
+
+        let local_p0 = U64Vec2::new(tgt_range.start, qry_range.start);
+        let local_p1 = U64Vec2::new(tgt_range.end, qry_range.end);
+
+        let p0 = seq_offsets + local_p0.as_dvec2();
+        let p1 = seq_offsets + local_p1.as_dvec2();
+
+        let s0 = view.map_world_to_screen(screen_dims, p0);
+        let s1 = view.map_world_to_screen(screen_dims, p1);
+
+        let s0 = Vec2::new(s0.x, s0.y);
+        let s1 = Vec2::new(s1.x, s1.y);
+
+        Some([s0.min(s1), s0.max(s1)])
+    }
 }
 
 #[derive(Resource, Clone)]

@@ -10,10 +10,12 @@ use time::OffsetDateTime;
 
 use super::{
     alignments::{layout::SeqPairLayout, AlignmentLayoutQuery},
+    annotations::Annotations,
     render::sampled_lines::{
         pipeline::PolylineVertices, AlignmentCollisionLines, SampledAlignmentViewer,
         VertexSamplingTask,
     },
+    view::AlignmentViewport,
 };
 
 pub struct SvgExportPlugin;
@@ -26,6 +28,9 @@ impl Plugin for SvgExportPlugin {
 
 fn export_svg_screenshot(
     // mut commands: Commands,
+    annotations: Res<Annotations>,
+    alignment_view: Res<AlignmentViewport>,
+
     main_viewer: Query<
         (&SampledAlignmentViewer, &AlignmentCollisionLines),
         Without<VertexSamplingTask>,
@@ -52,6 +57,10 @@ fn export_svg_screenshot(
     let Some(params) = viewer.last_rendered else {
         return;
     };
+
+    let view = &alignment_view.view;
+
+    let screen_dims = params.canvas_size;
 
     let w = params.canvas_size.x as f32;
     let h = params.canvas_size.y as f32;
@@ -92,6 +101,33 @@ fn export_svg_screenshot(
 
         document = document.add(path);
     }
+
+    let annotation_regions = annotations.0.annotation_lists.iter().flat_map(|list| {
+        list.records.iter().filter_map(|record| {
+            let region = layout.map_local_region_to_screen(
+                view,
+                screen_dims.as_vec2(),
+                (record.tgt_id, record.tgt_range.clone()),
+                (record.qry_id, record.qry_range.clone()),
+            )?;
+
+            // let [r, g, b, a] = record.color.to_array();
+
+            // let color = Color::linear_rgba(
+            //     r as f32 / 255.0,
+            //     g as f32 / 255.0,
+            //     b as f32 / 255.0,
+            //     a as f32 / 255.0,
+            // );
+
+            Some((region, record.color))
+        })
+    });
+
+    document = document.add(annotation_regions_element(
+        screen_dims.as_vec2(),
+        annotation_regions,
+    ));
 
     let Ok(time) = std::time::UNIX_EPOCH.elapsed().map(|t| t.as_secs()) else {
         return;
@@ -165,4 +201,42 @@ fn grid_paths_in_view(
     }
 
     data
+}
+
+fn annotation_regions_element(
+    screen_dims: Vec2,
+    annotation_regions: impl Iterator<Item = ([Vec2; 2], egui::Color32)>,
+) -> svg::node::element::Group {
+    use svg::node::element::Rectangle;
+    let mut group = svg::node::element::Group::new();
+
+    for ([mins, maxs], color) in annotation_regions {
+        let [r, g, b, a] = color.to_array();
+
+        let color_str = format!("rgb({r} {g} {b})");
+        let opac_str = format!("{}", a as f32 / 255.0);
+
+        let target_rect = Rectangle::new()
+            .set("x", mins.x)
+            .set("y", 0.0)
+            .set("width", maxs.x - mins.x)
+            .set("height", screen_dims.y)
+            .set("stroke", color_str.as_str())
+            .set("fill", color_str.as_str())
+            .set("opacity", opac_str.as_str());
+
+        let query_rect = Rectangle::new()
+            .clone()
+            .set("x", 0.0)
+            .set("y", mins.y)
+            .set("width", screen_dims.x)
+            .set("height", maxs.y - mins.y)
+            .set("stroke", color_str.as_str())
+            .set("fill", color_str.as_str())
+            .set("opacity", opac_str.as_str());
+
+        group = group.add(target_rect).add(query_rect);
+    }
+
+    group
 }

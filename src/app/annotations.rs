@@ -505,23 +505,32 @@ fn update_annotation_regions(
         let list = annotations.list_by_id(annot_id.record_list).unwrap();
         let record = &list.records[annot_id.list_index];
 
-        let tgt_seq_offset = layout.target_offsets.get(&record.tgt_id);
-        let qry_seq_offset = layout.query_offsets.get(&record.qry_id);
-
-        let Some((tgt_seq_offset, qry_seq_offset)) = tgt_seq_offset.zip(qry_seq_offset) else {
-            return;
+        let Some([s0, s1]) = layout.map_local_region_to_screen(
+            &alignment_view.view,
+            screen_dims,
+            (record.tgt_id, record.tgt_range.clone()),
+            (record.qry_id, record.qry_range.clone()),
+        ) else {
+            continue;
         };
 
-        let seq_offsets = DVec2::new(*tgt_seq_offset, *qry_seq_offset);
+        // let tgt_seq_offset = layout.target_offsets.get(&record.tgt_id);
+        // let qry_seq_offset = layout.query_offsets.get(&record.qry_id);
 
-        let local_p0 = U64Vec2::new(record.tgt_range.start, record.qry_range.start);
-        let local_p1 = U64Vec2::new(record.tgt_range.end, record.qry_range.end);
+        // let Some((tgt_seq_offset, qry_seq_offset)) = tgt_seq_offset.zip(qry_seq_offset) else {
+        //     return;
+        // };
 
-        let p0 = seq_offsets + local_p0.as_dvec2();
-        let p1 = seq_offsets + local_p1.as_dvec2();
+        // let seq_offsets = DVec2::new(*tgt_seq_offset, *qry_seq_offset);
 
-        let s0 = alignment_view.view.map_world_to_screen(screen_dims, p0);
-        let s1 = alignment_view.view.map_world_to_screen(screen_dims, p1);
+        // let local_p0 = U64Vec2::new(record.tgt_range.start, record.qry_range.start);
+        // let local_p1 = U64Vec2::new(record.tgt_range.end, record.qry_range.end);
+
+        // let p0 = seq_offsets + local_p0.as_dvec2();
+        // let p1 = seq_offsets + local_p1.as_dvec2();
+
+        // let s0 = alignment_view.view.map_world_to_screen(screen_dims, p0);
+        // let s1 = alignment_view.view.map_world_to_screen(screen_dims, p1);
 
         let mut mid = (s0 + s1) * 0.5;
         mid.y = screen_dims.y - mid.y;

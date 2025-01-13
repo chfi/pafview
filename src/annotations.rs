@@ -23,15 +23,15 @@ pub type AnnotationId = (RecordListId, RecordEntryId);
 
 #[derive(Default)]
 pub struct AnnotationStore {
-    annotation_sources: BiMap<String, usize>,
-    annotation_lists: Vec<RecordList>,
+    pub(crate) annotation_sources: BiMap<String, usize>,
+    pub(crate) annotation_lists: Vec<RecordList>,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct AnnotationShapes {
-    pub target: AnnotShapeId,
-    pub query: AnnotShapeId,
-}
+// #[derive(Debug, Clone, Copy)]
+// struct AnnotationShapes {
+//     pub target: AnnotShapeId,
+//     pub query: AnnotShapeId,
+// }
 
 impl AnnotationStore {
     pub fn source_names_iter<'a>(&'a self) -> impl Iterator<Item = (usize, &'a str)> {
