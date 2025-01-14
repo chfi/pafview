@@ -455,6 +455,7 @@ fn add_label_physics(
             CollisionLayers::new(LabelPhysicsLayers::InactiveLabel, LayerMask::NONE),
             Mass(100.0),
             Inertia(1.0),
+            LinearDamping(0.9),
             LockedAxes::ROTATION_LOCKED,
         ));
     }
