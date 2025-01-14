@@ -13,6 +13,7 @@ pub mod gui;
 pub mod regions;
 pub mod render;
 pub mod sequences;
+pub mod toast;
 pub mod view;
 
 pub use cigar::*;

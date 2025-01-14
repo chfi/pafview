@@ -9,7 +9,7 @@ use svg::node::element::{
 };
 use time::OffsetDateTime;
 
-use crate::app::alignments::layout::AabbQbvh;
+use crate::{app::alignments::layout::AabbQbvh, toast::ToastMessageEvent};
 
 use super::{
     alignments::{layout::SeqPairLayout, AlignmentLayoutQuery},
@@ -42,6 +42,8 @@ fn export_svg_screenshot(
     layouts: AlignmentLayoutQuery,
 
     keyboard: Res<ButtonInput<KeyCode>>,
+
+    mut toast_msgs: EventWriter<ToastMessageEvent>,
 ) {
     if !keyboard.just_pressed(KeyCode::F12) {
         return;
@@ -140,10 +142,17 @@ fn export_svg_screenshot(
 
     match svg::save(&file_name, &document) {
         Ok(_) => {
-            println!("saved SVG: {file_name}");
+            toast_msgs.send(ToastMessageEvent {
+                header: "SVG Export".into(),
+                body: format!("Screenshot saved to {file_name}"),
+            });
+            // println!("saved SVG: {file_name}");
         }
         Err(e) => {
-            log::error!("Error saving SVG: {e}");
+            toast_msgs.send(ToastMessageEvent {
+                header: "SVG Export".into(),
+                body: format!("Error saving SVG: {e}"),
+            });
         }
     }
 }

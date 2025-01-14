@@ -50,7 +50,8 @@ impl Plugin for PafViewerPlugin {
             .add_systems(PreUpdate, update_screenspace_camera)
             .add_systems(Last, save_app_config);
 
-        app.add_plugins(svg_export::SvgExportPlugin);
+        app.add_plugins(svg_export::SvgExportPlugin)
+            .add_plugins(crate::toast::ToastMessagePlugin);
 
         app.add_plugins(render::sampled_lines::SampledAlignmentRendererPlugin)
             .add_plugins(render::base_level::BaselevelCigarRenderPlugin);
