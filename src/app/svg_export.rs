@@ -209,6 +209,7 @@ fn position_target_label(
     // annotated region associated with label, in screenspace
     label_region: [Vec2; 2],
     label_size: Vec2,
+    label_text: &str,
 ) -> Option<Vec2> {
     // choose offset for label inside `label_region`, adding to `qbvh` if position is found
     //
@@ -222,10 +223,17 @@ fn position_target_label(
 
     let [mins, maxs] = label_region;
 
-    let mid = (mins + maxs).as_dvec2() * 0.5;
+    let mut mid = (mins + maxs).as_dvec2() * 0.5;
     let mut half_extents = (maxs - mins).as_dvec2() * 0.5;
 
-    half_extents.x = half_extents.x.max(label_size.x as f64);
+    if label_size.x as f64 > 2.0 * half_extents.x {
+        let half_label = label_size.x as f64 * 0.5;
+        let extra = half_label - half_extents.x;
+
+        mid.x -= extra;
+        half_extents += extra;
+        // half_extents.x = half_extents.x.max(label_size.x as f64);
+    }
 
     // let query_aabb = Aabb::from_half_extents(mid.to_array().into(), half_extents.to_array().into());
 
@@ -244,7 +252,8 @@ fn position_target_label(
 
     let label_halfsize = label_size * 0.5;
 
-    let pos = mins + label_halfsize + Vec2::Y * 30.0;
+    let pos = mins + label_halfsize;
+    // let pos = mins + label_halfsize + Vec2::Y * 30.0;
 
     let mut this_aabb = Aabb::from_half_extents(
         pos.as_dvec2().to_array().into(),
@@ -254,6 +263,11 @@ fn position_target_label(
     if column_collisions.is_empty() {
         final_pos = Some(pos);
     }
+
+    println!(
+        "{label_text} potential collisions: {}",
+        column_collisions.len()
+    );
 
     // iterating through the other labels that intersect this region, from the top
     for other_aabb in column_collisions.iter() {
@@ -276,7 +290,15 @@ fn position_target_label(
             // this label would collide, so move the candidate position
             // down below it
 
-            this_aabb = this_aabb.transform_by(&nalgebra::Isometry2::translation(0.0, 50.0));
+            let delta_y = 50.0;
+            println!(
+                " > {label_text} attempted at [{}, {}], moving to Y {}",
+                p0.x,
+                p0.y,
+                p0.y + delta_y
+            );
+
+            this_aabb = this_aabb.transform_by(&nalgebra::Isometry2::translation(0.0, delta_y));
             dbg!();
 
             /*
@@ -287,6 +309,21 @@ fn position_target_label(
         }
     }
 
+    let mut final_pos_clear = true;
+
+    qbvh.aabbs_in_rect_callback(mid, half_extents, |label_ix, aabb| {
+        if aabb.intersects(&this_aabb) {
+            final_pos_clear = false;
+            return false;
+        }
+        true
+    });
+
+    if final_pos_clear {
+        let p0 = this_aabb.center();
+        final_pos = Some(Vec2::new(p0.x as f32, p0.y as f32));
+    }
+
     if let Some(pos) = final_pos {
         let pos = pos - label_halfsize;
         let i = qbvh.data.len() as u32;
@@ -295,6 +332,7 @@ fn position_target_label(
             label_size.as_dvec2().to_array().into(),
         );
 
+        println!(" > {label_text} placed at [{}, {}]", pos.x, pos.y);
         qbvh.add(qbvh_workspace, i, label_aabb);
 
         Some(pos)
@@ -347,7 +385,7 @@ fn annotations_element<'a>(
         // TODO add labels
 
         // TODO use real label size
-        let label_size = Vec2::X * 8.0 * label.len() as f32 + Vec2::Y * 12.0;
+        let label_size = Vec2::X * 20.0 * label.len() as f32 + Vec2::Y * 20.0;
 
         if let Some(label_pos) = position_target_label(
             &mut label_qbvh,
@@ -356,16 +394,29 @@ fn annotations_element<'a>(
             target_region,
             // [mins, maxs],
             label_size,
+            label,
         ) {
+            let rect = Rectangle::new()
+                .set("x", label_pos.x)
+                .set("y", label_pos.y)
+                .set("width", 20.0 * label.len() as f32)
+                .set("height", 20.0)
+                .set("stroke", color_str.as_str())
+                .set("fill", color_str.as_str());
+            group = group.add(rect);
+
             let text = svg::node::element::Text::new(label)
+                .set("font-family", "monospace")
+                .set("font-size", "20px")
                 .set("x", label_pos.x)
                 .set("y", label_pos.y);
+
             group = group.add(text);
         }
 
         // TODO avoid alignment lines
 
-        group = group.add(target_rect).add(query_rect);
+        // group = group.add(target_rect).add(query_rect);
     }
 
     group

@@ -331,7 +331,8 @@ impl<T: Copy> AabbQbvh<T> {
         self.data.push(value);
         self.aabbs.push(aabb);
         self.qbvh.pre_update_or_insert(index);
-        self.qbvh.refit(margin, workspace, |_ix: &usize| aabb);
+        self.qbvh
+            .refit(margin, workspace, |ix: &usize| self.aabbs[*ix]);
         self.qbvh.rebalance(margin, workspace);
 
         index
