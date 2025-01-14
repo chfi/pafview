@@ -81,7 +81,7 @@ fn export_svg_screenshot(
             grid_paths_in_view(layout, &params.view, params.canvas_size.as_vec2()),
         );
 
-    document = document.add(grid_path);
+    let mut alignment_paths = svg::node::element::Group::new();
 
     for (key, polyline) in lines.polylines.iter() {
         let mut points = polyline.vertices().iter().map(|p| (p.x as f32, p.y as f32));
@@ -104,7 +104,7 @@ fn export_svg_screenshot(
             .set("stroke-width", 5)
             .set("d", path_data.close());
 
-        document = document.add(path);
+        alignment_paths = alignment_paths.add(path);
     }
 
     let annotation_regions = annotations.0.annotation_lists.iter().flat_map(|list| {
@@ -120,11 +120,14 @@ fn export_svg_screenshot(
         })
     });
 
-    document = document.add(annotations_element(
-        lines,
-        screen_dims.as_vec2(),
-        annotation_regions,
-    ));
+    let (annot_regions, annot_labels) =
+        annotations_element(lines, screen_dims.as_vec2(), annotation_regions);
+    document = document
+        .add(grid_path)
+        .add(annot_regions)
+        .add(alignment_paths)
+        .add(annot_labels);
+    // document = document.add();
 
     let Ok(time) = std::time::UNIX_EPOCH.elapsed().map(|t| t.as_secs()) else {
         return;
@@ -210,32 +213,30 @@ fn position_target_label(
     label_region: [Vec2; 2],
     label_size: Vec2,
     label_text: &str,
-) -> Option<Vec2> {
+) -> Option<(Vec2, avian2d::parry::bounding_volume::Aabb)> {
     // choose offset for label inside `label_region`, adding to `qbvh` if position is found
     //
     // check `qbvh` for aabbs inside `label_region`, extended by `label_size`'s width...
     //
-    use avian2d::parry::{
-        self,
-        bounding_volume::{Aabb, BoundingVolume},
-        partitioning::QbvhUpdateWorkspace,
-    };
+    use avian2d::parry::bounding_volume::{Aabb, BoundingVolume};
 
     let [mins, maxs] = label_region;
 
     let mut mid = (mins + maxs).as_dvec2() * 0.5;
     let mut half_extents = (maxs - mins).as_dvec2() * 0.5;
+    // ensure the region isn't extremely small along either axis
+    half_extents = half_extents.max(DVec2::ONE);
 
     if label_size.x as f64 > 2.0 * half_extents.x {
         let half_label = label_size.x as f64 * 0.5;
         let extra = half_label - half_extents.x;
 
-        mid.x -= extra;
+        // mid.x -= extra;
         half_extents += extra;
         // half_extents.x = half_extents.x.max(label_size.x as f64);
     }
 
-    // let query_aabb = Aabb::from_half_extents(mid.to_array().into(), half_extents.to_array().into());
+    let query_aabb = Aabb::from_half_extents(mid.to_array().into(), half_extents.to_array().into());
 
     let mut column_collisions = Vec::new();
 
@@ -252,66 +253,51 @@ fn position_target_label(
 
     let label_halfsize = label_size * 0.5;
 
-    let pos = mins + label_halfsize;
-    // let pos = mins + label_halfsize + Vec2::Y * 30.0;
+    let pos = mins + label_halfsize * Vec2::Y;
 
     let mut this_aabb = Aabb::from_half_extents(
         pos.as_dvec2().to_array().into(),
         label_halfsize.as_dvec2().to_array().into(),
     );
+    println!("trying to placing label `{label_text}`: {this_aabb:?}");
 
     if column_collisions.is_empty() {
+        println!(" > no collisions for label `{label_text}` in {query_aabb:?}");
         final_pos = Some(pos);
+    } else {
+        println!(
+            " > {} collisions for label `{label_text}` in {query_aabb:?}",
+            column_collisions.len()
+        );
     }
-
-    println!(
-        "{label_text} potential collisions: {}",
-        column_collisions.len()
-    );
 
     // iterating through the other labels that intersect this region, from the top
     for other_aabb in column_collisions.iter() {
         let p0 = this_aabb.center();
+
+        let other_aabb = other_aabb.loosened(1.0);
 
         let p1 = other_aabb.center();
 
         let this_bottom = p0.y + this_aabb.half_extents().y;
         let other_top = p1.y - other_aabb.half_extents().y;
 
-        if !this_aabb.intersects(other_aabb) {
+        if !this_aabb.intersects(&other_aabb) {
             // if  this_bottom < other_top {
             // this label would fit before this one, so we can use it & finish
-
             final_pos = Some(Vec2::new(p0.x as f32, p0.y as f32));
-            dbg!(&final_pos);
-            // dbg!(&final_pos);
             break;
         } else {
             // this label would collide, so move the candidate position
             // down below it
-
-            let delta_y = 50.0;
-            println!(
-                " > {label_text} attempted at [{}, {}], moving to Y {}",
-                p0.x,
-                p0.y,
-                p0.y + delta_y
-            );
-
+            let delta_y = this_aabb.half_extents().y + other_aabb.half_extents().y;
             this_aabb = this_aabb.transform_by(&nalgebra::Isometry2::translation(0.0, delta_y));
-            dbg!();
-
-            /*
-            let new_y = p1.y + other_aabb.half_extents().y + this_aabb.half_extents().y;
-            let delta_y = new_y - p0.y;
-            this_aabb = this_aabb.transform_by(&nalgebra::Isometry2::translation(0.0, delta_y));
-             */
         }
     }
 
     let mut final_pos_clear = true;
 
-    qbvh.aabbs_in_rect_callback(mid, half_extents, |label_ix, aabb| {
+    qbvh.aabbs_in_rect_callback(mid, half_extents, |_label_ix, aabb| {
         if aabb.intersects(&this_aabb) {
             final_pos_clear = false;
             return false;
@@ -325,34 +311,51 @@ fn position_target_label(
     }
 
     if let Some(pos) = final_pos {
-        let pos = pos - label_halfsize;
+        // label origin is on its left side, while AABBs are positioned by their center
+        let label_pos = pos - Vec2::X * label_halfsize.x;
         let i = qbvh.data.len() as u32;
         let label_aabb = Aabb::from_half_extents(
             pos.as_dvec2().to_array().into(),
-            label_size.as_dvec2().to_array().into(),
+            label_halfsize.as_dvec2().to_array().into(),
         );
 
-        println!(" > {label_text} placed at [{}, {}]", pos.x, pos.y);
         qbvh.add(qbvh_workspace, i, label_aabb);
 
-        Some(pos)
+        println!("placing label [{i}] `{label_text}`: {label_aabb:?}");
+
+        Some((label_pos, label_aabb))
     } else {
-        // dbg!();
         None
     }
 }
 
+// returns (colored region group, label group)
 fn annotations_element<'a>(
     alignment_lines: &AlignmentCollisionLines,
     screen_dims: Vec2,
     transformed_annotations: impl Iterator<Item = ([Vec2; 2], egui::Color32, &'a str)>,
-) -> svg::node::element::Group {
+) -> (svg::node::element::Group, svg::node::element::Group) {
     use avian2d::parry::partitioning::Qbvh;
     use svg::node::element::Rectangle;
-    let mut group = svg::node::element::Group::new();
+
+    let mut region_group = svg::node::element::Group::new();
+    let mut label_group = svg::node::element::Group::new();
 
     let mut label_qbvh: AabbQbvh<u32> = AabbQbvh::new();
     let mut qbvh_workspace = QbvhUpdateWorkspace::default();
+
+    let mut get_color = {
+        let mut i = 0;
+        let d = 17;
+        move || {
+            let hue = i;
+            i = (i + d) % 360;
+            let [r, g, b] = Color::hsl(hue as f32, 0.8, 0.5)
+                .to_srgba()
+                .to_u8_array_no_alpha();
+            format!("rgb({r}, {g}, {b})")
+        }
+    };
 
     for ([mins, maxs], color, label) in transformed_annotations {
         let [r, g, b, a] = color.to_array();
@@ -362,6 +365,46 @@ fn annotations_element<'a>(
 
         let target_region = [Vec2::new(mins.x, 0.0), Vec2::new(maxs.x, screen_dims.y)];
         let query_region = [Vec2::new(0.0, mins.y), Vec2::new(screen_dims.x, maxs.y)];
+
+        // TODO use real label size
+        let label_size = Vec2::X * 12.0 * label.len() as f32 + Vec2::Y * 20.0;
+
+        // TODO avoid alignment lines
+        if let Some((label_pos, label_aabb)) = position_target_label(
+            &mut label_qbvh,
+            &mut qbvh_workspace,
+            screen_dims,
+            target_region,
+            // [mins, maxs],
+            label_size,
+            label,
+        ) {
+            // let rect = Rectangle::new()
+            //     .set("x", label_pos.x)
+            //     .set("y", label_pos.y)
+            //     .set("width", 20.0 * label.len() as f32)
+            //     .set("height", 20.0)
+            //     .set("stroke", color_str.as_str())
+            //     .set("fill", color_str.as_str());
+            // group = group.add(rect);
+
+            let text = svg::node::element::Text::new(label)
+                .set("font-family", "monospace")
+                .set("font-size", "20px")
+                .set("x", label_pos.x)
+                .set("y", label_pos.y);
+
+            label_group = label_group
+                .add(
+                    svg::node::element::Rectangle::new()
+                        .set("fill", get_color())
+                        .set("x", label_aabb.mins.x)
+                        .set("y", label_aabb.mins.y)
+                        .set("width", label_aabb.extents().x)
+                        .set("height", label_aabb.extents().y),
+                )
+                .add(text);
+        }
 
         let target_rect = Rectangle::new()
             .set("x", mins.x)
@@ -382,46 +425,8 @@ fn annotations_element<'a>(
             .set("fill", color_str.as_str())
             .set("opacity", opac_str.as_str());
 
-        // TODO add labels
-
-        // TODO use real label size
-        let label_size = Vec2::X * 20.0 * label.len() as f32 + Vec2::Y * 20.0;
-
-        if let Some(label_pos) = position_target_label(
-            &mut label_qbvh,
-            &mut qbvh_workspace,
-            screen_dims,
-            target_region,
-            // [mins, maxs],
-            label_size,
-            label,
-        ) {
-            let rect = Rectangle::new()
-                .set("x", label_pos.x)
-                .set("y", label_pos.y)
-                .set("width", 20.0 * label.len() as f32)
-                .set("height", 20.0)
-                .set("stroke", color_str.as_str())
-                .set("fill", color_str.as_str());
-            group = group.add(rect);
-
-            let text = svg::node::element::Text::new(label)
-                .set("font-family", "monospace")
-                .set("font-size", "20px")
-                .set("x", label_pos.x)
-                .set("y", label_pos.y);
-
-            group = group.add(text);
-        }
-
-        // TODO avoid alignment lines
-
-        // group = group.add(target_rect).add(query_rect);
+        region_group = region_group.add(target_rect).add(query_rect);
     }
 
-    group
+    (region_group, label_group)
 }
-
-// fn annotation_labels_element(
-//     screen_dims: Vec2,
-// )
