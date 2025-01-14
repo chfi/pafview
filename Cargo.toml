@@ -118,6 +118,8 @@ rayon = "1.10.0"
 
 renderdoc = { version = "0.12.1", optional = true }
 futures-time = "3.0.0"
+svg = "0.18.0"
+time = "0.3.37"
 
 [dev-dependencies]
 float-cmp = "0.9.0"

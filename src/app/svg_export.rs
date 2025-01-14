@@ -1,5 +1,5 @@
-use avian2d::parry::partitioning::QbvhUpdateWorkspace;
-use bevy::{ecs::query, math::DVec2, prelude::*};
+use avian2d::parry::{partitioning::QbvhUpdateWorkspace, query::PointQuery};
+use bevy::{ecs::query, math::DVec2, prelude::*, render::view::RenderLayers};
 use bevy_egui::{EguiClipboard, EguiContexts};
 
 use nalgebra::{OPoint, Point2};
@@ -15,8 +15,8 @@ use super::{
     alignments::{layout::SeqPairLayout, AlignmentLayoutQuery},
     annotations::Annotations,
     render::sampled_lines::{
-        pipeline::PolylineVertices, AlignmentCollisionLines, SampledAlignmentViewer,
-        VertexSamplingTask,
+        pipeline::PolylineVertices, spawn_alignment_sampling_tasks, AlignmentCollisionLines,
+        SampledAlignmentViewer, VertexSamplingTask,
     },
     view::AlignmentViewport,
 };
@@ -25,37 +25,58 @@ pub struct SvgExportPlugin;
 
 impl Plugin for SvgExportPlugin {
     fn build(&self, app: &mut App) {
+        app.add_systems(
+            PreUpdate,
+            trigger_svg_export_screenshot.before(spawn_alignment_sampling_tasks),
+        );
+
         app.add_systems(PostUpdate, export_svg_screenshot);
     }
 }
 
+#[derive(Component)]
+struct SvgExportInProgress;
+
+fn trigger_svg_export_screenshot(
+    mut commands: Commands,
+    mut main_viewer: Query<(
+        Entity,
+        &mut SampledAlignmentViewer,
+        Has<SvgExportInProgress>,
+    )>,
+
+    keyboard: Res<ButtonInput<KeyCode>>,
+) {
+    for (viewer_entity, mut viewer, is_exporting) in main_viewer.iter_mut() {
+        if keyboard.just_pressed(KeyCode::F12) && !is_exporting {
+            // TODO only do this if view has changed from sampling params
+            viewer.force_resample = true;
+            commands.entity(viewer_entity).insert(SvgExportInProgress);
+        }
+    }
+}
+
 fn export_svg_screenshot(
-    // mut commands: Commands,
+    mut commands: Commands,
     annotations: Res<Annotations>,
     alignment_view: Res<AlignmentViewport>,
 
     main_viewer: Query<
-        (&SampledAlignmentViewer, &AlignmentCollisionLines),
-        Without<VertexSamplingTask>,
+        (Entity, &SampledAlignmentViewer, &AlignmentCollisionLines),
+        (With<SvgExportInProgress>, Without<VertexSamplingTask>),
     >,
 
     layouts: AlignmentLayoutQuery,
 
-    keyboard: Res<ButtonInput<KeyCode>>,
-
     mut toast_msgs: EventWriter<ToastMessageEvent>,
 ) {
-    if !keyboard.just_pressed(KeyCode::F12) {
-        return;
-    }
-
-    let Some(layout) = layouts.layout_assets.get(&layouts.default_layout.layout) else {
+    let Ok((viewer_entity, viewer, lines)) = main_viewer.get_single() else {
         return;
     };
 
     println!("exporting view as SVG...");
 
-    let Ok((viewer, lines)) = main_viewer.get_single() else {
+    let Some(layout) = layouts.layout_assets.get(&layouts.default_layout.layout) else {
         return;
     };
 
@@ -158,6 +179,10 @@ fn export_svg_screenshot(
             });
         }
     }
+
+    commands
+        .entity(viewer_entity)
+        .remove::<SvgExportInProgress>();
 }
 
 fn grid_paths_in_view(
@@ -232,18 +257,14 @@ fn position_target_label(
         let half_label = label_size.x as f64 * 0.5;
         let extra = half_label - half_extents.x;
 
-        // mid.x -= extra;
         half_extents += extra;
-        // half_extents.x = half_extents.x.max(label_size.x as f64);
     }
 
-    let query_aabb = Aabb::from_half_extents(mid.to_array().into(), half_extents.to_array().into());
-
+    // let query_aabb = Aabb::from_half_extents(mid.to_array().into(), half_extents.to_array().into());
     let mut column_collisions = Vec::new();
 
-    qbvh.aabbs_in_rect_callback(mid, half_extents, |label_ix, aabb| {
+    qbvh.aabbs_in_rect_callback(mid, half_extents, |_, aabb| {
         column_collisions.push(*aabb);
-        // column_collisions.push((label_ix, *aabb));
         true
     });
 
@@ -251,6 +272,10 @@ fn position_target_label(
         .qbvh
         .aabbs_in_rect_callback(mid, half_extents, |key, aabb| {
             if let Some(polyline) = alignment_lines.polylines.get(&key) {
+
+                // cast vertical rays down from left and right sides of the label we're placing
+                // - if a ray doesn't hit, use point projection...
+
                 //
             }
             column_collisions.push(*aabb);

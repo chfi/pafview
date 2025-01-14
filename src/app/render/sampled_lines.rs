@@ -98,6 +98,8 @@ impl Plugin for SampledAlignmentRendererPlugin {
 pub(crate) struct SampledAlignmentViewer {
     pub(crate) view: Option<crate::view::View>,
 
+    pub(crate) force_resample: bool,
+
     pub(crate) last_rendered: Option<RenderParams>,
     pub(crate) last_rendered_sampling_params: Option<AlignmentSamplingParams>,
 
@@ -289,7 +291,7 @@ fn update_alignment_viewer_params(
     }
 }
 
-fn spawn_alignment_sampling_tasks(
+pub(crate) fn spawn_alignment_sampling_tasks(
     mut commands: Commands,
 
     alignments: Res<crate::Alignments>,
@@ -298,10 +300,10 @@ fn spawn_alignment_sampling_tasks(
 
     layout_roots: Query<(Entity, &Transform, &Handle<SeqPairLayout>)>,
 
-    viewers: Query<
+    mut viewers: Query<
         (
             Entity,
-            &SampledAlignmentViewer,
+            &mut SampledAlignmentViewer,
             Option<&AlignmentSamplingParams>,
         ),
         Without<VertexSamplingTask>,
@@ -323,7 +325,7 @@ fn spawn_alignment_sampling_tasks(
 
     let task_pool = AsyncComputeTaskPool::get();
 
-    for (viewer_ent, viewer, last_params) in viewers.iter() {
+    for (viewer_ent, mut viewer, last_params) in viewers.iter_mut() {
         let Some(next_view) = viewer.view else {
             continue;
         };
@@ -336,7 +338,7 @@ fn spawn_alignment_sampling_tasks(
 
         // TODO: this could still use some tuning, especially scale-aware (sample
         // more outside the actual view when zoomed in)
-        let need_new_vertices = if let Some(sampled_params) = last_params.as_ref() {
+        let view_changed_enough = if let Some(sampled_params) = last_params.as_ref() {
             let s_view: crate::view::View = sampled_params.view;
 
             let view_out_of_bounds = s_view.x_min > next_view.x_max
@@ -352,9 +354,21 @@ fn spawn_alignment_sampling_tasks(
             true
         };
 
+        // even if `viewer.force_resample = true`, if the sampled parameters
+        // are exactly the same there's no reason to actually resample
+        let force_resample = viewer.force_resample
+            && last_params
+                .as_ref()
+                .map(|p| Some(p.view) != viewer.view || p.canvas_size != canvas_size)
+                .unwrap_or(true);
+
+        let need_new_vertices = force_resample | view_changed_enough;
+
         if !need_new_vertices {
             continue;
         }
+
+        viewer.force_resample = false;
 
         let placed_layouts = layout_roots
             .iter()
