@@ -208,6 +208,7 @@ fn position_target_label(
     // qbvh: &mut avian2d::parry::partitioning::Qbvh<u32>,
     qbvh: &mut AabbQbvh<u32>,
     qbvh_workspace: &mut avian2d::parry::partitioning::QbvhUpdateWorkspace,
+    alignment_lines: &AlignmentCollisionLines,
     screen_dims: Vec2,
     // annotated region associated with label, in screenspace
     label_region: [Vec2; 2],
@@ -246,10 +247,17 @@ fn position_target_label(
         true
     });
 
-    column_collisions.sort_by_key(|aabb| aabb.mins.y as u64);
+    alignment_lines
+        .qbvh
+        .aabbs_in_rect_callback(mid, half_extents, |key, aabb| {
+            if let Some(polyline) = alignment_lines.polylines.get(&key) {
+                //
+            }
+            column_collisions.push(*aabb);
+            true
+        });
 
-    // let mut current_y = mins.y;
-    let mut final_pos: Option<Vec2> = None;
+    column_collisions.sort_by_key(|aabb| aabb.mins.y as u64);
 
     let label_halfsize = label_size * 0.5;
 
@@ -259,45 +267,29 @@ fn position_target_label(
         pos.as_dvec2().to_array().into(),
         label_halfsize.as_dvec2().to_array().into(),
     );
-    println!("trying to placing label `{label_text}`: {this_aabb:?}");
-
-    if column_collisions.is_empty() {
-        println!(" > no collisions for label `{label_text}` in {query_aabb:?}");
-        final_pos = Some(pos);
-    } else {
-        println!(
-            " > {} collisions for label `{label_text}` in {query_aabb:?}",
-            column_collisions.len()
-        );
-    }
 
     // iterating through the other labels that intersect this region, from the top
     for other_aabb in column_collisions.iter() {
         let p0 = this_aabb.center();
-
         let other_aabb = other_aabb.loosened(1.0);
-
-        let p1 = other_aabb.center();
-
-        let this_bottom = p0.y + this_aabb.half_extents().y;
-        let other_top = p1.y - other_aabb.half_extents().y;
 
         if !this_aabb.intersects(&other_aabb) {
             // if  this_bottom < other_top {
             // this label would fit before this one, so we can use it & finish
-            final_pos = Some(Vec2::new(p0.x as f32, p0.y as f32));
             break;
         } else {
             // this label would collide, so move the candidate position
             // down below it
-            let delta_y = this_aabb.half_extents().y + other_aabb.half_extents().y;
+            let new_y =
+                other_aabb.center().y + other_aabb.half_extents().y + this_aabb.half_extents().y;
+            let delta_y = new_y - p0.y;
             this_aabb = this_aabb.transform_by(&nalgebra::Isometry2::translation(0.0, delta_y));
         }
     }
 
     let mut final_pos_clear = true;
 
-    qbvh.aabbs_in_rect_callback(mid, half_extents, |_label_ix, aabb| {
+    qbvh.aabbs_in_rect_callback(this_aabb.center(), this_aabb.half_extents(), |_, aabb| {
         if aabb.intersects(&this_aabb) {
             final_pos_clear = false;
             return false;
@@ -306,24 +298,13 @@ fn position_target_label(
     });
 
     if final_pos_clear {
-        let p0 = this_aabb.center();
-        final_pos = Some(Vec2::new(p0.x as f32, p0.y as f32));
-    }
-
-    if let Some(pos) = final_pos {
         // label origin is on its left side, while AABBs are positioned by their center
+        let pos = DVec2::from(this_aabb.center().coords.data.0[0]).as_vec2();
         let label_pos = pos - Vec2::X * label_halfsize.x;
         let i = qbvh.data.len() as u32;
-        let label_aabb = Aabb::from_half_extents(
-            pos.as_dvec2().to_array().into(),
-            label_halfsize.as_dvec2().to_array().into(),
-        );
+        qbvh.add(qbvh_workspace, i, this_aabb);
 
-        qbvh.add(qbvh_workspace, i, label_aabb);
-
-        println!("placing label [{i}] `{label_text}`: {label_aabb:?}");
-
-        Some((label_pos, label_aabb))
+        Some((label_pos, this_aabb))
     } else {
         None
     }
@@ -335,7 +316,6 @@ fn annotations_element<'a>(
     screen_dims: Vec2,
     transformed_annotations: impl Iterator<Item = ([Vec2; 2], egui::Color32, &'a str)>,
 ) -> (svg::node::element::Group, svg::node::element::Group) {
-    use avian2d::parry::partitioning::Qbvh;
     use svg::node::element::Rectangle;
 
     let mut region_group = svg::node::element::Group::new();
@@ -343,19 +323,6 @@ fn annotations_element<'a>(
 
     let mut label_qbvh: AabbQbvh<u32> = AabbQbvh::new();
     let mut qbvh_workspace = QbvhUpdateWorkspace::default();
-
-    let mut get_color = {
-        let mut i = 0;
-        let d = 17;
-        move || {
-            let hue = i;
-            i = (i + d) % 360;
-            let [r, g, b] = Color::hsl(hue as f32, 0.8, 0.5)
-                .to_srgba()
-                .to_u8_array_no_alpha();
-            format!("rgb({r}, {g}, {b})")
-        }
-    };
 
     for ([mins, maxs], color, label) in transformed_annotations {
         let [r, g, b, a] = color.to_array();
@@ -373,6 +340,7 @@ fn annotations_element<'a>(
         if let Some((label_pos, label_aabb)) = position_target_label(
             &mut label_qbvh,
             &mut qbvh_workspace,
+            alignment_lines,
             screen_dims,
             target_region,
             // [mins, maxs],
@@ -395,14 +363,14 @@ fn annotations_element<'a>(
                 .set("y", label_pos.y);
 
             label_group = label_group
-                .add(
-                    svg::node::element::Rectangle::new()
-                        .set("fill", get_color())
-                        .set("x", label_aabb.mins.x)
-                        .set("y", label_aabb.mins.y)
-                        .set("width", label_aabb.extents().x)
-                        .set("height", label_aabb.extents().y),
-                )
+                // .add(
+                //     svg::node::element::Rectangle::new()
+                //         .set("fill", get_color())
+                //         .set("x", label_aabb.mins.x)
+                //         .set("y", label_aabb.mins.y)
+                //         .set("width", label_aabb.extents().x)
+                //         .set("height", label_aabb.extents().y),
+                // )
                 .add(text);
         }
 
