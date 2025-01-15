@@ -26,9 +26,14 @@ pub struct SvgExportPlugin;
 
 impl Plugin for SvgExportPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<SvgExportOptions>()
+            .add_event::<TriggerSvgScreenshot>();
+
         app.add_systems(
             PreUpdate,
-            trigger_svg_export_screenshot.before(spawn_alignment_sampling_tasks),
+            (keyboard_svg_export_event, trigger_svg_export_screenshot)
+                .chain()
+                .before(spawn_alignment_sampling_tasks),
         );
 
         app.add_systems(PostUpdate, export_svg_screenshot);
@@ -40,11 +45,74 @@ impl Plugin for SvgExportPlugin {
     }
 }
 
+#[derive(Resource, Component, Clone, Copy, Reflect, Debug, Default)]
+pub struct SvgExportOptions {
+    pub annotation_elements: AnnotationExportOptions,
+    pub rulers: RulerExportOptions,
+    pub grid: GridExportMode,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Reflect, Debug)]
+pub struct AnnotationExportOptions {
+    pub include_target_regions: bool,
+    pub include_target_labels: bool,
+    pub include_query_regions: bool,
+    pub include_query_labels: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Reflect, Debug)]
+pub struct RulerExportOptions {
+    pub include_rulers: bool,
+    pub include_labels: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Reflect, Debug, Default)]
+pub enum GridExportMode {
+    #[default]
+    Full,
+    ExternalOnly,
+    None,
+}
+
+impl Default for AnnotationExportOptions {
+    fn default() -> Self {
+        Self {
+            include_target_regions: true,
+            include_target_labels: true,
+            include_query_regions: true,
+            include_query_labels: true,
+        }
+    }
+}
+
+impl Default for RulerExportOptions {
+    fn default() -> Self {
+        Self {
+            include_rulers: true,
+            include_labels: true,
+        }
+    }
+}
+
 #[derive(Component)]
 struct SvgExportInProgress;
 
+#[derive(Event)]
+struct TriggerSvgScreenshot;
+
+fn keyboard_svg_export_event(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut events: EventWriter<TriggerSvgScreenshot>,
+) {
+    if keyboard.just_pressed(KeyCode::F12) {
+        events.send(TriggerSvgScreenshot);
+    }
+}
+
 fn trigger_svg_export_screenshot(
     mut commands: Commands,
+
+    mut events: EventReader<TriggerSvgScreenshot>,
     mut main_viewer: Query<(
         Entity,
         &mut SampledAlignmentViewer,
@@ -53,8 +121,15 @@ fn trigger_svg_export_screenshot(
 
     keyboard: Res<ButtonInput<KeyCode>>,
 ) {
+    // right now we only care that any event happened
+    if events.is_empty() {
+        return;
+    }
+
+    events.clear();
+
     for (viewer_entity, mut viewer, is_exporting) in main_viewer.iter_mut() {
-        if keyboard.just_pressed(KeyCode::F12) && !is_exporting {
+        if !is_exporting {
             // TODO only do this if view has changed from sampling params
             viewer.force_resample = true;
             commands.entity(viewer_entity).insert(SvgExportInProgress);
@@ -66,6 +141,8 @@ fn export_svg_screenshot(
     mut commands: Commands,
     annotations: Res<Annotations>,
     alignment_view: Res<AlignmentViewport>,
+
+    opts: Res<SvgExportOptions>,
 
     main_viewer: Query<
         (Entity, &SampledAlignmentViewer, &AlignmentCollisionLines),
@@ -79,8 +156,6 @@ fn export_svg_screenshot(
     let Ok((viewer_entity, viewer, lines)) = main_viewer.get_single() else {
         return;
     };
-
-    println!("exporting view as SVG...");
 
     let Some(layout) = layouts.layout_assets.get(&layouts.default_layout.layout) else {
         return;
@@ -99,14 +174,25 @@ fn export_svg_screenshot(
 
     let mut document = svg::Document::new().set("viewBox", (0.0, 0.0, w, h));
 
-    let grid_path = SvgPath::new()
-        .set("fill", "none")
-        .set("stroke", "black")
-        .set("stroke-width", 0.5)
-        .set(
-            "d",
-            grid_paths_in_view(layout, &params.view, params.canvas_size.as_vec2()),
-        );
+    if opts.grid != GridExportMode::None {
+        let external_only = opts.grid == GridExportMode::ExternalOnly;
+
+        let grid_path = SvgPath::new()
+            .set("fill", "none")
+            .set("stroke", "black")
+            .set("stroke-width", 0.5)
+            .set(
+                "d",
+                grid_paths_in_view(
+                    layout,
+                    &params.view,
+                    params.canvas_size.as_vec2(),
+                    external_only,
+                ),
+            );
+
+        document = document.add(grid_path);
+    }
 
     let mut alignment_paths = SvgGroup::new();
 
@@ -134,27 +220,34 @@ fn export_svg_screenshot(
         alignment_paths = alignment_paths.add(path);
     }
 
-    let annotation_regions = annotations.0.annotation_lists.iter().flat_map(|list| {
-        list.records.iter().filter_map(|record| {
-            let region = layout.map_local_region_to_screen(
-                view,
-                screen_dims.as_vec2(),
-                (record.tgt_id, record.tgt_range.clone()),
-                (record.qry_id, record.qry_range.clone()),
-            )?;
+    let mut annot_groups = None;
+    if opts.any_annotations() {
+        let annotation_regions = annotations.0.annotation_lists.iter().flat_map(|list| {
+            list.records.iter().filter_map(|record| {
+                let region = layout.map_local_region_to_screen(
+                    view,
+                    screen_dims.as_vec2(),
+                    (record.tgt_id, record.tgt_range.clone()),
+                    (record.qry_id, record.qry_range.clone()),
+                )?;
 
-            Some((region, record.color, record.label.as_str()))
-        })
-    });
+                Some((region, record.color, record.label.as_str()))
+            })
+        });
 
-    let (annot_regions, annot_labels) =
-        annotations_element(lines, screen_dims.as_vec2(), annotation_regions);
-    document = document
-        .add(grid_path)
-        .add(annot_regions)
-        .add(alignment_paths)
-        .add(annot_labels);
-    // document = document.add();
+        annot_groups = Some(annotations_element(
+            &opts.annotation_elements,
+            lines,
+            screen_dims.as_vec2(),
+            annotation_regions,
+        ));
+    }
+
+    if let Some((regions, labels)) = annot_groups {
+        document = document.add(regions).add(alignment_paths).add(labels);
+    } else {
+        document = document.add(alignment_paths);
+    }
 
     let Ok(time) = std::time::UNIX_EPOCH.elapsed().map(|t| t.as_secs()) else {
         return;
@@ -192,10 +285,10 @@ fn export_svg_screenshot(
 }
 
 fn grid_paths_in_view(
-    // document: &mut Document,
     tile_layout: &SeqPairLayout,
     view: &crate::view::View,
     canvas_size: Vec2,
+    external_only: bool,
 ) -> path::Data {
     let mut data = Data::new();
 
@@ -207,6 +300,14 @@ fn grid_paths_in_view(
         let Some(aabb) = tile_layout.aabbs.get(tile) else {
             continue;
         };
+
+        if external_only {
+            let [t0, t1] = tile_layout.target_edges;
+            let [q0, q1] = tile_layout.query_edges;
+            if tile.target != t0 && tile.target != t1 && tile.query != q0 && tile.query != q1 {
+                continue;
+            }
+        }
 
         let center = view.map_world_to_screen(canvas_size, aabb.center().coords.data.0[0]);
         let size = DVec2::from(aabb.extents().data.0[0]) * (canvas_size.x as f64 / view.width());
@@ -343,6 +444,7 @@ fn position_target_label(
 
 // returns (colored region group, label group)
 fn annotations_element<'a>(
+    opts: &AnnotationExportOptions,
     alignment_lines: &AlignmentCollisionLines,
     screen_dims: Vec2,
     transformed_annotations: impl Iterator<Item = ([Vec2; 2], egui::Color32, &'a str)>,
@@ -367,64 +469,71 @@ fn annotations_element<'a>(
         // TODO use real label size
         let label_size = Vec2::X * 12.0 * label.len() as f32 + Vec2::Y * 20.0;
 
-        // TODO avoid alignment lines
-        if let Some((label_pos, label_aabb)) = position_target_label(
-            &mut label_qbvh,
-            &mut qbvh_workspace,
-            alignment_lines,
-            screen_dims,
-            target_region,
-            // [mins, maxs],
-            label_size,
-            label,
-        ) {
-            // let rect = Rectangle::new()
-            //     .set("x", label_pos.x)
-            //     .set("y", label_pos.y)
-            //     .set("width", 20.0 * label.len() as f32)
-            //     .set("height", 20.0)
-            //     .set("stroke", color_str.as_str())
-            //     .set("fill", color_str.as_str());
-            // group = group.add(rect);
+        if opts.include_target_labels {
+            // TODO avoid alignment lines
+            if let Some((label_pos, label_aabb)) = position_target_label(
+                &mut label_qbvh,
+                &mut qbvh_workspace,
+                alignment_lines,
+                screen_dims,
+                target_region,
+                // [mins, maxs],
+                label_size,
+                label,
+            ) {
+                // let rect = Rectangle::new()
+                //     .set("x", label_pos.x)
+                //     .set("y", label_pos.y)
+                //     .set("width", 20.0 * label.len() as f32)
+                //     .set("height", 20.0)
+                //     .set("stroke", color_str.as_str())
+                //     .set("fill", color_str.as_str());
+                // group = group.add(rect);
 
-            let text = svg::node::element::Text::new(label)
-                .set("font-family", "monospace")
-                .set("font-size", "20px")
-                .set("x", label_pos.x)
-                .set("y", label_pos.y);
+                let text = svg::node::element::Text::new(label)
+                    .set("font-family", "monospace")
+                    .set("font-size", "20px")
+                    .set("x", label_pos.x)
+                    .set("y", label_pos.y);
 
-            label_group = label_group
-                // .add(
-                //     svg::node::element::Rectangle::new()
-                //         .set("fill", get_color())
-                //         .set("x", label_aabb.mins.x)
-                //         .set("y", label_aabb.mins.y)
-                //         .set("width", label_aabb.extents().x)
-                //         .set("height", label_aabb.extents().y),
-                // )
-                .add(text);
+                label_group = label_group
+                    // .add(
+                    //     svg::node::element::Rectangle::new()
+                    //         .set("fill", get_color())
+                    //         .set("x", label_aabb.mins.x)
+                    //         .set("y", label_aabb.mins.y)
+                    //         .set("width", label_aabb.extents().x)
+                    //         .set("height", label_aabb.extents().y),
+                    // )
+                    .add(text);
+            }
         }
 
-        let target_rect = Rectangle::new()
-            .set("x", mins.x)
-            .set("y", 0.0)
-            .set("width", maxs.x - mins.x)
-            .set("height", screen_dims.y)
-            .set("stroke", color_str.as_str())
-            .set("fill", color_str.as_str())
-            .set("opacity", opac_str.as_str());
+        if opts.include_target_regions {
+            let target_rect = Rectangle::new()
+                .set("x", mins.x)
+                .set("y", 0.0)
+                .set("width", maxs.x - mins.x)
+                .set("height", screen_dims.y)
+                .set("stroke", color_str.as_str())
+                .set("fill", color_str.as_str())
+                .set("opacity", opac_str.as_str());
+            region_group = region_group.add(target_rect);
+        }
 
-        let query_rect = Rectangle::new()
-            .clone()
-            .set("x", 0.0)
-            .set("y", mins.y)
-            .set("width", screen_dims.x)
-            .set("height", maxs.y - mins.y)
-            .set("stroke", color_str.as_str())
-            .set("fill", color_str.as_str())
-            .set("opacity", opac_str.as_str());
+        if opts.include_query_regions {
+            let query_rect = Rectangle::new()
+                .clone()
+                .set("x", 0.0)
+                .set("y", mins.y)
+                .set("width", screen_dims.x)
+                .set("height", maxs.y - mins.y)
+                .set("stroke", color_str.as_str())
+                .set("fill", color_str.as_str())
+                .set("opacity", opac_str.as_str());
 
-        region_group = region_group.add(target_rect).add(query_rect);
+            region_group = region_group.add(query_rect);
+        }
     }
 
     (region_group, label_group)
@@ -489,4 +598,84 @@ fn rulers_element(
     }
 
     group
+}
+
+#[derive(Resource, Default)]
+pub struct SvgExportWindowOpen(pub bool);
+
+fn svg_export_window(
+    mut contexts: EguiContexts,
+    mut window_open: ResMut<SvgExportWindowOpen>,
+    mut svg_options: ResMut<SvgExportOptions>,
+
+    mut export_trigger: EventWriter<TriggerSvgScreenshot>,
+) {
+    egui::Window::new("SVG Export")
+        .open(&mut window_open.0)
+        .show(contexts.ctx_mut(), |ui| {
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Press F12 to export view");
+                    if ui.button("Export").clicked() {
+                        export_trigger.send(TriggerSvgScreenshot);
+                    }
+                })
+            });
+            ui.separator();
+            //
+            ui.checkbox(
+                &mut svg_options.annotation_elements.include_target_regions,
+                "Annotations - TGT regions",
+            );
+            ui.checkbox(
+                &mut svg_options.annotation_elements.include_query_regions,
+                "Annotations - QRY regions",
+            );
+            ui.checkbox(
+                &mut svg_options.annotation_elements.include_target_labels,
+                "Annotations - TGT labels",
+            );
+            // ui.checkbox(
+            //     &mut svg_options.annotation_elements.include_query_regions,
+            //     "Annotations - QRY regions",
+            // );
+
+            ui.separator();
+
+            ui.vertical(|ui| {
+                ui.label("Grid");
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut svg_options.grid, GridExportMode::Full, "Enable");
+                    ui.selectable_value(
+                        &mut svg_options.grid,
+                        GridExportMode::ExternalOnly,
+                        "Borders Only",
+                    );
+                    ui.selectable_value(&mut svg_options.grid, GridExportMode::None, "Disable");
+                })
+            })
+        });
+}
+
+impl SvgExportOptions {
+    pub fn any_annotations(&self) -> bool {
+        self.annotation_elements.any()
+    }
+}
+
+impl AnnotationExportOptions {
+    pub fn any(&self) -> bool {
+        self.include_target_regions
+            || self.include_target_labels
+            || self.include_query_regions
+            || self.include_query_labels
+    }
+
+    pub fn any_labels(&self) -> bool {
+        self.include_target_labels || self.include_query_labels
+    }
+
+    pub fn any_regions(&self) -> bool {
+        self.include_target_regions || self.include_query_regions
+    }
 }

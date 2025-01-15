@@ -10,6 +10,7 @@ use super::{
     alignments::{AlignmentLayoutQuery, DefaultLayoutRoot},
     annotations::gui::AnnotationsWindow,
     paf_window::PafListWindowOpen,
+    svg_export::SvgExportWindowOpen,
     view::{AlignmentViewport, ViewEvent},
 };
 
@@ -65,6 +66,7 @@ pub(crate) fn menubar_system(
     mut window_states: ResMut<WindowStates>,
     // mut figure_export_open: Option<ResMut<super::figure_export::FigureExportWindowOpen>>,
     mut paf_list_open: ResMut<PafListWindowOpen>,
+    mut svg_export_open: ResMut<SvgExportWindowOpen>,
     mut layout_editor_open: ResMut<super::alignments::layout::editor::LayoutEditorOpen>,
 
     mut menubar_size: ResMut<MenubarSize>,
@@ -111,12 +113,10 @@ pub(crate) fn menubar_system(
                     }
                 }
 
-                // if let Some(fig_export) = figure_export_open.as_mut() {
-                //     let open = &mut fig_export.is_open;
-                //     if ui.button("Figure Export").clicked() {
-                //         *open = !*open;
-                //     }
-                // }
+                let open = &mut svg_export_open.0;
+                if ui.button("SVG Export").clicked() {
+                    *open = !*open;
+                }
             });
             // ui.spacing()
         })
