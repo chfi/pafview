@@ -4,8 +4,9 @@ use bevy_egui::{EguiClipboard, EguiContexts};
 
 use nalgebra::{OPoint, Point2};
 use svg::node::element::{
+    self,
     path::{self, Data},
-    Path,
+    Group as SvgGroup, Path as SvgPath,
 };
 use time::OffsetDateTime;
 
@@ -31,6 +32,11 @@ impl Plugin for SvgExportPlugin {
         );
 
         app.add_systems(PostUpdate, export_svg_screenshot);
+
+        app.init_resource::<SvgExportWindowOpen>().add_systems(
+            PreUpdate,
+            svg_export_window.after(bevy_egui::EguiSet::BeginPass),
+        );
     }
 }
 
@@ -93,7 +99,7 @@ fn export_svg_screenshot(
 
     let mut document = svg::Document::new().set("viewBox", (0.0, 0.0, w, h));
 
-    let grid_path = Path::new()
+    let grid_path = SvgPath::new()
         .set("fill", "none")
         .set("stroke", "black")
         .set("stroke-width", 0.5)
@@ -102,7 +108,7 @@ fn export_svg_screenshot(
             grid_paths_in_view(layout, &params.view, params.canvas_size.as_vec2()),
         );
 
-    let mut alignment_paths = svg::node::element::Group::new();
+    let mut alignment_paths = SvgGroup::new();
 
     for (key, polyline) in lines.polylines.iter() {
         let mut points = polyline.vertices().iter().map(|p| (p.x as f32, p.y as f32));
@@ -119,7 +125,7 @@ fn export_svg_screenshot(
         }
 
         // TODO set color from color schemes
-        let path = Path::new()
+        let path = SvgPath::new()
             .set("fill", "none")
             .set("stroke", "black")
             .set("stroke-width", 5)
@@ -340,11 +346,11 @@ fn annotations_element<'a>(
     alignment_lines: &AlignmentCollisionLines,
     screen_dims: Vec2,
     transformed_annotations: impl Iterator<Item = ([Vec2; 2], egui::Color32, &'a str)>,
-) -> (svg::node::element::Group, svg::node::element::Group) {
+) -> (SvgGroup, SvgGroup) {
     use svg::node::element::Rectangle;
 
-    let mut region_group = svg::node::element::Group::new();
-    let mut label_group = svg::node::element::Group::new();
+    let mut region_group = SvgGroup::new();
+    let mut label_group = SvgGroup::new();
 
     let mut label_qbvh: AabbQbvh<u32> = AabbQbvh::new();
     let mut qbvh_workspace = QbvhUpdateWorkspace::default();
@@ -422,4 +428,65 @@ fn annotations_element<'a>(
     }
 
     (region_group, label_group)
+}
+
+fn rulers_element(
+    view: &crate::view::View,
+    screen_dims: Vec2,
+    rulers: &Query<(Entity, &super::rulers::Ruler)>,
+    endpoints: &Query<&super::rulers::RulerEndpoint>,
+) -> SvgGroup {
+    let mut group = SvgGroup::new();
+
+    for (_, ruler) in rulers {
+        let screen_point = |entity| {
+            endpoints
+                .get(entity)
+                .map(|r| view.map_world_to_screen(screen_dims, r.world))
+                .ok()
+        };
+
+        let Some((start, end)) = screen_point(ruler.start).zip(screen_point(ruler.end)) else {
+            continue;
+        };
+
+        // TODO add endpoints
+        // TODO add axes
+        // TODO add length labels
+
+        let tgt_axis = {
+            let mut data = path::Data::new()
+                .move_to((start.x, start.y))
+                .move_by((0.0, -5.0))
+                .line_by((0.0, 10.0))
+                .move_by((0.0, -5.0))
+                .line_by(((end.x - start.x).abs(), 0.0));
+            // .line_by(parameters);
+
+            SvgPath::new()
+                .set("fill", "none")
+                .set("stroke", "black")
+                .set("stroke-width", 3)
+                .set("d", data)
+        };
+
+        let qry_axis = {
+            let mut data = path::Data::new()
+                .move_to((end.x, end.y))
+                .move_by((-5.0, 0.0))
+                .line_by((10.0, 0.0))
+                .move_by((-5.0, 0.0))
+                .line_by((0.0, (end.y - start.y).abs()));
+
+            SvgPath::new()
+                .set("fill", "none")
+                .set("stroke", "black")
+                .set("stroke-width", 3)
+                .set("d", data)
+        };
+
+        group = group.add(tgt_axis).add(qry_axis);
+    }
+
+    group
 }

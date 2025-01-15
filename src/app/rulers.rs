@@ -63,9 +63,9 @@ impl Plugin for InteractiveRulersPlugin {
 }
 
 #[derive(Component)]
-struct Ruler {
-    start: Entity,
-    end: Entity,
+pub struct Ruler {
+    pub start: Entity,
+    pub end: Entity,
 
     buttons_root: Entity,
 }
@@ -85,8 +85,8 @@ struct RulerAxis;
 struct RulerText;
 
 #[derive(Component)]
-struct RulerEndpoint {
-    world: DVec2,
+pub struct RulerEndpoint {
+    pub world: DVec2,
 }
 
 #[derive(Component)]
