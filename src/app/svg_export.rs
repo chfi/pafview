@@ -1,4 +1,6 @@
-use avian2d::parry::{partitioning::QbvhUpdateWorkspace, query::PointQuery};
+use avian2d::parry::{
+    partitioning::QbvhUpdateWorkspace, query::PointQuery, shape::SimdCompositeShape,
+};
 use bevy::{ecs::query, math::DVec2, prelude::*, render::view::RenderLayers};
 use bevy_egui::{EguiClipboard, EguiContexts};
 
@@ -10,7 +12,10 @@ use svg::node::element::{
 };
 use time::OffsetDateTime;
 
-use crate::{app::alignments::layout::AabbQbvh, toast::ToastMessageEvent};
+use crate::{
+    app::alignments::{layout::AabbQbvh, AlignmentAxis},
+    toast::ToastMessageEvent,
+};
 
 use super::{
     alignments::{layout::SeqPairLayout, AlignmentLayoutQuery},
@@ -367,7 +372,7 @@ fn position_target_label(
         half_extents += extra;
     }
 
-    // let query_aabb = Aabb::from_half_extents(mid.to_array().into(), half_extents.to_array().into());
+    let query_aabb = Aabb::from_half_extents(mid.to_array().into(), half_extents.to_array().into());
     let mut column_collisions = Vec::new();
 
     qbvh.aabbs_in_rect_callback(mid, half_extents, |_, aabb| {
@@ -375,19 +380,33 @@ fn position_target_label(
         true
     });
 
+    // let mut closest_segments = Vec::new();
+
+    let closest_in_aabb =
+        alignment_lines.closest_point_to_aabb_sides(AlignmentAxis::Target, &query_aabb);
+
+    if let [Some((_, p_min)), Some((_, p_max))] = closest_in_aabb {
+        let mins = p_min.min(p_max);
+        let maxs = p_min.max(p_max);
+
+        column_collisions.push(Aabb::new(mins.to_array().into(), maxs.to_array().into()));
+    }
+
+    /*
     alignment_lines
         .qbvh
         .aabbs_in_rect_callback(mid, half_extents, |key, aabb| {
             if let Some(polyline) = alignment_lines.polylines.get(&key) {
+                let qbvh = polyline.qbvh();
 
-                // cast vertical rays down from left and right sides of the label we're placing
-                // - if a ray doesn't hit, use point projection...
+                // TODO now query the polyline (same query AABB) to find the points
+                // closest to the edges...
 
-                //
             }
             column_collisions.push(*aabb);
             true
         });
+        */
 
     column_collisions.sort_by_key(|aabb| aabb.mins.y as u64);
 

@@ -488,6 +488,7 @@ pub struct AlignmentCollisionLines {
 impl AlignmentCollisionLines {
     /// Find the polyline closest to the `axis` edges of `aabb`, returning the associated
     /// alignment index and the exact closest points on the corresponding alignment
+    // TODO the return type is completely stupid for what i need
     pub fn closest_point_to_aabb_sides(
         &self,
         axis: AlignmentAxis,
@@ -522,6 +523,7 @@ impl AlignmentCollisionLines {
                                 (segment.a.x - aabb.center().x - aabb.half_extents().x).abs();
                             if dist_to_min < best_dist_to_min {
                                 // TODO find closest point/intersection...
+                                // just use the endpoints for now
                                 closest_min = Some(DVec2::from(segment.a.coords.data.0[0]));
                                 best_dist_to_min = dist_to_min;
                                 min_polyline = Some(key);
