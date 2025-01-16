@@ -22,7 +22,7 @@ use crate::annotations::{AnnotationId, RecordEntryId, RecordListId};
 use super::{
     alignments::{
         layout::{AabbQbvh, DefaultLayout, SeqPairLayout},
-        AlignmentAabbs, AlignmentLayoutQuery, DefaultLayoutRoot,
+        AlignmentAabbs, AlignmentAxis, AlignmentLayoutQuery, DefaultLayoutRoot,
     },
     render::{
         bordered_rect::BorderedRectMaterial2d,
@@ -298,23 +298,8 @@ pub enum LabelPhysicsLayers {
 #[derive(Component, Clone, Copy)]
 struct AnnotationLabel {
     annotation: Entity,
-    axis: LabelAxis,
+    axis: AlignmentAxis,
     is_active: bool,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-enum LabelAxis {
-    Target,
-    Query,
-}
-
-impl LabelAxis {
-    fn basis(&self) -> Vec2 {
-        match self {
-            LabelAxis::Target => Vec2::X,
-            LabelAxis::Query => Vec2::Y,
-        }
-    }
 }
 
 fn prepare_annotations(
@@ -410,7 +395,7 @@ fn prepare_annotations(
                 Pickable::IGNORE,
                 AnnotationLabel {
                     annotation: annot_ent,
-                    axis: LabelAxis::Query,
+                    axis: AlignmentAxis::Query,
                     is_active: false,
                 },
             ))
@@ -421,7 +406,7 @@ fn prepare_annotations(
                 Pickable::IGNORE,
                 AnnotationLabel {
                     annotation: annot_ent,
-                    axis: LabelAxis::Target,
+                    axis: AlignmentAxis::Target,
                     is_active: false,
                 },
             ))
@@ -782,7 +767,7 @@ fn set_label_anchors(
             // working with the screen-sampled alignments
             let intersecting_region: ParryAabb = {
                 let (x_min, x_max, y_min, y_max) = match label_annot.axis {
-                    LabelAxis::Target => {
+                    AlignmentAxis::Target => {
                         let y_min = view.y_min;
                         let y_max = view.y_max;
 
@@ -792,7 +777,7 @@ fn set_label_anchors(
 
                         (x_min, x_max, y_min, y_max)
                     }
-                    LabelAxis::Query => {
+                    AlignmentAxis::Query => {
                         let x_min = view.x_min;
                         let x_max = view.x_max;
 

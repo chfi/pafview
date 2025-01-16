@@ -142,6 +142,12 @@ pub struct AlignmentIndex {
     pub pair_index: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Reflect)]
+pub enum AlignmentAxis {
+    Target,
+    Query,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Resource, Reflect)]
 pub struct DefaultLayoutRoot(pub Entity);
 

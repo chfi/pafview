@@ -1,7 +1,8 @@
 use std::sync::atomic::AtomicU8;
 
+use avian2d::parry::{self, bounding_volume::Aabb, shape::HalfSpace};
 use bevy::{
-    math::U64Vec2,
+    math::{DVec2, U64Vec2},
     prelude::*,
     tasks::{AsyncComputeTaskPool, Task},
     utils::tracing,
@@ -25,7 +26,10 @@ use nalgebra::OPoint;
 use pipeline::{PolylineConfig, PolylineModel, PolylineProjection, PolylineVertices};
 use wgpu::BufferUsages;
 
-use crate::app::{alignments::layout::AabbQbvh, view::AlignmentViewport};
+use crate::app::{
+    alignments::{layout::AabbQbvh, AlignmentAxis},
+    view::AlignmentViewport,
+};
 use crate::{
     app::{alignments::layout::SeqPairLayout, AlignmentIndex},
     render::color::PafColorSchemes,
@@ -477,8 +481,78 @@ pub(crate) fn spawn_alignment_sampling_tasks(
 #[derive(Component)]
 pub struct AlignmentCollisionLines {
     /// Entity is layout root
-    pub polylines: HashMap<(Entity, AlignmentIndex), avian2d::parry::shape::Polyline>,
+    pub polylines: HashMap<(Entity, AlignmentIndex), parry::shape::Polyline>,
     pub qbvh: AabbQbvh<(Entity, AlignmentIndex)>,
+}
+
+impl AlignmentCollisionLines {
+    /// Find the polyline closest to the `axis` edges of `aabb`, returning the associated
+    /// alignment index and the exact closest points on the corresponding alignment
+    pub fn closest_point_to_aabb_sides(
+        &self,
+        axis: AlignmentAxis,
+        aabb: &Aabb,
+    ) -> [Option<((Entity, AlignmentIndex), DVec2)>; 2] {
+        // ) -> Option<[((Entity, AlignmentIndex), DVec2); 2]> {
+        use parry::shape::SimdCompositeShape;
+
+        let mut min_polyline: Option<(Entity, AlignmentIndex)> = None;
+        let mut max_polyline: Option<(Entity, AlignmentIndex)> = None;
+        let mut closest_min: Option<DVec2> = None;
+        let mut closest_max: Option<DVec2> = None;
+
+        let mut best_dist_to_min = std::f64::INFINITY;
+        let mut best_dist_to_max = std::f64::NEG_INFINITY;
+
+        let mut intersecting_segments: Vec<u32> = Vec::new();
+
+        let mut update_closest =
+            |key: (Entity, AlignmentIndex), polyline: &parry::shape::Polyline| {
+                intersecting_segments.clear();
+                polyline
+                    .qbvh()
+                    .intersect_aabb(aabb, &mut intersecting_segments);
+
+                for &seg_id in &intersecting_segments {
+                    let segment = polyline.segment(seg_id);
+
+                    match axis {
+                        AlignmentAxis::Target => {
+                            let dist_to_min =
+                                (segment.a.x - aabb.center().x - aabb.half_extents().x).abs();
+                            if dist_to_min < best_dist_to_min {
+                                // TODO find closest point/intersection...
+                                closest_min = Some(DVec2::from(segment.a.coords.data.0[0]));
+                                best_dist_to_min = dist_to_min;
+                                min_polyline = Some(key);
+                            }
+
+                            let dist_to_max =
+                                (segment.b.x - aabb.center().x + aabb.half_extents().x).abs();
+                            if dist_to_max < best_dist_to_max {
+                                closest_max = Some(DVec2::from(segment.b.coords.data.0[0]));
+                                best_dist_to_max = dist_to_max;
+                                max_polyline = Some(key);
+                            }
+                        }
+                        AlignmentAxis::Query => {
+                            //
+                            todo!();
+                        }
+                    }
+                }
+            };
+
+        self.qbvh
+            .aabbs_in_rect_callback(aabb.center(), aabb.half_extents(), |key, poly_aabb| {
+                if let Some(polyline) = self.polylines.get(&key) {
+                    update_closest(key, polyline);
+                }
+                true
+            });
+
+        [min_polyline.zip(closest_min), max_polyline.zip(closest_max)]
+    }
 }
 
 fn finish_alignment_sampling_tasks(
