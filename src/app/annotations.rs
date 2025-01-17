@@ -484,7 +484,7 @@ fn add_label_physics(
         commands.entity(label).insert((
             RigidBody::Dynamic,
             Collider::rectangle(label_size.x, label_size.y),
-            CollisionLayers::new(LabelPhysicsLayers::InactiveLabel, LayerMask::NONE),
+            CollisionLayers::NONE,
             Mass(100.0),
             Inertia(1.0),
             LinearDamping(0.9),
@@ -1015,7 +1015,9 @@ fn set_label_anchors(
         }
     }
 
-    println!("updated {updated_anchors} out of {anchor_count} anchors");
+    if updated_anchors > 0 {
+        println!("updated {updated_anchors} out of {anchor_count} anchors");
+    }
 
     //
 }
@@ -1079,18 +1081,16 @@ fn update_annotation_labels(
             // is out of the view bounds
             if anchor.is_none() {
                 annot_label.is_active = false;
-                *collision_layers =
-                    CollisionLayers::new(LabelPhysicsLayers::InactiveLabel, LayerMask::NONE);
+                *collision_layers = CollisionLayers::NONE;
                 *visibility = Visibility::Hidden;
-                dbg!();
             }
         } else {
             if let Some(anchor) = anchor {
-                annot_label.is_active = true;
                 *collision_layers = CollisionLayers::new(
                     [LabelPhysicsLayers::ActiveLabel],
                     [LabelPhysicsLayers::ActiveLabel],
                 );
+                annot_label.is_active = true;
                 *visibility = Visibility::Inherited;
 
                 // let center = [anchor.world_point.x, window.size().y as f64 * 0.5];
@@ -1106,9 +1106,6 @@ fn update_annotation_labels(
 
                 if let [Some((_, p_left)), Some((_, p_right))] = edges {
                     let mins = p_left.min(p_right);
-                    // let maxs = p_left.max(p_right);
-                    // let intersect_aabb =
-                    //     ParryAabb::new(mins.to_array().into(), maxs.to_array().into());
 
                     let s = sampling_params
                         .view
@@ -1123,22 +1120,6 @@ fn update_annotation_labels(
                         // pos.y = y;
                     }
                 }
-
-                /*
-
-                if let Ok(mut pos) = label_positions.get_mut(label_ent) {
-                    // TODO place the label offset from the anchor
-                    // pos.0 = anchor.world_point.to_array().into();
-                    // pos.0.y -= 200.0;
-
-                    let dist = rng.gen_range(80f64..=400f64);
-
-                    let new_pos = anchor.world_point + anchor.normal * dist;
-                    // let new_pos = anchor.world_point + anchor.normal * 100.0;
-                    pos.0 = new_pos.to_array().into();
-                }
-
-                 */
             }
         }
     }
