@@ -14,6 +14,7 @@ use time::OffsetDateTime;
 
 use crate::{
     app::alignments::{layout::AabbQbvh, AlignmentAxis},
+    render::color::PafColorSchemes,
     toast::ToastMessageEvent,
 };
 
@@ -147,6 +148,8 @@ fn export_svg_screenshot(
     annotations: Res<Annotations>,
     alignment_view: Res<AlignmentViewport>,
 
+    color_schemes: Res<PafColorSchemes>,
+
     opts: Res<SvgExportOptions>,
 
     main_viewer: Query<
@@ -201,7 +204,7 @@ fn export_svg_screenshot(
 
     let mut alignment_paths = SvgGroup::new();
 
-    for (key, polyline) in lines.polylines.iter() {
+    for ((_, alignment_ix), polyline) in lines.polylines.iter() {
         let mut points = polyline.vertices().iter().map(|p| (p.x as f32, p.y as f32));
         // .map(|p| (p.x as f32, h - p.y as f32));
 
@@ -215,10 +218,14 @@ fn export_svg_screenshot(
             path_data = path_data.line_to(point);
         }
 
+        let [r, g, b, _a] = color_schemes.get(alignment_ix).eq_bg.to_array();
+        let stroke = format!("rgb({r} {g} {b})");
+
         // TODO set color from color schemes
         let path = SvgPath::new()
             .set("fill", "none")
-            .set("stroke", "black")
+            .set("stroke", stroke)
+            // .set("stroke", "black")
             .set("stroke-width", 5)
             .set("d", path_data.close());
 
