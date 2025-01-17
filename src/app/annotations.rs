@@ -114,7 +114,7 @@ impl Plugin for AnnotationsPlugin {
                 );
                 anchor_pos.y = win_size.y - anchor_pos.y;
                 let mut label_pos = label_pos.0.as_vec2();
-                label_pos.y = win_size.y - label_pos.y;
+                // label_pos.y = win_size.y - label_pos.y;
 
                 gizmos.circle_2d(anchor_pos, 5.0, color);
                 gizmos.line_2d(anchor_pos, label_pos, color);
@@ -436,17 +436,17 @@ fn prepare_annotations(
             },
         );
 
-        let query_label = commands
-            .spawn(label_bundle.clone())
-            .insert((
-                Pickable::IGNORE,
-                AnnotationLabel {
-                    annotation: annot_ent,
-                    axis: AlignmentAxis::Query,
-                    is_active: false,
-                },
-            ))
-            .id();
+        // let query_label = commands
+        //     .spawn(label_bundle.clone())
+        //     .insert((
+        //         Pickable::IGNORE,
+        //         AnnotationLabel {
+        //             annotation: annot_ent,
+        //             axis: AlignmentAxis::Query,
+        //             is_active: false,
+        //         },
+        //     ))
+        //     .id();
         let target_label = commands
             .spawn(label_bundle)
             .insert((
@@ -461,7 +461,8 @@ fn prepare_annotations(
 
         commands.entity(annot_ent).insert(DisplayEntities {
             query_region,
-            query_label,
+            // query_label,
+            query_label: Entity::PLACEHOLDER,
             target_region,
             target_label,
         });
@@ -487,7 +488,7 @@ fn add_label_physics(
             CollisionLayers::NONE,
             Mass(100.0),
             Inertia(1.0),
-            LinearDamping(0.9),
+            LinearDamping(0.1),
             LockedAxes::ROTATION_LOCKED,
         ));
     }
@@ -742,7 +743,7 @@ fn set_label_anchors(
 
     mut last_sampled: Local<Option<AlignmentSamplingParams>>,
     // time: Res<Time>,
-    // mut gizmos: Gizmos<AnchorGizmos>,
+    mut gizmos: Gizmos<AnchorGizmos>,
 ) {
     // if time.elapsed_seconds() < 3.0 {
     //     return;
@@ -764,6 +765,8 @@ fn set_label_anchors(
         return;
     };
 
+    let screen_dims = sampling_params.canvas_size;
+
     let resample = last_sampled
         .as_ref()
         .map(|s| s != sampling_params)
@@ -775,6 +778,8 @@ fn set_label_anchors(
 
     let mut updated_anchors = 0;
     let mut anchor_count = 0;
+    let mut anchor_outside_region = 0;
+    let mut skipped = 0;
 
     // dbg!(&alignment_lines.polylines);
 
@@ -782,45 +787,9 @@ fn set_label_anchors(
 
     for (label_ent, label_annot, old_anchor) in labels.iter() {
         anchor_count += 1;
-        // TODO need to know if this label should be visible...
-        // - that could be done here or some other place (e.g. update_annotation_regions)
-        // - labels should probably always be visible if their corresponding region is visible
-        //      (assuming space allows for it)
-        //      - i.e. the entire column for a target annotation, even if there are no alignments in the view
-        //        in that region (the labels should gravitate toward the top or bottom of the screen depending
-        //          on where the closest alignments in the region are)
-        // - anchors should be "assigned" in world space; labels are in screen-space
-        //      - hm... when should the anchor point actually be updated, exactly
-        //      - just whenever the view changes?
-        //      -
-        //          - there's gotta be some sort of feedback/interaction
-        //          - e.g. moving the anchor toward the label if there's enough "tension"/force
-        //              - i.e. when a label has been pushed some distance from the anchor due to collision
-        //                  w/ other labels
-
-        //
-
-        // let prev = old_anchor.map(|a| a.world_point);
-
-        // let ray_directions =
-        // match label_annot.axis {
-        //     LabelAxis::Target => {
-        //         todo!()
-        //     }
-        //     LabelAxis::Query => {
-        //         todo!()
-        //     }
-        // }
 
         // recreate if prev anchor point is out of view bounds
-        let recreate_anchor = old_anchor
-            .map(|prev| !view.contains_point(prev.world_point))
-            .unwrap_or(true)
-            || resample;
 
-        // TODO only try to recreate if annotation region actually intersects view
-
-        // dbg!();
         let Some(record) = annotation_query
             .get(label_annot.annotation)
             .ok()
@@ -857,7 +826,9 @@ fn set_label_anchors(
 
                     (x_min, x_max, y_min, y_max)
                 }
+                #[allow(unreachable_code)]
                 AlignmentAxis::Query => {
+                    continue;
                     let x_min = view.x_min;
                     let x_max = view.x_max;
 
@@ -894,18 +865,27 @@ fn set_label_anchors(
             )
         };
 
-        /*
-        let (ray_directions, ray_origin) = {
-            let plus = label_annot.axis.basis();
-            let minus = -plus;
+        let mut recreate_anchor = false;
 
-            let ray_origin = intersecting_region.center();
+        if let Some(prev) = old_anchor {
+            let mut sp = view.map_world_to_screen(sampling_params.canvas_size, prev.world_point);
+            sp.y = sampling_params.canvas_size.y - sp.y;
+            if !intersecting_region
+                .contains_local_point(&nalgebra::Point2::new(sp.x as f64, sp.y as f64))
+            {
+                // anchor_outside_region += 1;
+                recreate_anchor = true;
+                commands.entity(label_ent).remove::<LabelAnchor>();
+            }
+        } else {
+            recreate_anchor = true;
+        }
 
-            ([plus, minus], ray_origin)
-        };
-        */
-
-        // let up_hits =
+        // let recreate_anchor = old_anchor
+        //     .map(|prev| {})
+        //     // .map(|prev| !view.contains_point(prev.world_point))
+        //     .unwrap_or(true)
+        //     || resample;
 
         // use the `intersecting_region` AABB to query the QBVH built from the AABBs
         // of the sampled screenspace alignment lines
@@ -915,30 +895,51 @@ fn set_label_anchors(
         let region_pt = intersecting_region.center();
         let pt = DVec2::from(region_pt.coords.data.0[0]);
 
-        // dbg!(&intersecting_region);
-
-        // alignment_lines.aabbs.iter().enumerate().filter_map(|(i, aabb)| {
-        //     if aabb.intersects(&intersecting_region) {
-        //         Some()
-        //     } else {
-
-        //     }
-        // }).for_each(|);
-
-        // let size: DVec2 = intersecting_region.extents().data.0[0].into();
-        // gizmos.rect_2d(
-        //     pt.as_vec2(),
-        //     0.0,
-        //     size.as_vec2(),
-        //     Color::hsl(150.0, 0.9, 0.5),
-        // );
+        let size: DVec2 = intersecting_region.extents().data.0[0].into();
+        gizmos.rect_2d(
+            pt.as_vec2(),
+            0.0,
+            size.as_vec2(),
+            Color::hsl(150.0, 0.9, 0.5).with_alpha(0.3),
+        );
 
         if recreate_anchor {
+            let mut get_color = {
+                let mut i = 0;
+                move || {
+                    let hue = i;
+                    let d = 27;
+                    i = (i + d) % 360;
+                    Color::hsl(hue as f32, 0.8, 0.5)
+                }
+            };
             alignment_lines.qbvh.aabbs_in_rect_callback(
                 intersecting_region.center(),
                 intersecting_region.half_extents(),
                 // intersecting_region.half_extents() * 1_000.0,
                 |key @ (_layout_root, al_index), polyline_aabb| {
+
+                    {
+                        use bevy::math::vec2;
+                        let c = polyline_aabb.center();
+                        let s = polyline_aabb.extents();
+                        let c = vec2(c.x as f32, screen_dims.y - c.y as f32);
+                        let s = vec2(s.x as f32, s.y as f32);
+                        gizmos.rect_2d(
+                            c,
+                            0.0,
+                            s,
+                            Color::hsl(90.0, 0.9, 0.2).with_alpha(0.3),
+                        );
+                        gizmos.rect_2d(
+                            c,
+                            0.0,
+                            // Rot2::degrees(90.0),
+                            s * 0.9,
+                            Color::hsl(90.0, 0.9, 0.2).with_alpha(0.3),
+                        );
+                    }
+
                     // check if polyline is actually inside region...?
 
                     // if !polyline_aabb.intersects(&intersecting_region) {
@@ -953,15 +954,47 @@ fn set_label_anchors(
                         return true;
                     };
 
-                    // find closest point on polyline...
-                    // ... closest to *what*?
-                    // try with center
 
-
-                    let (closest_point, (seg_id, location)) =
+                    let (mut closest_point, (seg_id, location)) =
                         polyline.project_local_point_and_get_location(&region_pt, true);
 
+                    if !intersecting_region
+                        .contains_local_point(&nalgebra::Point2::new(closest_point.point.x, closest_point.point.y))
+                    {
+                        let closest = alignment_lines.closest_point_to_aabb_sides(AlignmentAxis::Target, &intersecting_region);
+
+                        if let [Some((_, a)), Some((_, b))] = closest {
+                            let mins = a.min(b);
+                            let maxs = a.max(b);
+                            let top = mins.y;
+                            let left = DVec2::new(mins.x, top);
+                            // let right = DVec2::new(maxs.x, top);
+                            closest_point.point.x = mins.x;
+                            closest_point.point.y = mins.y;
+
+
+                        } else {
+                            skipped += 1;
+                            return true;
+                        }
+                        // anchor_outside_region += 1;
+                        // commands.entity(label_ent).remove::<LabelAnchor>();
+                        // continue;
+                        // recreate_anchor = true;
+                    }
+
                     let closest = DVec2::from(closest_point.point.coords.data.0[0]);
+                    {
+                    let mut p = closest.as_vec2();
+                    p.y = screen_dims.y - p.y;
+                    gizmos.rect_2d(
+                        p,
+                        0.0,
+                        [10.0, 10.0].into(),
+                        get_color(),
+                        // Color::hsl(10.0, 0.9, 0.5).with_alpha(0.8),
+                    );
+                    }
 
                     // let [[cx, cy]] = polyline
                     //     .project_local_point(&region_pt, true)
@@ -997,6 +1030,27 @@ fn set_label_anchors(
                 continue;
             };
 
+            {
+                let p = closest_point.as_vec2();
+                gizmos.rect_2d(
+                    p,
+                    0.0,
+                    [10.0, 10.0].into(),
+                    get_color(),
+                    // Color::hsl(10.0, 0.9, 0.5).with_alpha(0.8),
+                );
+                gizmos.line_2d(p - Vec2::ONE * -5.0, p + Vec2::ONE * 5.0, get_color());
+            }
+
+            if !intersecting_region
+                .contains_local_point(&nalgebra::Point2::new(closest_point.x, closest_point.y))
+            {
+                anchor_outside_region += 1;
+                commands.entity(label_ent).remove::<LabelAnchor>();
+                continue;
+                // recreate_anchor = true;
+            }
+
             let world_point =
                 view.map_screen_to_world(sampling_params.canvas_size, closest_point.as_vec2());
             // let world_point = closest_point;
@@ -1015,9 +1069,12 @@ fn set_label_anchors(
         }
     }
 
-    if updated_anchors > 0 {
-        println!("updated {updated_anchors} out of {anchor_count} anchors");
-    }
+    println!(
+        "{anchor_outside_region} out of {anchor_count} anchors are outside their annotation region\tskipped: {skipped}"
+    );
+    // if updated_anchors > 0 {
+    //     println!("updated {updated_anchors} out of {anchor_count} anchors");
+    // }
 
     //
 }
@@ -1060,6 +1117,9 @@ fn update_annotation_labels(
     use rand::prelude::*;
     let mut rng = thread_rng();
 
+    let mut anchorless = 0;
+    let mut total = 0;
+
     // #[allow(unreachable_code)]
     for (
         label_ent,
@@ -1070,6 +1130,10 @@ fn update_annotation_labels(
         mut visibility,
     ) in labels.iter_mut()
     {
+        total += 1;
+        if anchor.is_none() {
+            anchorless += 1;
+        }
         let Some(collider) = label_collider.shape().as_shape::<parry::shape::Cuboid>() else {
             continue;
         };
@@ -1123,14 +1187,8 @@ fn update_annotation_labels(
             }
         }
     }
-}
 
-fn hide_colliding_labels(
-    mut labels: Query<(&mut Visibility, &CollidingEntities), With<AnnotationLabel>>,
-) {
-    for (mut visibility, collisions) in labels.iter() {
-        //
-    }
+    // println!("{anchorless} out of {total} labels have no anchor");
 }
 
 // TODO - apply/simulate forces between anchor point and screen-space label
@@ -1148,7 +1206,7 @@ fn label_anchor_constraints(
     viewport: Res<AlignmentViewport>,
     windows: Query<&Window>,
 ) {
-    const FORCE_CONSTANT: f64 = 100_000.0;
+    const FORCE_CONSTANT: f64 = 1_000.0;
 
     let Ok(screen_dims) = windows.get_single().map(|w| w.size()) else {
         return;

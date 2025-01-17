@@ -22,7 +22,7 @@ use bevy::{
     },
     utils::HashMap,
 };
-use nalgebra::OPoint;
+use nalgebra::{Isometry2, OPoint};
 use pipeline::{PolylineConfig, PolylineModel, PolylineProjection, PolylineVertices};
 use wgpu::BufferUsages;
 
@@ -122,6 +122,12 @@ struct SampledVertices {
 pub(crate) struct AlignmentSamplingParams {
     pub(crate) view: crate::view::View,
     pub(crate) canvas_size: Vec2,
+}
+
+impl AlignmentSamplingParams {
+    pub fn new(view: crate::view::View, canvas_size: Vec2) -> Self {
+        Self { view, canvas_size }
+    }
 }
 
 fn spawn_main_sampled_alignment_viewer(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
@@ -487,6 +493,31 @@ pub struct AlignmentCollisionLines {
 }
 
 impl AlignmentCollisionLines {
+    pub fn closest_points_inside_aabb_transformed(
+        &self,
+        t: &Transform,
+        query: &Aabb,
+    ) -> [DVec2; 4] {
+        let iso = Isometry2::translation(t.translation.x as f64, t.translation.y as f64);
+        let scale = nalgebra::Vector2::new(t.scale.x as f64, t.scale.y as f64);
+        let query = query.transform_by(&iso).scaled(&scale);
+        // let mins = query.mins;
+        // let maxs = query.maxs;
+
+        let mut out = [DVec2::ZERO; 4];
+
+        // let p0 = Vec3::new(mins.x, mins.y, 0.0);
+        // let p1 = Vec3::new(maxs.x, maxs.y, 0.0);
+        // let q0 = t.transform_point(p0);
+        // let q1 = t.transform_point(p1);
+
+        // let aabb = Aabb::new()
+
+        // let query = query.transform_by(t)
+
+        out
+    }
+
     /// Find the polyline closest to the `axis` edges of `aabb`, returning the associated
     /// alignment index and the exact closest points on the corresponding alignment
     // TODO the return type is completely stupid for what i need
@@ -689,35 +720,42 @@ fn update_projection(
     }
 }
 
-fn compute_vertex_transform(
-    sampled: &AlignmentSamplingParams,
-    next_view: &crate::view::View,
-    new_canvas_size: Vec2,
+pub(crate) fn compute_vertex_transform(
+    old_params: &AlignmentSamplingParams,
+    new_params: &AlignmentSamplingParams,
 ) -> Transform {
-    let win_size = sampled.canvas_size;
-    let last_view = sampled.view;
-    let old_mid = last_view.center();
+    let old_canvas_size = old_params.canvas_size;
+    let old_view = old_params.view;
+    let next_canvas_size = new_params.canvas_size;
+    let next_view = &new_params.view;
+
+    let old_mid = old_view.center();
     let new_mid = next_view.center();
 
     let world_delta = new_mid - old_mid;
     let norm_delta = world_delta / next_view.size();
 
-    let w_rat = last_view.width() / next_view.width();
-    let h_rat = last_view.height() / next_view.height();
+    let w_rat = old_view.width() / next_view.width();
+    let h_rat = old_view.height() / next_view.height();
 
-    let w_rat_ = next_view.width() / last_view.width();
-    let h_rat_ = next_view.height() / last_view.height();
+    let w_rat_ = next_view.width() / old_view.width();
+    let h_rat_ = next_view.height() / old_view.height();
 
-    let screen_delta =
-        norm_delta.to_f32() * [w_rat_ as f32 * win_size.x, h_rat_ as f32 * win_size.y].as_uv();
+    let screen_delta = norm_delta.to_f32()
+        * [
+            w_rat_ as f32 * old_canvas_size.x,
+            h_rat_ as f32 * old_canvas_size.y,
+        ]
+        .as_uv();
 
-    let mut center = Transform::from_translation(Vec3::new(win_size.x, win_size.y, 0.0) * 0.5);
+    let mut center =
+        Transform::from_translation(Vec3::new(old_canvas_size.x, old_canvas_size.y, 0.0) * 0.5);
     let translate = Transform::from_translation(Vec3::new(-screen_delta.x, screen_delta.y, 0.0));
 
     let scale_vec = Vec3::new(w_rat as f32, h_rat as f32, 1.0);
     let scale = Transform::from_scale(scale_vec);
 
-    let size_ratio = new_canvas_size / win_size;
+    let size_ratio = next_canvas_size / old_canvas_size;
 
     let transform = Transform::from_scale(Vec3::new(size_ratio.x, size_ratio.y, 1.0))
         .mul_transform(center)
@@ -748,7 +786,8 @@ fn update_vertex_transform(
             continue;
         };
 
-        model.model = compute_vertex_transform(&sampled, &next_view, canvas_size).compute_matrix();
+        let new_params = AlignmentSamplingParams::new(next_view, canvas_size);
+        model.model = compute_vertex_transform(&sampled, &new_params).compute_matrix();
         // model.model = Transform::IDENTITY.compute_matrix();
     }
 }
