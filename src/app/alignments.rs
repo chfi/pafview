@@ -300,6 +300,8 @@ pub(super) fn spawn_alignments_in_tiles(
     alignments: Res<crate::Alignments>,
     seq_pair_tiles: Query<(Entity, &SequencePairTile), Without<Children>>,
 ) {
+    let mut count = 0;
+
     for (tile_ent, seq_pair) in seq_pair_tiles.iter() {
         let Some(al_indices) = alignments.indices.get(&(seq_pair.target, seq_pair.query)) else {
             continue;
@@ -312,7 +314,6 @@ pub(super) fn spawn_alignments_in_tiles(
                 Some((local_ix, alignments.alignments.get(data_ix)?))
             });
 
-        let mut count = 0;
         let mut children = Vec::new();
         commands
             .entity(tile_ent)
@@ -344,7 +345,10 @@ pub(super) fn spawn_alignments_in_tiles(
                 }
             })
             .insert(SequencePairAlignmentEntities(children));
-        println!("spawned {count} alignment entities");
+    }
+
+    if count > 0 {
+        log::info!("spawned {count} alignment entities");
     }
 }
 

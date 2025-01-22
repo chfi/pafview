@@ -826,7 +826,6 @@ fn set_label_anchors(
 
                     (x_min, x_max, y_min, y_max)
                 }
-                #[allow(unreachable_code)]
                 AlignmentAxis::Query => {
                     continue;
                     let x_min = view.x_min;
@@ -1069,9 +1068,9 @@ fn set_label_anchors(
         }
     }
 
-    println!(
-        "{anchor_outside_region} out of {anchor_count} anchors are outside their annotation region\tskipped: {skipped}"
-    );
+    // println!(
+    //     "{anchor_outside_region} out of {anchor_count} anchors are outside their annotation region\tskipped: {skipped}"
+    // );
     // if updated_anchors > 0 {
     //     println!("updated {updated_anchors} out of {anchor_count} anchors");
     // }
@@ -1150,16 +1149,12 @@ fn update_annotation_labels(
             }
         } else {
             if let Some(anchor) = anchor {
-                *collision_layers = CollisionLayers::new(
-                    [LabelPhysicsLayers::ActiveLabel],
-                    [LabelPhysicsLayers::ActiveLabel],
-                );
-                annot_label.is_active = true;
-                *visibility = Visibility::Inherited;
-
                 // let center = [anchor.world_point.x, window.size().y as f64 * 0.5];
+                let anchor_s = sampling_params
+                    .view
+                    .map_world_to_screen(sampling_params.canvas_size, anchor.world_point);
                 let center = [
-                    anchor.world_point.x - collider.half_extents.x,
+                    anchor_s.x as f64 - collider.half_extents.x,
                     window.size().y as f64 * 0.5,
                 ];
                 let half_extents = [collider.half_extents.x, window.size().y as f64 * 0.5];
@@ -1168,22 +1163,43 @@ fn update_annotation_labels(
                 let edges = alignment_lines
                     .closest_point_to_aabb_sides(AlignmentAxis::Target, &tgt_region_aabb);
 
-                if let [Some((_, p_left)), Some((_, p_right))] = edges {
-                    let mins = p_left.min(p_right);
+                let label_pos = match edges {
+                    [None, None] => continue,
+                    [None, Some((_, p_right))] => p_right,
+                    [Some((_, p_left)), None] => p_left,
+                    [Some((_, p_left)), Some((_, p_right))] => 0.5 * (p_left + p_right),
+                };
 
-                    let s = sampling_params
-                        .view
-                        .map_world_to_screen(sampling_params.canvas_size, anchor.world_point);
+                // if let [Some((_, p_left)), Some((_, p_right))] = edges {
+                *collision_layers = CollisionLayers::new(
+                    [LabelPhysicsLayers::ActiveLabel],
+                    [LabelPhysicsLayers::ActiveLabel],
+                );
+                annot_label.is_active = true;
+                *visibility = Visibility::Inherited;
 
-                    let y = mins.y - 80.0;
-                    // let y = intersect_aabb.center().y - i
-                    if let Ok(mut pos) = label_positions.get_mut(label_ent) {
-                        pos.x = s.x as f64;
-                        pos.y = s.y as f64;
-                        // pos.x = s.x as f64;
-                        // pos.y = y;
-                    }
+                // let mins = p_left.min(p_right);
+
+                // let s = sampling_params
+                //     .view
+                //     .map_world_to_screen(sampling_params.canvas_size, anchor.world_point);
+
+                // let y = mins.y - 80.0;
+                // let y = intersect_aabb.center().y - i
+                println!(
+                    "anchor pos: {:?} -- setting label pos to {anchor_s:?}",
+                    anchor.world_point
+                );
+                if let Ok(mut pos) = label_positions.get_mut(label_ent) {
+                    // pos.x = anchor_s.x as f64;
+                    // pos.y = s.y as f64;
+                    // pos.x = s.x as f64;
+                    // pos.y = y;
+
+                    pos.x = label_pos.x;
+                    pos.y = label_pos.y;
                 }
+                // }
             }
         }
     }
@@ -1208,6 +1224,8 @@ fn label_anchor_constraints(
 ) {
     const FORCE_CONSTANT: f64 = 1_000.0;
 
+    const ANCHOR_LABEL_DISTANCE_PIXELS: f64 = 80.0;
+
     let Ok(screen_dims) = windows.get_single().map(|w| w.size()) else {
         return;
     };
@@ -1222,9 +1240,10 @@ fn label_anchor_constraints(
         let p1 = Vec2::new(p1.x, p1.y).as_dvec2();
 
         let dist = p0.distance(p1);
+        let normal = (p1 - p0).try_normalize().unwrap_or(DVec2::Y);
 
-        if let Some(dir) = (p1 - p0).try_normalize() {
-            force.set_force(dir * dist.max(0.0) * FORCE_CONSTANT);
+        if dist > ANCHOR_LABEL_DISTANCE_PIXELS {
+            force.set_force(normal * dist.max(0.0) * FORCE_CONSTANT);
         } else {
             force.clear();
         }
