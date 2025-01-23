@@ -348,7 +348,7 @@ fn grid_paths_in_view(
     data
 }
 
-fn position_target_label(
+pub(crate) fn position_target_label(
     // qbvh: &mut avian2d::parry::partitioning::Qbvh<u32>,
     qbvh: &mut AabbQbvh<u32>,
     qbvh_workspace: &mut avian2d::parry::partitioning::QbvhUpdateWorkspace,
@@ -357,7 +357,6 @@ fn position_target_label(
     // annotated region associated with label, in screenspace
     label_region: [Vec2; 2],
     label_size: Vec2,
-    label_text: &str,
 ) -> Option<(Vec2, avian2d::parry::bounding_volume::Aabb)> {
     // choose offset for label inside `label_region`, adding to `qbvh` if position is found
     //
@@ -505,7 +504,6 @@ fn annotations_element<'a>(
                 target_region,
                 // [mins, maxs],
                 label_size,
-                label,
             ) {
                 // let rect = Rectangle::new()
                 //     .set("x", label_pos.x)

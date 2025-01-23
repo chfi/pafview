@@ -475,6 +475,17 @@ impl View {
         let [x, y] = pt.into();
         self.x_min <= x && x <= self.x_max && self.y_min <= y && y <= self.y_max
     }
+
+    pub fn intersects_rect(&self, p0: impl Into<[f64; 2]>, p1: impl Into<[f64; 2]>) -> bool {
+        let [x0, y0] = p0.into();
+        let [x1, y1] = p1.into();
+        let x_min = x0.min(x1);
+        let x_max = x0.max(x1);
+        let y_min = y0.min(y1);
+        let y_max = y0.max(y1);
+
+        !(x_max < self.x_min || x_min > self.x_max || y_max < self.y_min || y_min > self.y_max)
+    }
 }
 
 fn calculate_covering_rectangle(

@@ -2,6 +2,7 @@ use avian2d::{
     parry::{
         self,
         bounding_volume::{Aabb as ParryAabb, BoundingVolume},
+        partitioning::QbvhUpdateWorkspace,
         query::{PointQuery, PointQueryWithLocation},
     },
     prelude::*,
@@ -43,7 +44,7 @@ impl Plugin for AnnotationsPlugin {
             // .init_resource::<AnnotationPainter>()
             .init_resource::<Annotations>()
             .init_resource::<AnnotationEntityMap>()
-            .init_resource::<LabelQbvh>()
+            // .init_resource::<LabelQbvh>()
             .register_type::<AnnotationEntityMap>()
             // .add_plugins(bevy_inspector_egui::quick::ResourceInspectorPlugin::<
             //     AnnotationEntityMap,
@@ -67,9 +68,17 @@ impl Plugin for AnnotationsPlugin {
             .add_systems(
                 PreUpdate,
                 (
-                    set_label_anchors,
-                    update_annotation_labels,
-                    label_anchor_constraints,
+                    clear_labels,
+                    reset_label_positions.pipe(
+                        |added: In<usize>, mut spatial_query: SpatialQuery| {
+                            if added > 0 {
+                                spatial_query.update_pipeline();
+                            }
+                        },
+                    ),
+                    update_labels, // set_label_anchors,
+                                   // update_annotation_labels,
+                                   // label_anchor_constraints,
                 )
                     .chain()
                     .after(update_annotation_regions),
@@ -81,49 +90,50 @@ impl Plugin for AnnotationsPlugin {
         //         .after(super::gui::menubar_system),
         // );
 
-        app.insert_gizmo_config(
-            AnchorGizmos,
-            GizmoConfig {
-                render_layers: RenderLayers::layer(1),
-                ..default()
-            },
-        )
-        // .add_systems(Startup, |mut cfg: ResMut<GizmoConfigStore>| {
-        //     todo!();
-        // })
-        .add_systems(PreUpdate, anchor_debug_gizmos);
+        /*
+               app.insert_gizmo_config(
+                   AnchorGizmos,
+                   GizmoConfig {
+                       render_layers: RenderLayers::layer(1),
+                       ..default()
+                   },
+               )
+               // .add_systems(Startup, |mut cfg: ResMut<GizmoConfigStore>| {
+               //     todo!();
+               // })
+               .add_systems(PreUpdate, anchor_debug_gizmos);
 
-        fn anchor_debug_gizmos(
-            mut gizmos: Gizmos<AnchorGizmos>,
-            view: Res<AlignmentViewport>,
-            windows: Query<&Window>,
-            labels: Query<(&Position, &LabelAnchor)>,
-        ) {
-            let Ok(win_size) = windows.get_single().map(|w| w.size()) else {
-                return;
-            };
+               fn anchor_debug_gizmos(
+                   mut gizmos: Gizmos<AnchorGizmos>,
+                   view: Res<AlignmentViewport>,
+                   windows: Query<&Window>,
+                   labels: Query<(&Position, &LabelAnchor)>,
+               ) {
+                   let Ok(win_size) = windows.get_single().map(|w| w.size()) else {
+                       return;
+                   };
 
-            let color = Color::hsl(270.0, 0.8, 0.5);
+                   let color = Color::hsl(270.0, 0.8, 0.5);
 
-            for (label_pos, anchor) in labels.iter() {
-                let mut anchor_pos = Vec2::from(
-                    *view
-                        .view
-                        .map_world_to_screen(win_size, anchor.world_point)
-                        .as_array(),
-                );
-                anchor_pos.y = win_size.y - anchor_pos.y;
-                let mut label_pos = label_pos.0.as_vec2();
-                // label_pos.y = win_size.y - label_pos.y;
+                   for (label_pos, anchor) in labels.iter() {
+                       let mut anchor_pos = Vec2::from(
+                           *view
+                               .view
+                               .map_world_to_screen(win_size, anchor.world_point)
+                               .as_array(),
+                       );
+                       anchor_pos.y = win_size.y - anchor_pos.y;
+                       let mut label_pos = label_pos.0.as_vec2();
+                       // label_pos.y = win_size.y - label_pos.y;
 
-                gizmos.circle_2d(anchor_pos, 5.0, color);
-                gizmos.line_2d(anchor_pos, label_pos, color);
-                // gizmos.line_2d(anchor_pos, label_pos.0.as_vec2(), color);
-                // gizmos.circle_2d(ancho)
-                //
-            }
-        }
-
+                       gizmos.circle_2d(anchor_pos, 5.0, color);
+                       gizmos.line_2d(anchor_pos, label_pos, color);
+                       // gizmos.line_2d(anchor_pos, label_pos.0.as_vec2(), color);
+                       // gizmos.circle_2d(ancho)
+                       //
+                   }
+               }
+        */
         // #[derive(Component)]
         // struct TestBox;
 
@@ -350,16 +360,26 @@ struct AnnotationLabel {
 }
 
 fn prepare_annotations(
-    In(labels_to_prepare): In<Vec<crate::annotations::AnnotationId>>,
+    In(mut labels_to_prepare): In<Vec<crate::annotations::AnnotationId>>,
     mut commands: Commands,
     mut materials: ResMut<Assets<BorderedRectMaterial2d>>,
 
     annotations: Res<Annotations>,
     mut annot_entity_map: ResMut<AnnotationEntityMap>,
 
+    layouts: AlignmentLayoutQuery,
+
     display_handles: Res<DisplayHandles>,
+
+    mut to_prepare: Local<Vec<crate::annotations::AnnotationId>>,
 ) {
-    for annot_id @ (list_id, entry_id) in labels_to_prepare {
+    to_prepare.extend(labels_to_prepare.drain(..));
+
+    let Some(layout) = layouts.layout_assets.get(&layouts.default_layout.layout) else {
+        return;
+    };
+
+    for annot_id @ (list_id, entry_id) in to_prepare.drain(..) {
         // TODO color from annotation/name
 
         let record = &annotations.list_by_id(list_id).unwrap().records[entry_id];
@@ -445,6 +465,7 @@ fn prepare_annotations(
         //             axis: AlignmentAxis::Query,
         //             is_active: false,
         //         },
+        //         LabelAnchorRegion::from_record(layout, record, AlignmentAxis::Query).unwrap(),
         //     ))
         //     .id();
         let target_label = commands
@@ -456,6 +477,7 @@ fn prepare_annotations(
                     axis: AlignmentAxis::Target,
                     is_active: false,
                 },
+                LabelAnchorRegion::from_record(layout, record, AlignmentAxis::Target).unwrap(),
             ))
             .id();
 
@@ -716,6 +738,61 @@ impl Default for AnchorEntity {
     }
 }
 
+#[derive(Component, Clone, Copy, Debug)]
+struct LabelAnchorRegion {
+    world_mins: DVec2,
+    world_maxs: DVec2,
+}
+
+impl LabelAnchorRegion {
+    fn map_to_screen(&self, view: &crate::view::View, screen_dims: Vec2) -> [Vec2; 2] {
+        let mut mins = view.map_world_to_screen(screen_dims, self.world_mins);
+        let mut maxs = view.map_world_to_screen(screen_dims, self.world_maxs);
+
+        mins.x = mins.x.clamp(-100.0, screen_dims.x + 100.0);
+        mins.x = maxs.x.clamp(-100.0, screen_dims.x + 100.0);
+        mins.y = mins.y.clamp(-100.0, screen_dims.y + 100.0);
+        maxs.y = maxs.y.clamp(-100.0, screen_dims.y + 100.0);
+
+        [Vec2::new(mins.x, mins.y), Vec2::new(maxs.x, maxs.y)]
+    }
+
+    fn from_record(
+        layout: &SeqPairLayout,
+        annotation_record: &crate::annotations::Record,
+        axis: AlignmentAxis,
+    ) -> Option<Self> {
+        let tile_aabb = layout.aabbs.get(&annotation_record.seq_tile())?;
+
+        let tgt_0 = tile_aabb.mins.x;
+        let qry_0 = tile_aabb.mins.y;
+
+        let (tgt_min, tgt_max) = annotation_record.tgt_range_f64().into_inner();
+        let (qry_min, qry_max) = annotation_record.qry_range_f64().into_inner();
+
+        let mut world_mins = DVec2::new(tgt_0 + tgt_min, qry_0 + qry_min);
+        let mut world_maxs = DVec2::new(tgt_0 + tgt_max, qry_0 + qry_max);
+
+        // expand the cross-axis to fill the entire layout
+        match axis {
+            AlignmentAxis::Target => {
+                world_mins.y = layout.maxs.y * -1.0;
+                world_maxs.y = layout.maxs.y * 2.0;
+            }
+            AlignmentAxis::Query => {
+                world_mins.x = layout.maxs.x * -1.0;
+                world_maxs.x = layout.maxs.x * 2.0;
+            }
+        }
+
+        Some(LabelAnchorRegion {
+            world_mins,
+            world_maxs,
+        })
+    }
+}
+
+/*
 #[derive(Component, Debug)]
 struct LabelAnchor {
     world_point: DVec2,
@@ -1118,6 +1195,7 @@ fn update_annotation_labels(
 
     let mut anchorless = 0;
     let mut total = 0;
+    let mut failed = 0;
 
     // #[allow(unreachable_code)]
     for (
@@ -1157,17 +1235,33 @@ fn update_annotation_labels(
                     anchor_s.x as f64 - collider.half_extents.x,
                     window.size().y as f64 * 0.5,
                 ];
-                let half_extents = [collider.half_extents.x, window.size().y as f64 * 0.5];
+                let half_extents = [
+                    collider.half_extents.x.max(1.0),
+                    window.size().y as f64 * 0.5,
+                ];
                 let tgt_region_aabb =
                     ParryAabb::from_half_extents(center.into(), half_extents.into());
                 let edges = alignment_lines
                     .closest_point_to_aabb_sides(AlignmentAxis::Target, &tgt_region_aabb);
 
                 let label_pos = match edges {
-                    [None, None] => continue,
-                    [None, Some((_, p_right))] => p_right,
-                    [Some((_, p_left)), None] => p_left,
-                    [Some((_, p_left)), Some((_, p_right))] => 0.5 * (p_left + p_right),
+                    [None, None] => {
+                        failed += 1;
+                        dbg!();
+                        continue;
+                    }
+                    [None, Some((_, p_right))] => {
+                        dbg!();
+                        p_right
+                    }
+                    [Some((_, p_left)), None] => {
+                        dbg!();
+                        p_left
+                    }
+                    [Some((_, p_left)), Some((_, p_right))] => {
+                        dbg!();
+                        0.5 * (p_left + p_right)
+                    }
                 };
 
                 // if let [Some((_, p_left)), Some((_, p_right))] = edges {
@@ -1187,23 +1281,24 @@ fn update_annotation_labels(
                 // let y = mins.y - 80.0;
                 // let y = intersect_aabb.center().y - i
                 println!(
-                    "anchor pos: {:?} -- setting label pos to {anchor_s:?}",
-                    anchor.world_point
+                    "anchor pos: {:?} (screen {anchor_s:?}) -- setting label pos using {label_pos:?}",
+                    anchor.world_point,
                 );
                 if let Ok(mut pos) = label_positions.get_mut(label_ent) {
-                    // pos.x = anchor_s.x as f64;
+                    pos.x = anchor_s.x as f64;
                     // pos.y = s.y as f64;
                     // pos.x = s.x as f64;
                     // pos.y = y;
 
-                    pos.x = label_pos.x;
-                    pos.y = label_pos.y;
+                    // pos.x = label_pos.x;
+                    pos.y = sampling_params.canvas_size.y as f64 - label_pos.y;
                 }
                 // }
             }
         }
     }
 
+    println!("{failed} labels didn't find a position");
     // println!("{anchorless} out of {total} labels have no anchor");
 }
 
@@ -1237,7 +1332,7 @@ fn label_anchor_constraints(
             .view
             .map_world_to_screen(screen_dims, anchor.world_point);
 
-        let p1 = Vec2::new(p1.x, p1.y).as_dvec2();
+        let p1 = Vec2::new(p1.x, screen_dims.y - p1.y).as_dvec2();
 
         let dist = p0.distance(p1);
         let normal = (p1 - p0).try_normalize().unwrap_or(DVec2::Y);
@@ -1257,7 +1352,9 @@ fn label_anchor_constraints(
         //
     }
 }
+*/
 
+/*
 #[derive(Resource, Default)]
 struct LabelQbvh {
     qbvh: AabbQbvh<usize>,
@@ -1300,6 +1397,7 @@ impl LabelQbvh {
             });
     }
 }
+ */
 
 /*
 fn update_annotation_labels(
@@ -1347,3 +1445,174 @@ fn update_annotation_labels(
     }
 }
 */
+
+/*
+hides and disables labels whose annotated region is completely off-screen
+*/
+fn clear_labels(
+    mut labels: Query<(
+        // Entity,
+        &mut Visibility,
+        &mut CollisionLayers,
+        // &Position,
+        // &Collider,
+        &LabelAnchorRegion,
+    )>,
+    viewport: Res<AlignmentViewport>,
+) {
+    let view = viewport.view;
+    for (mut vis, mut col_layers, anchor_region) in labels.iter_mut() {
+        let is_enabled = *vis != Visibility::Hidden;
+
+        let region_in_view =
+            view.intersects_rect(anchor_region.world_mins, anchor_region.world_maxs);
+
+        if is_enabled && !region_in_view {
+            // disable label
+            *vis = Visibility::Hidden;
+            *col_layers = CollisionLayers::new(LabelPhysicsLayers::InactiveLabel, LayerMask::NONE);
+        }
+    }
+}
+
+/*
+enables and sets the position of disabled labels whose annotated region
+has become visible on the screen
+*/
+fn reset_label_positions(
+    mut commands: Commands,
+
+    default_layout_root: Res<DefaultLayoutRoot>,
+    layout_query: AlignmentLayoutQuery,
+
+    // alignment_aabbs: Res<AlignmentAabbs>,
+    main_alignment_sampler: Query<
+        (&AlignmentCollisionLines, &AlignmentSamplingParams),
+        With<MainAlignmentView>,
+    >,
+
+    viewport: Res<AlignmentViewport>,
+
+    mut labels: Query<(
+        Entity,
+        &AnnotationLabel,
+        &mut Position,
+        &mut Visibility,
+        &mut CollisionLayers,
+        &LabelAnchorRegion,
+        &Collider,
+    )>,
+
+    // mut local_qbvh: Local<(AabbQbvh<u32>, QbvhUpdateWorkspace)>,
+    mut label_qbvh: Local<AabbQbvh<u32>>,
+    mut qbvh_workspace: Local<QbvhUpdateWorkspace>,
+    // mut spatial_query: SpatialQuery,
+) -> usize {
+    //
+    /*
+
+    */
+
+    let Ok((alignment_lines, sampling_params)) = main_alignment_sampler.get_single() else {
+        return;
+    };
+
+    let view = viewport.view;
+
+    let mut added_labels = 0;
+
+    label_qbvh.data.clear();
+    label_qbvh.aabbs.clear();
+
+    let screen_dims = sampling_params.canvas_size;
+
+    for (entity, annot_label, mut pos, mut vis, mut col_layers, anchor_region, collider) in
+        labels.iter_mut()
+    {
+        let is_enabled = *vis != Visibility::Hidden;
+        let region_in_view =
+            view.intersects_rect(anchor_region.world_mins, anchor_region.world_maxs);
+
+        let should_enable = !is_enabled && region_in_view;
+
+        if !should_enable {
+            continue;
+        }
+
+        let Some(collider) = collider.shape().as_cuboid() else {
+            continue;
+        };
+        let label_size = Vec2::new(
+            collider.half_extents.x as f32,
+            collider.half_extents.y as f32,
+        ) * 2.0;
+
+        let label_region = anchor_region.map_to_screen(&view, screen_dims);
+
+        match annot_label.axis {
+            AlignmentAxis::Target => {
+                //
+                let result = super::svg_export::position_target_label(
+                    &mut label_qbvh,
+                    &mut qbvh_workspace,
+                    alignment_lines,
+                    screen_dims,
+                    label_region,
+                    label_size,
+                );
+
+                if let Some((new_pos, aabb)) = result {
+                    *vis = Visibility::Inherited;
+                    *col_layers =
+                        CollisionLayers::new(LabelPhysicsLayers::ActiveLabel, LayerMask::ALL);
+                    pos.0.x = new_pos.x as f64;
+                    pos.0.y = new_pos.y as f64;
+
+                    added_labels += 1;
+                }
+            }
+            AlignmentAxis::Query => {
+                // for now
+                continue;
+            }
+        }
+
+        // added_labels += 1;
+    }
+
+    // TODO update the spatial query pipeline if necessary (i.e. labels were added)
+    // if added_labels > 0 {
+    //     spatial_query.update_pipeline();
+    // }
+
+    added_labels
+}
+
+/*
+applies forces to keep enabled labels inside (or overlapping with) their
+respective annotated regions
+
+*/
+fn update_labels(
+    //
+    mut commands: Commands,
+    mut labels: Query<(
+        Entity,
+        &AnnotationLabel,
+        &Position,
+        &Collider,
+        &mut ExternalForce,
+        &LabelAnchorRegion,
+    )>,
+) {
+    //
+
+    for (entity, annotation_label, position, collider, mut ext_force, anchor_region) in
+        labels.iter_mut()
+    {
+
+        //
+    }
+
+    // todo!();
+}

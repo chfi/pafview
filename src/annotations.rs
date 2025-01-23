@@ -1,7 +1,7 @@
 use anyhow::Result;
 use bimap::BiMap;
 
-use crate::sequences::SeqId;
+use crate::{app::SequencePairTile, sequences::SeqId};
 
 use self::draw::AnnotShapeId;
 
@@ -264,6 +264,13 @@ pub struct Record {
 }
 
 impl Record {
+    pub fn seq_tile(&self) -> SequencePairTile {
+        SequencePairTile {
+            target: self.tgt_id,
+            query: self.qry_id,
+        }
+    }
+
     pub fn qry_range_f64(&self) -> std::ops::RangeInclusive<f64> {
         let s = self.qry_range.start as f64;
         let e = self.qry_range.end as f64;
