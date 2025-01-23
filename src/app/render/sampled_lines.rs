@@ -842,6 +842,7 @@ fn update_viewer_sprite_transform(
         let old_mid = last_view.center();
         // if last_view == next_view && vx_params.canvas_size == img_size {
         if last_view == next_view {
+            let img_size = img_size / dpi_scale;
             *transform = Transform::from_xyz(img_size.x * 0.5, img_size.y * 0.5, 0.0);
         } else {
             let new_mid = next_view.center();
