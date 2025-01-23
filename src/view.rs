@@ -484,6 +484,8 @@ impl View {
         let y_min = y0.min(y1);
         let y_max = y0.max(y1);
 
+        // println!("X {x_min}-{x_max}\tY {y_min}-{y_max}");
+
         !(x_max < self.x_min || x_min > self.x_max || y_max < self.y_min || y_min > self.y_max)
     }
 }

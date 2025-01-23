@@ -363,6 +363,9 @@ impl<T: Copy> AabbQbvh<T> {
         half_extents: impl Into<[f64; 2]>,
         mut callback: impl FnMut(T, &Aabb) -> bool,
     ) {
+        if self.aabbs.is_empty() {
+            return;
+        }
         let center = center.into();
         let half_extents = half_extents.into();
 
@@ -405,6 +408,9 @@ impl<T: Copy> AabbQbvh<T> {
         point: impl Into<[f64; 2]>,
         mut callback: impl FnMut(T) -> bool,
     ) {
+        if self.aabbs.is_empty() {
+            return;
+        }
         let query_pt = point.into();
 
         let leaf_cb = &mut |index: &usize| {
@@ -441,6 +447,9 @@ impl<T: Copy> AabbQbvh<T> {
         max_time_of_impact: f64,
         mut callback: impl FnMut(T) -> bool,
     ) {
+        if self.aabbs.is_empty() {
+            return;
+        }
         // ) -> Option<(&T, usize, DVec2, f64)> {
         let origin = origin.into();
         let dir = dir.into();

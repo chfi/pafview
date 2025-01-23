@@ -9,7 +9,7 @@ use avian2d::{
 };
 
 use bevy::{
-    math::{DVec2, U64Vec2},
+    math::{vec2, DVec2, U64Vec2},
     prelude::*,
     render::view::RenderLayers,
     sprite::{Anchor, MaterialMesh2dBundle, Mesh2d, Mesh2dHandle},
@@ -71,7 +71,7 @@ impl Plugin for AnnotationsPlugin {
                     clear_labels,
                     reset_label_positions.pipe(
                         |added: In<usize>, mut spatial_query: SpatialQuery| {
-                            if added > 0 {
+                            if *added > 0 {
                                 spatial_query.update_pipeline();
                             }
                         },
@@ -90,14 +90,14 @@ impl Plugin for AnnotationsPlugin {
         //         .after(super::gui::menubar_system),
         // );
 
+        app.insert_gizmo_config(
+            AnchorGizmos,
+            GizmoConfig {
+                render_layers: RenderLayers::layer(1),
+                ..default()
+            },
+        );
         /*
-               app.insert_gizmo_config(
-                   AnchorGizmos,
-                   GizmoConfig {
-                       render_layers: RenderLayers::layer(1),
-                       ..default()
-                   },
-               )
                // .add_systems(Startup, |mut cfg: ResMut<GizmoConfigStore>| {
                //     todo!();
                // })
@@ -451,7 +451,7 @@ fn prepare_annotations(
                     },
                 ),
                 text_anchor: Anchor::Center,
-                visibility: Visibility::Visible,
+                visibility: Visibility::Hidden,
                 ..default()
             },
         );
@@ -510,7 +510,7 @@ fn add_label_physics(
             CollisionLayers::NONE,
             Mass(100.0),
             Inertia(1.0),
-            LinearDamping(0.1),
+            LinearDamping(0.9),
             LockedAxes::ROTATION_LOCKED,
         ));
     }
@@ -1507,14 +1507,33 @@ fn reset_label_positions(
     mut label_qbvh: Local<AabbQbvh<u32>>,
     mut qbvh_workspace: Local<QbvhUpdateWorkspace>,
     // mut spatial_query: SpatialQuery,
+    mut gizmos: Gizmos<AnchorGizmos>,
+    mut persist_gizmos: Local<HashMap<Entity, Vec<(Vec2, Vec2, Color)>>>,
 ) -> usize {
     //
     /*
 
     */
 
+    {
+        let mut i = 0.0;
+        for (_, data) in persist_gizmos.iter() {
+            for &(center, size, color) in data.iter() {
+                let center = center * 0.25;
+                gizmos.rect_2d(center, Rot2::IDENTITY, size, color);
+
+                let p = center + Vec2::X * i;
+                gizmos.line_2d(p, p + Vec2::Y * i, color);
+                // gizmos.rect_2d(center + Vec2::X * i, Rot2::IDENTITY, size, color);
+                // println!("drawing at {center:?}");
+
+                i += 2.0;
+            }
+        }
+    }
+
     let Ok((alignment_lines, sampling_params)) = main_alignment_sampler.get_single() else {
-        return;
+        return 0;
     };
 
     let view = viewport.view;
@@ -1526,6 +1545,8 @@ fn reset_label_positions(
 
     let screen_dims = sampling_params.canvas_size;
 
+    let mut visible_regions = 0;
+
     for (entity, annot_label, mut pos, mut vis, mut col_layers, anchor_region, collider) in
         labels.iter_mut()
     {
@@ -1536,23 +1557,31 @@ fn reset_label_positions(
         let should_enable = !is_enabled && region_in_view;
 
         if !should_enable {
+            // println!("is enabled: {is_enabled}\tregion visible: {region_in_view}");
             continue;
         }
+        visible_regions += 1;
 
         let Some(collider) = collider.shape().as_cuboid() else {
             continue;
         };
+
+        let gzs = persist_gizmos.entry(entity).or_default();
+        gzs.clear();
+
         let label_size = Vec2::new(
             collider.half_extents.x as f32,
             collider.half_extents.y as f32,
         ) * 2.0;
 
         let label_region = anchor_region.map_to_screen(&view, screen_dims);
+        println!("finding position for label in {label_region:?}");
 
         match annot_label.axis {
             AlignmentAxis::Target => {
                 //
-                let result = super::svg_export::position_target_label(
+                let result = position_target_label(
+                    gzs,
                     &mut label_qbvh,
                     &mut qbvh_workspace,
                     alignment_lines,
@@ -1568,6 +1597,14 @@ fn reset_label_positions(
                     pos.0.x = new_pos.x as f64;
                     pos.0.y = new_pos.y as f64;
 
+                    gzs.push((
+                        pos.0.as_vec2(),
+                        Vec2::ONE * 10.0,
+                        Color::hsl(180.0, 0.8, 0.5),
+                    ));
+
+                    println!("set label position to {new_pos:?}");
+
                     added_labels += 1;
                 }
             }
@@ -1578,6 +1615,13 @@ fn reset_label_positions(
         }
 
         // added_labels += 1;
+    }
+
+    // if visible_regions > 0 {
+    //     println!("{visible_regions} annotated regions are visible");
+    // }
+    if added_labels > 0 {
+        println!("initialized {added_labels} label positions");
     }
 
     // TODO update the spatial query pipeline if necessary (i.e. labels were added)
@@ -1604,15 +1648,209 @@ fn update_labels(
         &mut ExternalForce,
         &LabelAnchorRegion,
     )>,
+    // default_layout_root: Res<DefaultLayoutRoot>,
+    // layout_query: AlignmentLayoutQuery,
+
+    // alignment_aabbs: Res<AlignmentAabbs>,
+    main_alignment_sampler: Query<
+        (&AlignmentCollisionLines, &AlignmentSamplingParams),
+        With<MainAlignmentView>,
+    >,
+
+    windows: Query<&Window>,
+    viewport: Res<AlignmentViewport>,
 ) {
     //
+
+    let Ok(screen_dims) = windows.get_single().map(|w| w.size()) else {
+        return;
+    };
+
+    let view = viewport.view;
+
+    const FORCE_CONSTANT: f64 = 1_000.0;
 
     for (entity, annotation_label, position, collider, mut ext_force, anchor_region) in
         labels.iter_mut()
     {
+        let label_aabb = collider.aabb(position.0, Rotation::IDENTITY);
+
+        let screen_region = anchor_region.map_to_screen(&view, screen_dims);
+        let s_mins = screen_region[0].as_dvec2();
+        let s_maxs = screen_region[1].as_dvec2();
+
+        let mut f_x = 0.0;
+        let mut f_y = 0.0;
+
+        if label_aabb.min.x >= s_maxs.x {
+            // label is outside region, to the right
+
+            f_x = (s_maxs.x - label_aabb.min.x) * FORCE_CONSTANT;
+        } else if label_aabb.max.x <= s_mins.x {
+            // label is outside region, to the left
+            f_x = (s_mins.x - label_aabb.max.x) * FORCE_CONSTANT;
+        } else {
+            // label is inside/overlapping region
+        }
+
+        if label_aabb.max.y < 0.0 {
+            f_y = FORCE_CONSTANT;
+        }
+
+        ext_force.set_force([f_x, f_y].into());
+
+        /*
+        let left_side_dist = s_mins.as_dvec2().x - aabb.min.x;
+        let right_side_dist = s_maxs.as_dvec2().x - aabb.max.x;
+
+        if left_side_dist.abs() < right_side_dist.abs() {
+            //
+        } else {
+            //
+        }
+        */
 
         //
     }
 
     // todo!();
+}
+
+fn position_target_label(
+    persist_gizmos: &mut Vec<(Vec2, Vec2, Color)>,
+    qbvh: &mut AabbQbvh<u32>,
+    qbvh_workspace: &mut avian2d::parry::partitioning::QbvhUpdateWorkspace,
+    alignment_lines: &AlignmentCollisionLines,
+    screen_dims: Vec2,
+    // annotated region associated with label, in screenspace
+    label_region: [Vec2; 2],
+    label_size: Vec2,
+) -> Option<(Vec2, avian2d::parry::bounding_volume::Aabb)> {
+    //
+    use avian2d::parry::bounding_volume::{Aabb, BoundingVolume};
+
+    let [mins, maxs] = label_region;
+
+    let mut mid = (mins + maxs).as_dvec2() * 0.5;
+    let size = (maxs - mins).abs().as_dvec2();
+    let mut half_extents = (maxs - mins).as_dvec2() * 0.5;
+    // ensure the region isn't extremely small along either axis
+    half_extents = half_extents.max(DVec2::ONE);
+
+    if label_size.x as f64 > 2.0 * half_extents.x {
+        let half_label = label_size.x as f64 * 0.5;
+        let extra = half_label - half_extents.x;
+
+        half_extents += extra;
+    }
+
+    if mid.y < size.y {
+        mid.y = size.y;
+    }
+    if mid.y > screen_dims.y as f64 {
+        mid.y = screen_dims.y as f64 - size.y;
+    }
+
+    // let query_aabb = Aabb::from_half_extents(mid.to_array().into(), half_extents.to_array().into());
+    let query_aabb =
+        Aabb::from_half_extents([mid.x as f64, mid.y as f64].into(), [size.x, size.y].into());
+    let mut column_collisions = Vec::new();
+    println!("checking {query_aabb:?}");
+
+    qbvh.aabbs_in_rect_callback(mid, half_extents, |_, aabb| {
+        column_collisions.push(*aabb);
+        true
+    });
+
+    // let mut closest_segments = Vec::new();
+
+    let closest_in_aabb =
+        alignment_lines.closest_point_to_aabb_sides(AlignmentAxis::Target, &query_aabb);
+
+    if let [Some((_, p_min)), Some((_, p_max))] = closest_in_aabb {
+        let mins = p_min.min(p_max);
+        let maxs = p_min.max(p_max);
+
+        column_collisions.push(Aabb::new(mins.to_array().into(), maxs.to_array().into()));
+    }
+
+    /*
+    alignment_lines
+        .qbvh
+        .aabbs_in_rect_callback(mid, half_extents, |key, aabb| {
+            if let Some(polyline) = alignment_lines.polylines.get(&key) {
+                let qbvh = polyline.qbvh();
+
+                // TODO now query the polyline (same query AABB) to find the points
+                // closest to the edges...
+
+            }
+            column_collisions.push(*aabb);
+            true
+        });
+        */
+
+    column_collisions.sort_by_key(|aabb| aabb.mins.y as u64);
+
+    let label_halfsize = label_size * 0.5;
+
+    let pos = mins + label_halfsize * Vec2::Y;
+
+    let mut this_aabb = Aabb::from_half_extents(
+        pos.as_dvec2().to_array().into(),
+        label_halfsize.as_dvec2().to_array().into(),
+    );
+
+    let mut attempts = 0;
+
+    // iterating through the other labels that intersect this region, from the top
+    for other_aabb in column_collisions.iter() {
+        let p0 = this_aabb.center();
+        let other_aabb = other_aabb.loosened(1.0);
+
+        persist_gizmos.push((
+            vec2(p0.x as f32, p0.y as f32),
+            Vec2::ONE * 5.0,
+            Color::hsl(150.0, 0.7, 0.4),
+        ));
+
+        if !this_aabb.intersects(&other_aabb) {
+            // if  this_bottom < other_top {
+            // this label would fit before this one, so we can use it & finish
+            break;
+        } else {
+            attempts += 1;
+            // this label would collide, so move the candidate position
+            // down below it
+            let new_y =
+                other_aabb.center().y + other_aabb.half_extents().y + this_aabb.half_extents().y;
+            let delta_y = new_y - p0.y;
+            this_aabb = this_aabb.transform_by(&nalgebra::Isometry2::translation(0.0, delta_y));
+        }
+    }
+
+    println!("found location after {attempts} tries");
+
+    let mut final_pos_clear = true;
+
+    qbvh.aabbs_in_rect_callback(this_aabb.center(), this_aabb.half_extents(), |_, aabb| {
+        if aabb.intersects(&this_aabb) {
+            final_pos_clear = false;
+            return false;
+        }
+        true
+    });
+
+    if final_pos_clear {
+        // label origin is on its left side, while AABBs are positioned by their center
+        let pos = DVec2::from(this_aabb.center().coords.data.0[0]).as_vec2();
+        let label_pos = pos - Vec2::X * label_halfsize.x;
+        let i = qbvh.data.len() as u32;
+        qbvh.add(qbvh_workspace, i, this_aabb);
+
+        Some((pos, this_aabb))
+        // Some((label_pos, this_aabb))
+    } else {
+        None
+    }
 }

@@ -348,7 +348,7 @@ fn grid_paths_in_view(
     data
 }
 
-pub(crate) fn position_target_label(
+fn position_target_label(
     // qbvh: &mut avian2d::parry::partitioning::Qbvh<u32>,
     qbvh: &mut AabbQbvh<u32>,
     qbvh_workspace: &mut avian2d::parry::partitioning::QbvhUpdateWorkspace,
@@ -425,6 +425,8 @@ pub(crate) fn position_target_label(
         label_halfsize.as_dvec2().to_array().into(),
     );
 
+    let mut attempts = 0;
+
     // iterating through the other labels that intersect this region, from the top
     for other_aabb in column_collisions.iter() {
         let p0 = this_aabb.center();
@@ -435,6 +437,7 @@ pub(crate) fn position_target_label(
             // this label would fit before this one, so we can use it & finish
             break;
         } else {
+            attempts += 1;
             // this label would collide, so move the candidate position
             // down below it
             let new_y =
@@ -443,6 +446,8 @@ pub(crate) fn position_target_label(
             this_aabb = this_aabb.transform_by(&nalgebra::Isometry2::translation(0.0, delta_y));
         }
     }
+
+    println!("found location after {attempts} tries");
 
     let mut final_pos_clear = true;
 
