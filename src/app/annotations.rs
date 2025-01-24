@@ -17,6 +17,7 @@ use bevy::{
     utils::HashMap,
 };
 use bevy_mod_picking::picking_core::Pickable;
+use nalgebra::Point2;
 
 use crate::annotations::{AnnotationId, RecordEntryId, RecordListId};
 
@@ -1645,6 +1646,7 @@ fn update_labels(
         &AnnotationLabel,
         &Position,
         &Collider,
+        &mut LinearVelocity,
         &mut ExternalForce,
         &LabelAnchorRegion,
     )>,
@@ -1659,6 +1661,8 @@ fn update_labels(
 
     windows: Query<&Window>,
     viewport: Res<AlignmentViewport>,
+
+    mut gizmos: Gizmos<AnchorGizmos>,
 ) {
     //
 
@@ -1666,11 +1670,17 @@ fn update_labels(
         return;
     };
 
+    let Ok((alignment_lines, sampling_params)) = main_alignment_sampler.get_single() else {
+        return;
+    };
+
     let view = viewport.view;
 
     const FORCE_CONSTANT: f64 = 1_000.0;
 
-    for (entity, annotation_label, position, collider, mut ext_force, anchor_region) in
+    // let mut colliding_lines = Vec::new();
+
+    for (entity, annotation_label, position, collider, mut lin_vel, mut ext_force, anchor_region) in
         labels.iter_mut()
     {
         let label_aabb = collider.aabb(position.0, Rotation::IDENTITY);
@@ -1685,10 +1695,21 @@ fn update_labels(
         if label_aabb.min.x >= s_maxs.x {
             // label is outside region, to the right
 
-            f_x = (s_maxs.x - label_aabb.min.x) * FORCE_CONSTANT;
+            // f_x = (s_maxs.x - label_aabb.min.x) * FORCE_CONSTANT;
+
+            let dx = s_maxs.x - label_aabb.min.x;
+            lin_vel.x = dx;
+
+            let p0 = label_aabb.center().as_vec2();
+            gizmos.line_2d(p0, p0 + vec2(dx as f32, 0.0), Color::hsl(70.0, 0.8, 0.5));
         } else if label_aabb.max.x <= s_mins.x {
             // label is outside region, to the left
-            f_x = (s_mins.x - label_aabb.max.x) * FORCE_CONSTANT;
+            // f_x = (s_mins.x - label_aabb.max.x) * FORCE_CONSTANT;
+            let dx = s_mins.x - label_aabb.max.x;
+            lin_vel.x = dx;
+
+            let p0 = label_aabb.center().as_vec2();
+            gizmos.line_2d(p0, p0 + vec2(dx as f32, 0.0), Color::hsl(70.0, 0.8, 0.5));
         } else {
             // label is inside/overlapping region
         }
@@ -1696,6 +1717,61 @@ fn update_labels(
         if label_aabb.max.y < 0.0 {
             f_y = FORCE_CONSTANT;
         }
+
+        gizmos.rect_2d(
+            label_aabb.center().as_vec2(),
+            Rot2::IDENTITY,
+            label_aabb.size().as_vec2(),
+            Color::hsl(30.0, 0.9, 0.5),
+        );
+
+        let query_pt = Point2::new(label_aabb.center().x, label_aabb.center().y);
+
+        // colliding_lines.clear();
+        alignment_lines.qbvh.aabbs_in_rect_callback(
+            position.0,
+            label_aabb.size(),
+            // label_aabb.size() * 0.5,
+            |key, aabb| {
+                if let Some(polyline) = alignment_lines.polylines.get(&key) {
+                    let bb_center = DVec2::from(aabb.center().coords.data.0[0]).as_vec2();
+                    let bb_size = DVec2::from(aabb.extents().data.0[0]).as_vec2();
+
+                    // gizmos.rect_2d(
+                    //     bb_center,
+                    //     Rot2::IDENTITY,
+                    //     bb_size,
+                    //     Color::hsl(50.0, 0.6, 0.5),
+                    // );
+
+                    let closest = polyline.project_local_point(&query_pt, true);
+
+                    // gizmos.line_2d(
+                    //     [closest.point.x as f32, closest.point.y as f32].into(),
+                    //     label_aabb.center().as_vec2(),
+                    //     Color::hsl(50.0, 0.5, 0.5),
+                    // );
+
+                    // let delta = closest.point - query_pt;
+                    let y_dist = (query_pt.y - closest.point.y).abs();
+
+                    if closest.point.y > query_pt.y && y_dist < 20.0 {
+                        f_y += FORCE_CONSTANT * -200.0;
+                    } else if closest.point.y < query_pt.y && y_dist < 20.0 {
+                        f_y += FORCE_CONSTANT * 200.0;
+                    }
+                    // if delta.norm() <
+
+                    // colliding_lines
+                    //
+                }
+
+                true
+            },
+        );
+        // let key = alignment_lines
+        //     .qbvh
+        //     .aabbs_in_rect(position.0, label_aabb.size() * 0.5);
 
         ext_force.set_force([f_x, f_y].into());
 
