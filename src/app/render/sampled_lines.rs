@@ -832,6 +832,7 @@ fn update_viewer_sprite_transform(
 
         let img_size = rendered.canvas_size.as_vec2();
         sprite.custom_size = Some(img_size / dpi_scale);
+        let img_size = img_size / dpi_scale;
 
         let Some(next_view) = viewer.view else {
             continue;
@@ -840,9 +841,7 @@ fn update_viewer_sprite_transform(
         let last_view = rendered.view;
 
         let old_mid = last_view.center();
-        // if last_view == next_view && vx_params.canvas_size == img_size {
         if last_view == next_view {
-            let img_size = img_size / dpi_scale;
             *transform = Transform::from_xyz(img_size.x * 0.5, img_size.y * 0.5, 0.0);
         } else {
             let new_mid = next_view.center();
