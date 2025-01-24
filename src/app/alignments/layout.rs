@@ -440,7 +440,7 @@ impl<T: Copy> AabbQbvh<T> {
         results
     }
 
-    pub fn cast_ray_callback(
+    pub fn cast_ray(
         &self,
         origin: impl Into<[f64; 2]>,
         dir: impl Into<[f64; 2]>,
@@ -450,12 +450,43 @@ impl<T: Copy> AabbQbvh<T> {
         if self.aabbs.is_empty() {
             return;
         }
-        // ) -> Option<(&T, usize, DVec2, f64)> {
         let origin = origin.into();
         let dir = dir.into();
 
         let ray = parry::query::Ray::new(origin.into(), dir.into());
 
+        let visitor_cb = &mut |val: &usize| {
+            if let Some(data) = self.data.get(*val) {
+                return callback(*data);
+            }
+            true
+        };
+
+        let mut visitor = parry::query::visitors::RayIntersectionsVisitor::new(
+            &ray,
+            max_time_of_impact,
+            visitor_cb,
+        );
+
+        self.qbvh.traverse_depth_first(&mut visitor);
+    }
+
+    pub fn cast_ray_best_first(
+        &self,
+        origin: impl Into<[f64; 2]>,
+        dir: impl Into<[f64; 2]>,
+        max_time_of_impact: f64,
+        // mut callback: impl FnMut(T) -> bool,
+    ) -> Option<(&T, DVec2, f64)> {
+        if self.aabbs.is_empty() {
+            return None;
+        }
+        let origin = origin.into();
+        let dir = dir.into();
+
+        let ray = parry::query::Ray::new(origin.into(), dir.into());
+
+        /*
         let mut visitor = parry::query::visitors::RayIntersectionsVisitor::new(
             &ray,
             max_time_of_impact,
@@ -467,8 +498,8 @@ impl<T: Copy> AabbQbvh<T> {
                 true
             },
         );
+        */
 
-        /*
         let mut visitor = parry::query::details::RayCompositeShapeToiBestFirstVisitor::new(
             self,
             &ray,
@@ -480,9 +511,10 @@ impl<T: Copy> AabbQbvh<T> {
         if let Some((_node_index, (qbvh_i, toi))) = ray_hits {
             let data = self.data.get(qbvh_i)?;
             let pos = ray.point_at(toi);
-            return Some((data, qbvh_i, DVec2::new(pos.x, pos.y), toi));
+            Some((data, DVec2::new(pos.x, pos.y), toi))
+        } else {
+            None
         }
-        */
     }
 }
 

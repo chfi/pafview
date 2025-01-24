@@ -28,7 +28,7 @@ use super::{
     },
     render::{
         bordered_rect::BorderedRectMaterial2d,
-        sampled_lines::{AlignmentCollisionLines, AlignmentSamplingParams},
+        sampled_lines::{AlignmentCollisionLines, AlignmentSamplingParams, SampledAlignmentViewer},
         MainAlignmentView,
     },
     view::AlignmentViewport,
@@ -69,6 +69,7 @@ impl Plugin for AnnotationsPlugin {
             .add_systems(
                 PreUpdate,
                 (
+                    update_alignment_lines_collider,
                     clear_labels,
                     reset_label_positions.pipe(
                         |added: In<usize>, mut spatial_query: SpatialQuery| {
@@ -98,6 +99,38 @@ impl Plugin for AnnotationsPlugin {
                 ..default()
             },
         );
+
+        /*
+        #[derive(Component)]
+        struct TestThing;
+
+        app.add_systems(Startup, |mut commands: Commands| {
+            commands.spawn((
+                TestThing,
+                RigidBody::Kinematic,
+                SpatialBundle::default(),
+                Collider::rectangle(50.0, 50.0),
+            ));
+        })
+        .add_systems(
+            PreUpdate,
+            |mut gizmos: Gizmos<AnchorGizmos>,
+             mut thing: Query<(&mut Position), With<TestThing>>,
+             windows: Query<&Window>| {
+                let Some(cursor) = windows.get_single().ok().and_then(|w| w.cursor_position())
+                else {
+                    return;
+                };
+
+                for (mut pos) in thing.iter_mut() {
+                    pos.0 = cursor.as_dvec2();
+
+                    gizmos.circle_2d(cursor, 10.0, Color::hsl(70.0, 0.8, 0.5));
+                }
+            },
+        );
+        */
+
         /*
                // .add_systems(Startup, |mut cfg: ResMut<GizmoConfigStore>| {
                //     todo!();
@@ -1476,6 +1509,113 @@ fn clear_labels(
     }
 }
 
+#[derive(Component)]
+struct AlignmentCollider;
+
+fn update_alignment_lines_collider(
+    mut commands: Commands,
+
+    mut alignment_collider: Query<
+        (
+            Entity,
+            &mut Transform,
+            &mut Collider,
+            &AlignmentSamplingParams,
+        ),
+        With<AlignmentCollider>,
+    >,
+
+    sampler: Query<
+        (
+            &SampledAlignmentViewer,
+            &AlignmentSamplingParams,
+            &AlignmentCollisionLines,
+        ),
+        With<MainAlignmentView>,
+    >,
+) {
+    let Ok((viewer, sampling_params, alignment_lines)) = sampler.get_single() else {
+        return;
+    };
+
+    let Some(current_view) = viewer.view else {
+        return;
+    };
+
+    let height = sampling_params.canvas_size.y as f64;
+
+    if alignment_collider.is_empty() {
+        // TODO spawn
+
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
+        for (_key, polyline) in alignment_lines.polylines.iter() {
+            for (i, vx) in polyline.vertices().iter().enumerate() {
+                if i > 0 {
+                    let ix = vertices.len() as u32;
+                    indices.push([ix - 1, ix]);
+                }
+
+                vertices.push(DVec2::new(vx.x, height - vx.y));
+            }
+        }
+
+        // let collider = Collider::convex_hull(vertices).unwrap();
+        let collider = Collider::polyline(vertices, Some(indices));
+        // let collider = Collider::convex_decomposition(vertices, indices);
+
+        commands.spawn((
+            AlignmentCollider,
+            RigidBody::Static,
+            SpatialBundle::default(),
+            collider,
+            CollisionLayers::ALL,
+            *sampling_params,
+        ));
+    }
+
+    for (entity, mut transform, mut collider, old_params) in alignment_collider.iter_mut() {
+        let mut tform = super::render::sampled_lines::compute_vertex_transform(
+            old_params,
+            &AlignmentSamplingParams {
+                view: current_view,
+                canvas_size: sampling_params.canvas_size,
+            },
+        );
+
+        tform.translation.y *= -1.0;
+
+        *transform = tform;
+        println!("{transform:?}");
+
+        if *old_params == *sampling_params {
+            continue;
+        }
+
+        commands.entity(entity).insert(*sampling_params);
+
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
+        for (_key, polyline) in alignment_lines.polylines.iter() {
+            for (i, vx) in polyline.vertices().iter().enumerate() {
+                if i > 0 {
+                    let ix = vertices.len() as u32;
+                    indices.push([ix - 1, ix]);
+                }
+
+                vertices.push(DVec2::new(vx.x, height - vx.y));
+            }
+        }
+
+        if !vertices.is_empty() && !indices.is_empty() {
+            // *collider = Collider::convex_decomposition(vertices, indices);
+            *collider = Collider::polyline(vertices, Some(indices));
+        }
+    }
+}
+
 /*
 enables and sets the position of disabled labels whose annotated region
 has become visible on the screen
@@ -1650,9 +1790,12 @@ fn update_labels(
         &mut ExternalForce,
         &LabelAnchorRegion,
     )>,
-    // default_layout_root: Res<DefaultLayoutRoot>,
-    // layout_query: AlignmentLayoutQuery,
 
+    default_layout: Res<DefaultLayout>,
+    layout_query: AlignmentLayoutQuery,
+
+    annotations: Res<Annotations>,
+    annotation_query: Query<(Entity, &Annotation)>,
     // alignment_aabbs: Res<AlignmentAabbs>,
     main_alignment_sampler: Query<
         (&AlignmentCollisionLines, &AlignmentSamplingParams),
@@ -1674,7 +1817,14 @@ fn update_labels(
         return;
     };
 
+    let Some(layout) = layout_query.layout_assets.get(&default_layout.layout) else {
+        return;
+    };
+
     let view = viewport.view;
+
+    let s_layout_min = view.map_world_to_screen(screen_dims, layout.mins);
+    let s_layout_max = view.map_world_to_screen(screen_dims, layout.maxs);
 
     const FORCE_CONSTANT: f64 = 1_000.0;
 
@@ -1692,41 +1842,132 @@ fn update_labels(
         let mut f_x = 0.0;
         let mut f_y = 0.0;
 
+        let mut ddx = 0.0;
+
+        let mut inside_region = false;
+
         if label_aabb.min.x >= s_maxs.x {
             // label is outside region, to the right
 
             // f_x = (s_maxs.x - label_aabb.min.x) * FORCE_CONSTANT;
 
-            let dx = s_maxs.x - label_aabb.min.x;
-            lin_vel.x = dx;
+            ddx = s_maxs.x - label_aabb.min.x;
 
-            let p0 = label_aabb.center().as_vec2();
-            gizmos.line_2d(p0, p0 + vec2(dx as f32, 0.0), Color::hsl(70.0, 0.8, 0.5));
+            if lin_vel.x > 0.0 {
+                lin_vel.x *= 0.1;
+            }
         } else if label_aabb.max.x <= s_mins.x {
             // label is outside region, to the left
             // f_x = (s_mins.x - label_aabb.max.x) * FORCE_CONSTANT;
-            let dx = s_mins.x - label_aabb.max.x;
-            lin_vel.x = dx;
-
-            let p0 = label_aabb.center().as_vec2();
-            gizmos.line_2d(p0, p0 + vec2(dx as f32, 0.0), Color::hsl(70.0, 0.8, 0.5));
+            ddx = s_mins.x - label_aabb.max.x;
+            if lin_vel.x < 0.0 {
+                lin_vel.x *= 0.1;
+            }
         } else {
             // label is inside/overlapping region
+            lin_vel.x *= 0.8;
+            inside_region = true;
         }
 
-        if label_aabb.max.y < 0.0 {
+        // ddx *= 0.5
+        let p0 = label_aabb.center().as_vec2();
+        // gizmos.line_2d(p0, p0 + vec2(ddx as f32, 0.0), Color::hsl(170.0, 0.8, 0.5));
+        lin_vel.x += ddx;
+
+        // if label_aabb.max.y < 0.0 || label_aabb.max.y < layout
+
+        if label_aabb.max.y < 0.0 || (label_aabb.max.y as f32) < s_layout_min.y {
+            println!(
+                "label max y: {}\tlayout range: `{}` - `{}`",
+                label_aabb.max.y, s_layout_min.y, s_layout_max.y
+            );
+
             f_y = FORCE_CONSTANT;
         }
 
-        gizmos.rect_2d(
-            label_aabb.center().as_vec2(),
-            Rot2::IDENTITY,
-            label_aabb.size().as_vec2(),
-            Color::hsl(30.0, 0.9, 0.5),
-        );
+        // gizmos.rect_2d(
+        //     label_aabb.center().as_vec2(),
+        //     Rot2::IDENTITY,
+        //     label_aabb.size().as_vec2(),
+        //     Color::hsl(30.0, 0.9, 0.5),
+        // );
 
         let query_pt = Point2::new(label_aabb.center().x, label_aabb.center().y);
 
+        let Some(record) = annotation_query
+            .get(annotation_label.annotation)
+            .ok()
+            .and_then(|(_, annot)| annotations.get_record(annot))
+        else {
+            continue;
+        };
+
+        /*
+        alignment_lines.qbvh.cast_ray(
+            label_aabb.center(),
+            DVec2::Y,
+            1_000.0,
+            |key: (Entity, AlignmentIndex)| {
+                let (_, al_ix) = key;
+                if al_ix.target == record.tgt_id {
+                    // examine the polyline itself
+
+                    if let Some(polyline) = alignment_lines.polylines.get(&key) {
+                        //
+                    }
+                } else {
+                    // only use the AABB
+
+
+                }
+
+                true
+            },
+        );
+        */
+
+        /*
+        let below =
+            alignment_lines
+                .qbvh
+                .cast_ray_best_first(label_aabb.center(), DVec2::Y, 1_000.0);
+
+        let above =
+            alignment_lines
+                .qbvh
+                .cast_ray_best_first(label_aabb.center(), -DVec2::Y, 1_000.0);
+
+        if let Some((key, hit_pos, toi)) = above {
+            gizmos.line_2d(
+                p0 + Vec2::X * 10.0,
+                hit_pos.as_vec2(),
+                Color::hsl(300.0, 0.9, 0.6),
+            );
+
+            if toi > 100.0 {
+                f_y += FORCE_CONSTANT * (hit_pos.y - p0.y as f64);
+            }
+        }
+        if let Some((key, hit_pos, toi)) = below {
+            gizmos.line_2d(
+                p0 - Vec2::X * 10.0,
+                hit_pos.as_vec2(),
+                Color::hsl(300.0, 0.9, 0.6),
+            );
+
+            if toi > 100.0 {
+                f_y -= FORCE_CONSTANT * (hit_pos.y - p0.y as f64);
+            }
+        }
+        */
+
+        // for (key, hit_pos, toi) in [below, above].into_iter().filter_map(|v| v) {
+        //     gizmos.line_2d(p0, hit_pos.as_vec2(), Color::hsl(100.0, 0.7, 0.5));
+        // }
+
+        // alignment_lines.qbvh.aabbs_in_rect
+
+        /*
         // colliding_lines.clear();
         alignment_lines.qbvh.aabbs_in_rect_callback(
             position.0,
@@ -1769,6 +2010,7 @@ fn update_labels(
                 true
             },
         );
+        */
         // let key = alignment_lines
         //     .qbvh
         //     .aabbs_in_rect(position.0, label_aabb.size() * 0.5);

@@ -15,7 +15,7 @@ pub mod view;
 
 pub use alignments::{AlignmentIndex, SequencePairTile};
 
-use bevy::prelude::*;
+use bevy::{prelude::*, render::view::RenderLayers};
 
 use bevy_polyline::PolylinePlugin;
 use clap::Parser;
@@ -32,6 +32,18 @@ impl Plugin for PafViewerPlugin {
         app.add_plugins(bevy_egui::EguiPlugin)
             // .add_plugins(bevy_inspector_egui::quick::WorldInspectorPlugin::default())
             .add_plugins(avian2d::PhysicsPlugins::default().with_length_unit(100.0))
+            .add_plugins(avian2d::debug_render::PhysicsDebugPlugin::default())
+            .insert_gizmo_config(
+                avian2d::prelude::PhysicsGizmos {
+                    aabb_color: Some(Color::linear_rgb(1.0, 0.1, 0.3)),
+                    collider_color: Some(Color::linear_rgb(1.0, 0.1, 0.3)),
+                    ..default()
+                },
+                GizmoConfig {
+                    render_layers: RenderLayers::layer(1),
+                    ..default()
+                },
+            )
             .insert_resource(avian2d::prelude::Gravity(bevy::math::DVec2::ZERO))
             .add_plugins(assets::ViewerAssetsPlugin)
             .add_plugins(input::InputPlugin)
