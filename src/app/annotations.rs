@@ -16,10 +16,13 @@ use bevy::{
     text::TextLayoutInfo,
     utils::HashMap,
 };
-use bevy_mod_picking::picking_core::Pickable;
+use bevy_mod_picking::{picking_core::Pickable, prelude::*};
 use nalgebra::Point2;
 
-use crate::annotations::{AnnotationId, RecordEntryId, RecordListId};
+use crate::{
+    annotations::{AnnotationId, RecordEntryId, RecordListId},
+    math_conv::{ConvertFloat32, ConvertVec2},
+};
 
 use super::{
     alignments::{
@@ -1576,7 +1579,7 @@ fn update_alignment_lines_collider(
     }
 
     for (entity, mut transform, mut collider, old_params) in alignment_collider.iter_mut() {
-        let mut tform = super::render::sampled_lines::compute_vertex_transform(
+        let tform = compute_vertex_transform_alt(
             old_params,
             &AlignmentSamplingParams {
                 view: current_view,
@@ -1584,10 +1587,7 @@ fn update_alignment_lines_collider(
             },
         );
 
-        tform.translation.y *= -1.0;
-
         *transform = tform;
-        println!("{transform:?}");
 
         if *old_params == *sampling_params {
             continue;
@@ -1877,10 +1877,10 @@ fn update_labels(
         // if label_aabb.max.y < 0.0 || label_aabb.max.y < layout
 
         if label_aabb.max.y < 0.0 || (label_aabb.max.y as f32) < s_layout_min.y {
-            println!(
-                "label max y: {}\tlayout range: `{}` - `{}`",
-                label_aabb.max.y, s_layout_min.y, s_layout_max.y
-            );
+            // println!(
+            //     "label max y: {}\tlayout range: `{}` - `{}`",
+            //     label_aabb.max.y, s_layout_min.y, s_layout_max.y
+            // );
 
             f_y = FORCE_CONSTANT;
         }
@@ -2171,4 +2171,49 @@ fn position_target_label(
     } else {
         None
     }
+}
+
+pub(crate) fn compute_vertex_transform_alt(
+    old_params: &AlignmentSamplingParams,
+    new_params: &AlignmentSamplingParams,
+) -> Transform {
+    let old_canvas_size = old_params.canvas_size;
+    let old_view = old_params.view;
+    let next_canvas_size = new_params.canvas_size;
+    let next_view = &new_params.view;
+
+    let old_mid = old_view.center();
+    let new_mid = next_view.center();
+
+    let world_delta = new_mid - old_mid;
+    let norm_delta = world_delta / next_view.size();
+
+    let w_rat = old_view.width() / next_view.width();
+    let h_rat = old_view.height() / next_view.height();
+
+    let w_rat_ = next_view.width() / old_view.width();
+    let h_rat_ = next_view.height() / old_view.height();
+
+    let screen_delta = norm_delta.to_f32()
+        * [
+            w_rat_ as f32 * old_canvas_size.x,
+            h_rat_ as f32 * old_canvas_size.y,
+        ]
+        .as_uv();
+
+    let mut center =
+        Transform::from_translation(Vec3::new(old_canvas_size.x, old_canvas_size.y, 0.0) * 0.5);
+    // screen_delta.y being negated here is the only difference
+    let translate = Transform::from_translation(Vec3::new(-screen_delta.x, -screen_delta.y, 0.0));
+
+    let scale_vec = Vec3::new(w_rat as f32, h_rat as f32, 1.0);
+    let scale = Transform::from_scale(scale_vec);
+
+    let size_ratio = next_canvas_size / old_canvas_size;
+
+    let transform = Transform::from_scale(Vec3::new(size_ratio.x, size_ratio.y, 1.0))
+        .mul_transform(center)
+        .mul_transform(scale);
+    center.translation *= -1.0;
+    transform.mul_transform(center).mul_transform(translate)
 }
