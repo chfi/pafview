@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use bevy::{prelude::*, render::view::RenderLayers};
+use bevy_mod_picking::prelude::Pickable;
 
 pub struct ToastMessagePlugin;
 
@@ -38,7 +39,9 @@ fn setup_toast_message_list(mut commands: Commands) {
     commands.spawn((
         ToastMessageListRoot,
         RenderLayers::layer(1),
+        Pickable::IGNORE,
         NodeBundle {
+            focus_policy: bevy::ui::FocusPolicy::Pass,
             style: Style {
                 display: Display::Flex,
                 position_type: PositionType::Absolute,
@@ -73,11 +76,13 @@ fn spawn_toast_messages(
     for msg in messages.read() {
         let msg_root = commands
             .spawn((
+                Pickable::IGNORE,
                 RenderLayers::layer(1),
                 ToastMessageNode {
                     timer: Timer::new(toast_cfg.timeout.clone(), TimerMode::Once),
                 },
                 NodeBundle {
+                    focus_policy: bevy::ui::FocusPolicy::Pass,
                     background_color: BackgroundColor(Color::hsl(0.0, 0.0, 0.8)),
                     border_color: BorderColor(Color::hsl(0.0, 0.0, 0.6)),
                     border_radius: BorderRadius::all(Val::Px(5.0)),
