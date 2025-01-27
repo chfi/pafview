@@ -155,7 +155,6 @@ fn show_paf_list_window(
                                     .send(GotoAlignmentEvent::Alignment { alignment_offset });
                             };
 
-                            /*
                             label.context_menu(|ui| {
                                 let close = ui.input(|i| i.pointer.any_pressed());
 
@@ -177,7 +176,6 @@ fn show_paf_list_window(
                                     ui.close_menu();
                                 }
                             });
-                            */
                         }
                     });
             });

@@ -342,7 +342,7 @@ pub(crate) fn spawn_alignment_sampling_tasks(
         };
 
         if let Some(last_time) = viewer.last_sampled_at {
-            if last_time.elapsed().as_millis() < 100 {
+            if last_time.elapsed().as_millis() < 200 {
                 continue;
             }
         }
@@ -350,12 +350,16 @@ pub(crate) fn spawn_alignment_sampling_tasks(
         // TODO: this could still use some tuning, especially scale-aware (sample
         // more outside the actual view when zoomed in)
         let view_changed_enough = if let Some(sampled_params) = last_params.as_ref() {
+            println!(
+                "current view: {next_view:?}\tsampled view: {:?}",
+                sampled_params.view
+            );
             let s_view: crate::view::View = sampled_params.view;
 
-            let view_out_of_bounds = s_view.x_min > next_view.x_max
-                || s_view.x_max < next_view.x_min
-                || s_view.y_min > next_view.y_max
-                || s_view.y_max < next_view.y_min;
+            let view_out_of_bounds = s_view.x_min < next_view.x_min
+                || s_view.x_max > next_view.x_max
+                || s_view.y_min < next_view.y_min
+                || s_view.y_max > next_view.y_max;
 
             let rel_scale = next_view.width() / s_view.width();
             let beyond_scale_limit = rel_scale < 0.5 || rel_scale > 2.0;
@@ -395,7 +399,6 @@ pub(crate) fn spawn_alignment_sampling_tasks(
         let params = AlignmentSamplingParams {
             view: next_view,
             canvas_size,
-            // scale: bp_per_px,
         };
 
         let paf_colors = paf_colors.clone();
