@@ -159,6 +159,8 @@ fn export_svg_screenshot(
 
     layouts: AlignmentLayoutQuery,
 
+    windows: Query<&Window>,
+
     mut toast_msgs: EventWriter<ToastMessageEvent>,
 ) {
     let Ok((viewer_entity, viewer, lines)) = main_viewer.get_single() else {
@@ -169,13 +171,17 @@ fn export_svg_screenshot(
         return;
     };
 
+    let Ok(dpi_scale) = windows.get_single().map(|w| w.scale_factor()) else {
+        return;
+    };
+
     let Some(params) = viewer.last_rendered else {
         return;
     };
 
     let view = &alignment_view.view;
 
-    let screen_dims = params.canvas_size;
+    let screen_dims = params.canvas_size.as_vec2() / dpi_scale;
 
     let w = params.canvas_size.x as f32;
     let h = params.canvas_size.y as f32;
@@ -205,7 +211,10 @@ fn export_svg_screenshot(
     let mut alignment_paths = SvgGroup::new();
 
     for ((_, alignment_ix), polyline) in lines.polylines.iter() {
-        let mut points = polyline.vertices().iter().map(|p| (p.x as f32, p.y as f32));
+        let mut points = polyline
+            .vertices()
+            .iter()
+            .map(|p| (p.x as f32 * dpi_scale, p.y as f32 * dpi_scale));
         // .map(|p| (p.x as f32, h - p.y as f32));
 
         let Some(p0) = points.next() else {
@@ -238,7 +247,7 @@ fn export_svg_screenshot(
             list.records.iter().filter_map(|record| {
                 let region = layout.map_local_region_to_screen(
                     view,
-                    screen_dims.as_vec2(),
+                    screen_dims,
                     (record.tgt_id, record.tgt_range.clone()),
                     (record.qry_id, record.qry_range.clone()),
                 )?;
@@ -250,7 +259,7 @@ fn export_svg_screenshot(
         annot_groups = Some(annotations_element(
             &opts.annotation_elements,
             lines,
-            screen_dims.as_vec2(),
+            screen_dims,
             annotation_regions,
         ));
     }
