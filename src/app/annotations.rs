@@ -493,35 +493,47 @@ fn prepare_annotations(
             },
         );
 
-        // let query_label = commands
-        //     .spawn(label_bundle.clone())
-        //     .insert((
-        //         Pickable::IGNORE,
-        //         AnnotationLabel {
-        //             annotation: annot_ent,
-        //             axis: AlignmentAxis::Query,
-        //             is_active: false,
-        //         },
-        //         LabelAnchorRegion::from_record(layout, record, AlignmentAxis::Query).unwrap(),
-        //     ))
-        //     .id();
-        let target_label = commands
-            .spawn(label_bundle)
-            .insert((
-                Pickable::IGNORE,
-                AnnotationLabel {
-                    annotation: annot_ent,
-                    axis: AlignmentAxis::Target,
-                    is_active: false,
-                },
-                LabelAnchorRegion::from_record(layout, record, AlignmentAxis::Target).unwrap(),
-            ))
-            .id();
+        let query_label = if let Some(anchor_region) =
+            LabelAnchorRegion::from_record(layout, record, AlignmentAxis::Query)
+        {
+            commands
+                .spawn(label_bundle.clone())
+                .insert((
+                    Pickable::IGNORE,
+                    AnnotationLabel {
+                        annotation: annot_ent,
+                        axis: AlignmentAxis::Query,
+                        is_active: false,
+                    },
+                    anchor_region,
+                ))
+                .id()
+        } else {
+            Entity::PLACEHOLDER
+        };
+
+        let target_label = if let Some(anchor_region) =
+            LabelAnchorRegion::from_record(layout, record, AlignmentAxis::Target)
+        {
+            commands
+                .spawn(label_bundle)
+                .insert((
+                    Pickable::IGNORE,
+                    AnnotationLabel {
+                        annotation: annot_ent,
+                        axis: AlignmentAxis::Target,
+                        is_active: false,
+                    },
+                    anchor_region,
+                ))
+                .id()
+        } else {
+            Entity::PLACEHOLDER
+        };
 
         commands.entity(annot_ent).insert(DisplayEntities {
             query_region,
-            // query_label,
-            query_label: Entity::PLACEHOLDER,
+            query_label,
             target_region,
             target_label,
         });
@@ -1744,7 +1756,7 @@ fn reset_label_positions(
                         Color::hsl(180.0, 0.8, 0.5),
                     ));
 
-                    println!("set label position to {new_pos:?}");
+                    // println!("set label position to {new_pos:?}");
 
                     added_labels += 1;
                 }
@@ -2091,22 +2103,6 @@ fn position_target_label(
 
         column_collisions.push(Aabb::new(mins.to_array().into(), maxs.to_array().into()));
     }
-
-    /*
-    alignment_lines
-        .qbvh
-        .aabbs_in_rect_callback(mid, half_extents, |key, aabb| {
-            if let Some(polyline) = alignment_lines.polylines.get(&key) {
-                let qbvh = polyline.qbvh();
-
-                // TODO now query the polyline (same query AABB) to find the points
-                // closest to the edges...
-
-            }
-            column_collisions.push(*aabb);
-            true
-        });
-        */
 
     column_collisions.sort_by_key(|aabb| aabb.mins.y as u64);
 
