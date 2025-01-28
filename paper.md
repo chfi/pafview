@@ -1,7 +1,3 @@
-Below is the **revised paper** with the same structure and detailed descriptions, **but with all quantitative benchmark results removed or replaced by placeholders**. This keeps the focus on the design and methodology without implying any specific performance measurements.
-
----
-
 # PafView: Fast and Memory-Efficient Visualization of Whole Genome Alignments
 
 ## Abstract
