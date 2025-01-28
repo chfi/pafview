@@ -496,6 +496,7 @@ fn prepare_annotations(
         let query_label = if let Some(anchor_region) =
             LabelAnchorRegion::from_record(layout, record, AlignmentAxis::Query)
         {
+            println!("adding query label");
             commands
                 .spawn(label_bundle.clone())
                 .insert((
@@ -515,6 +516,7 @@ fn prepare_annotations(
         let target_label = if let Some(anchor_region) =
             LabelAnchorRegion::from_record(layout, record, AlignmentAxis::Target)
         {
+            println!("adding target label");
             commands
                 .spawn(label_bundle)
                 .insert((
@@ -811,28 +813,45 @@ impl LabelAnchorRegion {
         annotation_record: &crate::annotations::Record,
         axis: AlignmentAxis,
     ) -> Option<Self> {
-        let tile_aabb = layout.aabbs.get(&annotation_record.seq_tile())?;
-
-        let tgt_0 = tile_aabb.mins.x;
-        let qry_0 = tile_aabb.mins.y;
-
-        let (tgt_min, tgt_max) = annotation_record.tgt_range_f64().into_inner();
-        let (qry_min, qry_max) = annotation_record.qry_range_f64().into_inner();
-
-        let mut world_mins = DVec2::new(tgt_0 + tgt_min, qry_0 + qry_min);
-        let mut world_maxs = DVec2::new(tgt_0 + tgt_max, qry_0 + qry_max);
-
-        // expand the cross-axis to fill the entire layout
-        match axis {
+        let (world_mins, world_maxs) = match axis {
             AlignmentAxis::Target => {
-                world_mins.y = layout.maxs.y * -1.0;
-                world_maxs.y = layout.maxs.y * 2.0;
+                let (tgt_min, tgt_max) = annotation_record.tgt_range_f64().into_inner();
+                let qry_min = layout.maxs.y * -1.0;
+                let qry_max = layout.maxs.y * 2.0;
+
+                (DVec2::new(tgt_min, qry_min), DVec2::new(tgt_max, qry_max))
             }
             AlignmentAxis::Query => {
-                world_mins.x = layout.maxs.x * -1.0;
-                world_maxs.x = layout.maxs.x * 2.0;
+                let (qry_min, qry_max) = annotation_record.qry_range_f64().into_inner();
+                let tgt_min = layout.maxs.x * -1.0;
+                let tgt_max = layout.maxs.x * 2.0;
+
+                (DVec2::new(tgt_min, qry_min), DVec2::new(tgt_max, qry_max))
             }
-        }
+        };
+
+        // let tile_aabb = layout.aabbs.get(&annotation_record.seq_tile())?;
+
+        // let tgt_0 = tile_aabb.mins.x;
+        // let qry_0 = tile_aabb.mins.y;
+
+        // let (tgt_min, tgt_max) = annotation_record.tgt_range_f64().into_inner();
+        // let (qry_min, qry_max) = annotation_record.qry_range_f64().into_inner();
+
+        // let mut world_mins = DVec2::new(tgt_0 + tgt_min, qry_0 + qry_min);
+        // let mut world_maxs = DVec2::new(tgt_0 + tgt_max, qry_0 + qry_max);
+
+        // // expand the cross-axis to fill the entire layout
+        // match axis {
+        //     AlignmentAxis::Target => {
+        //         world_mins.y = layout.maxs.y * -1.0;
+        //         world_maxs.y = layout.maxs.y * 2.0;
+        //     }
+        //     AlignmentAxis::Query => {
+        //         world_mins.x = layout.maxs.x * -1.0;
+        //         world_maxs.x = layout.maxs.x * 2.0;
+        //     }
+        // }
 
         Some(LabelAnchorRegion {
             world_mins,
@@ -1695,6 +1714,7 @@ fn reset_label_positions(
 
     label_qbvh.data.clear();
     label_qbvh.aabbs.clear();
+    // label_qbvh.qbvh = default();
 
     let screen_dims = sampling_params.canvas_size;
 
@@ -1762,8 +1782,36 @@ fn reset_label_positions(
                 }
             }
             AlignmentAxis::Query => {
-                // for now
                 continue;
+                // for now
+                // continue;
+                // let result = position_query_label(
+                //     gzs,
+                //     &mut label_qbvh,
+                //     &mut qbvh_workspace,
+                //     alignment_lines,
+                //     screen_dims,
+                //     label_region,
+                //     label_size,
+                // );
+
+                // if let Some((new_pos, aabb)) = result {
+                //     *vis = Visibility::Inherited;
+                //     *col_layers =
+                //         CollisionLayers::new(LabelPhysicsLayers::ActiveLabel, LayerMask::ALL);
+                //     pos.0.x = new_pos.x as f64;
+                //     pos.0.y = new_pos.y as f64;
+
+                //     gzs.push((
+                //         pos.0.as_vec2(),
+                //         Vec2::ONE * 10.0,
+                //         Color::hsl(180.0, 0.8, 0.5),
+                //     ));
+
+                //     // println!("set label position to {new_pos:?}");
+
+                //     added_labels += 1;
+                // }
             }
         }
 
@@ -2140,6 +2188,128 @@ fn position_target_label(
                 other_aabb.center().y + other_aabb.half_extents().y + this_aabb.half_extents().y;
             let delta_y = new_y - p0.y;
             this_aabb = this_aabb.transform_by(&nalgebra::Isometry2::translation(0.0, delta_y));
+        }
+    }
+
+    println!("found location after {attempts} tries");
+
+    let mut final_pos_clear = true;
+
+    qbvh.aabbs_in_rect_callback(this_aabb.center(), this_aabb.half_extents(), |_, aabb| {
+        if aabb.intersects(&this_aabb) {
+            final_pos_clear = false;
+            return false;
+        }
+        true
+    });
+
+    if final_pos_clear {
+        // label origin is on its left side, while AABBs are positioned by their center
+        let pos = DVec2::from(this_aabb.center().coords.data.0[0]).as_vec2();
+        let label_pos = pos - Vec2::X * label_halfsize.x;
+        let i = qbvh.data.len() as u32;
+        qbvh.add(qbvh_workspace, i, this_aabb);
+
+        Some((pos, this_aabb))
+        // Some((label_pos, this_aabb))
+    } else {
+        None
+    }
+}
+
+fn position_query_label(
+    persist_gizmos: &mut Vec<(Vec2, Vec2, Color)>,
+    qbvh: &mut AabbQbvh<u32>,
+    qbvh_workspace: &mut avian2d::parry::partitioning::QbvhUpdateWorkspace,
+    alignment_lines: &AlignmentCollisionLines,
+    screen_dims: Vec2,
+    // annotated region associated with label, in screenspace
+    label_region: [Vec2; 2],
+    label_size: Vec2,
+) -> Option<(Vec2, avian2d::parry::bounding_volume::Aabb)> {
+    //
+    use avian2d::parry::bounding_volume::{Aabb, BoundingVolume};
+
+    let [mins, maxs] = label_region;
+
+    let mut mid = (mins + maxs).as_dvec2() * 0.5;
+    let size = (maxs - mins).abs().as_dvec2();
+    let mut half_extents = (maxs - mins).as_dvec2() * 0.5;
+    // ensure the region isn't extremely small along either axis
+    half_extents = half_extents.max(DVec2::ONE);
+
+    if label_size.x as f64 > 2.0 * half_extents.x {
+        let half_label = label_size.x as f64 * 0.5;
+        let extra = half_label - half_extents.x;
+
+        half_extents += extra;
+    }
+
+    if mid.y < size.y {
+        mid.y = size.y;
+    }
+    if mid.y > screen_dims.y as f64 {
+        mid.y = screen_dims.y as f64 - size.y;
+    }
+
+    // let query_aabb = Aabb::from_half_extents(mid.to_array().into(), half_extents.to_array().into());
+    let query_aabb =
+        Aabb::from_half_extents([mid.x as f64, mid.y as f64].into(), [size.x, size.y].into());
+    let mut column_collisions = Vec::new();
+    println!("checking {query_aabb:?}");
+
+    qbvh.aabbs_in_rect_callback(mid, half_extents, |_, aabb| {
+        column_collisions.push(*aabb);
+        true
+    });
+
+    // let mut closest_segments = Vec::new();
+
+    let closest_in_aabb =
+        alignment_lines.closest_point_to_aabb_sides(AlignmentAxis::Target, &query_aabb);
+
+    if let [Some((_, p_min)), Some((_, p_max))] = closest_in_aabb {
+        let mins = p_min.min(p_max);
+        let maxs = p_min.max(p_max);
+
+        column_collisions.push(Aabb::new(mins.to_array().into(), maxs.to_array().into()));
+    }
+
+    column_collisions.sort_by_key(|aabb| aabb.mins.y as u64);
+
+    let label_halfsize = label_size * 0.5;
+
+    let pos = mins + label_halfsize * Vec2::Y;
+
+    let mut this_aabb = Aabb::from_half_extents(
+        pos.as_dvec2().to_array().into(),
+        label_halfsize.as_dvec2().to_array().into(),
+    );
+
+    let mut attempts = 0;
+
+    // iterating through the other labels that intersect this region, from the top
+    for other_aabb in column_collisions.iter() {
+        let p0 = this_aabb.center();
+        let other_aabb = other_aabb.loosened(1.0);
+
+        persist_gizmos.push((
+            vec2(p0.x as f32, p0.y as f32),
+            Vec2::ONE * 5.0,
+            Color::hsl(150.0, 0.7, 0.4),
+        ));
+
+        if !this_aabb.intersects(&other_aabb) {
+            // this label would fit before this one, so we can use it & finish
+            break;
+        } else {
+            attempts += 1;
+            // this label would collide, so move the candidate position past it
+
+            let new_x =
+                other_aabb.center().x + other_aabb.half_extents().x + this_aabb.half_extents().x;
+            let delta_x = new_x - p0.x;
+            this_aabb = this_aabb.transform_by(&nalgebra::Isometry2::translation(delta_x, 0.0));
         }
     }
 
