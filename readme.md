@@ -60,7 +60,6 @@ PafView is designed for efficient handling of large-scale genomic alignments:
 
 - **Memory Efficiency**:
   - Memory-mapped PAF file access for minimal memory footprint
-  - BGZF index support for compressed files
   - Lazy loading of CIGAR strings and optional fields
   - Efficient bimap-based sequence name indexing
 
